@@ -19,7 +19,8 @@ python -m generators.pipeline eval-set
 ```
 
 `validate` comes first: the export repeats every render check, but `validate` names each problem in
-full. The export refuses tracked changes (commit first), writes one directory,
+full. The export runs from a modified tree too (it records the changes in `MANIFEST.json` and
+`working_tree.patch`, and the snapshot's README says so near its top), writes one directory,
 `snapshot_<YYYYMMDD>/`, under `eval_set.output_root`, and prints `MANIFEST.json`'s own SHA-256:
 record it beside the upload, since the manifest cannot vouch for itself.
 

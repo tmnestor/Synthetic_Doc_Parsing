@@ -15,9 +15,11 @@ from generators.snapshot.manifest import (
     build_manifest,
     manifest_text,
     sha256_file,
+    tracked_inputs,
 )
 from tests.conftest import REPO_ROOT
 from tests.eval_export_tools import FAKE_STATE, STAMP
+from tests.snapshot.git_tools import EDITED, make_dirty, make_repo
 
 
 def _manifest(export: SnapshotSummary) -> dict:
@@ -157,3 +159,11 @@ def test_the_notebook_ships_with_no_outputs(export: SnapshotSummary) -> None:
     for cell in code:
         assert cell["outputs"] == [] and cell["execution_count"] is None
     assert [cell["source"] for cell in shipped["cells"]] == [cell["source"] for cell in source["cells"]]
+
+
+def test_a_modified_input_is_hashed_as_it_stands_and_a_deleted_one_as_deleted(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo")
+    make_dirty(repo)
+    hashes = tracked_inputs(repo, ("edited.txt", "gone.txt"))
+    assert hashes == {"edited.txt": sha256_file(repo / "edited.txt"), "gone.txt": "deleted"}
+    assert (repo / "edited.txt").read_text() == EDITED

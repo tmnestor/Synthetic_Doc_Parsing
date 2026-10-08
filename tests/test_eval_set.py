@@ -362,7 +362,7 @@ def _run_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, int,
     so the counts differ and a swapped number is visible. The repository state is the fake clean one.
     """
     config = single_case_config(tmp_path, ["receipts", "invoices"])
-    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root: clean_state())
+    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root, **kwargs: clean_state())
     result = CliRunner().invoke(app, ["eval-set", "--config", str(config)])
     assert result.exit_code == 0, result.output
     return result.output, 2, len(load_tiers(config))
@@ -400,7 +400,7 @@ def test_cli_eval_set_reports_a_malformed_tier_block_four_part(
     data = yaml.safe_load(config.read_text())
     del data["receipt_degradation"]["tiers"][0]["suffix"]
     config.write_text(yaml.safe_dump(data, sort_keys=False))
-    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root: clean_state())
+    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root, **kwargs: clean_state())
     result = CliRunner().invoke(app, ["eval-set", "--config", str(config)])
     assert result.exit_code == 1, result.output
     assert_diagnostic_error(result.output)

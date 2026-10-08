@@ -42,8 +42,8 @@ python -m generators.pipeline generate --distractors --label-variation
 # `generate` captures, so run that first on a fresh clone.
 python -m generators.pipeline derive
 
-# Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/, from a
-# committed tree (tracked changes are refused). Four paired halves of 165 images each (plain,
+# Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/. A modified
+# tree is exported, not refused, and recorded (dirty: true, working_tree.patch). Four paired halves of 165 images each (plain,
 # distractor, labelled_varied, degraded), the clean halves' geometry, the tools, a README generated
 # from MANIFEST.json, and SHA256SUMS. Run validate first; the export prints MANIFEST.json's own
 # SHA-256 to record beside the upload. A snapshot of the same date is replaced.
@@ -55,7 +55,7 @@ python ../evaluation_data/snapshot_<YYYYMMDD>/tools/verify_snapshot.py
 
 ### The evaluation snapshot
 
-`eval-set` is the whole procedure. One command renders every document from the committed tree and
+`eval-set` is the whole procedure. One command renders every document from the working tree and
 writes one directory under `eval_set.output_root` (`../evaluation_data`, a required key in
 `config/generation_config.yml`; it must already exist and lie outside the repository), stamped with
 today's date:
@@ -63,7 +63,8 @@ today's date:
 ```
 snapshot_<YYYYMMDD>/
   README.md                    generated from the manifest, for a reader with no repository access
-  MANIFEST.json                date, commit, input hashes, counts, label counts, metrics, every file's SHA-256
+  MANIFEST.json                date, commit, dirty flag and changes, input hashes, counts, metrics, every SHA-256
+  working_tree.patch           only when the tree was modified: exactly what differed from the commit
   SHA256SUMS                   the same hashes, for `shasum -a 256 -c SHA256SUMS`
   tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
   plain_<YYYYMMDD>/            165 images, 3 types, ground_truth.csv and .jsonl
@@ -79,6 +80,17 @@ export runs every render check (density, drawn fields, overlay, label unambiguit
 nothing unless all pass; it builds in a hidden staging directory and swaps it into place only at the
 end, so a refused or interrupted export leaves any earlier snapshot as it was.
 
+**A modified tree.** The export never refuses uncommitted changes (so config can be edited on a
+sandbox and exported there); it records them. `MANIFEST.json` says `dirty: true` and lists under
+`working_tree_changes` every path `git status --porcelain --untracked-files=all` reports (changed
+tracked paths and untracked, not-ignored ones), each with its status code and the SHA-256 of its
+content (or `deleted`). The snapshot carries `working_tree.patch`: `git diff HEAD --binary` plus
+each untracked file as a new-file diff, so `git apply` on the recorded commit reproduces the tree.
+The patch is in `SHA256SUMS` like every other file, and the snapshot's README says near its top
+whether it came from a clean commit or a modified tree. The state is read again before publishing:
+a tree that changed during the export (an edit, a commit, a revert) fails with a diagnostic and
+publishes nothing, since the snapshot would mix two states.
+
 **Pairing.** The three clean halves share filenames and byte-identical ground truth, so they join
 directly on the filename: plain against distractor isolates the distractor effect, distractor
 against labelled_varied the label effect. The degraded half holds receipts only (55 receipts x the
@@ -90,7 +102,7 @@ Filenames are deliberately generic (`CASE001_bank_statement.png`, never one nami
 model cannot infer the template before reading a pixel.
 
 **The manifest.** `MANIFEST.json` serves integrity (every file's SHA-256; `verify_snapshot.py` also
-fails on a missing or extra file or a wrong count), provenance (the generator commit and the hash of
+fails on a missing or extra file or a wrong count), provenance (the generator commit, whether the tree was modified, and the hash of
 every tracked file under `config/` and `ground_truth/` and of `environment.yml`) and comparability
 (two scores are comparable only when they come from the same manifest). The heavy (`_v3`) tier is not
 bit-reproducible: its fold noise comes from a generator no seed reaches, so the snapshot itself, not a

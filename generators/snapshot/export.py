@@ -1,4 +1,4 @@
-"""Export a dated snapshot of four paired halves, rendered in one run from a committed tree.
+"""Export a dated snapshot of four paired halves, rendered in one run from a recorded tree.
 
 `export_snapshot` writes one directory, `<eval_set.output_root>/<snapshot_dir_prefix>_<YYYYMMDD>/`::
 
@@ -11,6 +11,7 @@
     tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
     README.md                    generated from the manifest (generators/snapshot/readme.py)
     MANIFEST.json, SHA256SUMS    provenance, inputs and every file's SHA-256 (snapshot/manifest.py)
+    working_tree.patch           only when the tree was modified: what differed from the commit
 
 (directory names from `eval_set.half_prefixes` and `eval_set.geometry_dir`). The three clean halves
 share filenames and byte-identical ground truth, so pairing them is a direct join; degraded filenames
@@ -20,7 +21,8 @@ The order is fixed, and each step refuses before the next begins:
 
 1. The configuration and the README's field descriptions are checked and the output root resolved
    (Decisions 3 and 13).
-2. The repository state is read; tracked changes are refused (Decision 4).
+2. The repository state is read: the commit, every changed or untracked path, and the patch. A modified
+   tree is not refused (Decision 4, revised 9 October 2026); it is recorded.
 3. The cheap checks run on every entry and layout before anything is drawn: the entry schema, the bank
    ledger, the distractor values, and each layout's DSL body (Decision 8). Every failure is collected and
    refused as one; the output root is untouched.
@@ -30,10 +32,12 @@ The order is fixed, and each step refuses before the next begins:
    on every distractor and labelled varied render, the drawn-field guard on every plain and labelled
    varied render; overlay and unambiguity refusals are raised inside the renderers. Plain renders are
    measured, never bounded. Every failure is collected, and any refuses the export as one.
-5. Ground truth, sidecar, geometry and tools are written; then the README, from the manifest without its
-   `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
-6. The repository state is read again; a moved HEAD or a newly dirty tree discards the staging
-   directory, because a snapshot naming a commit that did not produce it is worse than none.
+5. Ground truth, sidecar, geometry and tools are written, and `working_tree.patch` when the tree was
+   modified; then the README, from the manifest without its `files`; then every file is hashed and
+   MANIFEST.json and SHA256SUMS written last.
+6. The repository state is read again. Any difference from the first read (a moved HEAD, a path changed,
+   reverted or edited again) means the tree changed during the export, so the snapshot would mix two
+   states; the staging directory is discarded and the export fails.
 7. An earlier snapshot of the same name is replaced (the project owner's ruling): it is renamed aside,
    the staging directory renamed into place, and only then the earlier one deleted, so a failed swap
    restores it. A leftover staging directory from a failed run is cleared at the start of the next.
@@ -83,6 +87,7 @@ from generators.schema import field_names_for, validate_entry
 from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config
 from generators.snapshot.manifest import (
     MANIFEST_NAME,
+    PATCH_NAME,
     README_NAME,
     TOOLS_DIR,
     build_manifest,
@@ -92,7 +97,7 @@ from generators.snapshot.manifest import (
     write_manifest,
 )
 from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
-from generators.snapshot.repo_state import RepoState, RepoStateError, read_repo_state, require_clean
+from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange, read_repo_state
 from generators.snapshot.summary import SnapshotSummary
 
 # The three halves rendered directly (the fourth, degraded, is made from the distractor render).
@@ -112,6 +117,10 @@ SHIPPED_NOTEBOOK = "score_extractions.ipynb"
 
 class SnapshotError(RuntimeError):
     """The export refused: a check failed, or the repository changed while it ran."""
+
+
+# The most changed paths a mid-export refusal names; the total is always given.
+_LISTED_PATHS = 10
 
 
 @dataclass
@@ -163,23 +172,35 @@ def _checks_failed(failures: list[str], *, stage: str, config_path: Path) -> Sna
     )
 
 
+def _changed_paths(start: RepoState, end: RepoState) -> list[str]:
+    """The paths whose recorded change differs between two reads, sorted."""
+    before: dict[str, TreeChange] = {change.path: change for change in start.changes}
+    after: dict[str, TreeChange] = {change.path: change for change in end.changes}
+    return sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+
+
 def _state_changed(start: RepoState, end: RepoState) -> SnapshotError:
     """Build the refusal for a repository that changed between the start and the publish."""
     changes = []
     if end.commit != start.commit:
         changes.append(f"HEAD moved from {start.commit} to {end.commit}")
-    if end.dirty_paths:
-        listed = ", ".join(end.dirty_paths[:10])
-        more = f" (and {len(end.dirty_paths) - 10} more)" if len(end.dirty_paths) > 10 else ""
-        changes.append(f"tracked paths changed: {listed}{more}")
+    paths = _changed_paths(start, end)
+    if paths:
+        listed = ", ".join(paths[:_LISTED_PATHS])
+        more = f" (and {len(paths) - _LISTED_PATHS} more)" if len(paths) > _LISTED_PATHS else ""
+        changes.append(f"{len(paths)} path(s) changed during the export: {listed}{more}")
+    if not changes:
+        changes.append("the working-tree patch changed during the export")
     return SnapshotError(
         "The repository changed while the snapshot was rendered; nothing was published.\n"
-        f"  What:     {'; '.join(changes)}. The images may not come from the commit the snapshot "
-        "would name.\n"
+        f"  What:     {'; '.join(changes)}. The snapshot would mix two states of the tree, so neither "
+        "its commit nor its working_tree.patch would describe what produced it.\n"
         f"  Where:    {REPO_ROOT}\n"
-        "  Expected: the same commit and git status --porcelain --untracked-files=no printing nothing, "
-        "from the start of the export to its publish.\n"
-        "  Recover:  leave the repository untouched while the export runs, then export again."
+        "  Expected: the same HEAD and the same git status --porcelain --untracked-files=all (with the "
+        "same file contents) from the start of the export to its publish; a modified tree is fine, a "
+        "tree modified during the export is not.\n"
+        "  Recover:  leave the repository untouched while the export runs (no edit, commit, stash or "
+        "checkout), then export again."
     )
 
 
@@ -513,7 +534,7 @@ def export_snapshot(
         FileNotFoundError: The generation config or a ground-truth file is missing.
         ValueError: The configuration, a field description, a layout reference, a seed or a projection
             is invalid.
-        RepoStateError: Git or the repository is missing, or the tree carries tracked changes.
+        RepoStateError: Git or the repository is missing, or its state cannot be read.
         SnapshotError: A check failed, the staging path is occupied, or the repository changed during
             the export.
         TierConfigError: The receipt_degradation block is missing or malformed.
@@ -525,9 +546,12 @@ def export_snapshot(
         from generators.pipeline import _RENDERERS
 
         renderers = _RENDERERS
-    read_state = repo_state if repo_state is not None else lambda: read_repo_state(REPO_ROOT)
+    read_state = (
+        repo_state
+        if repo_state is not None
+        else lambda: read_repo_state(REPO_ROOT, exclude=(config.output_root,))
+    )
     start = read_state()
-    require_clean(start, repo_root=REPO_ROOT)
 
     stamp = (today or date.today()).strftime(_DATE_FORMAT)
     name = f"{config.snapshot_dir_prefix}_{stamp}"
@@ -579,6 +603,8 @@ def export_snapshot(
         write_sidecar(half_dirs[LABELLED_VARIED], rows)
         _write_geometry(config, staging, out)
         _write_tools(staging)
+        if start.dirty:
+            (staging / PATCH_NAME).write_bytes(start.patch)
 
         staged = SnapshotSummary(
             path=final,  # the name it is published under; its files are still in staging

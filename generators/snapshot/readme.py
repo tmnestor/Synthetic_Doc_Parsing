@@ -19,7 +19,7 @@ import yaml
 from generators.exporters.eval_projection import ExtractionSchema
 from generators.labels.keys import LABEL_STYLES
 from generators.snapshot.config import HALVES
-from generators.snapshot.manifest import MANIFEST_NAME
+from generators.snapshot.manifest import MANIFEST_NAME, PATCH_NAME
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "readme_template.md"
 
@@ -200,6 +200,24 @@ def _changes(previous: PreviousSnapshot | None, commit: str) -> str:
     return f"{head} The commits between the two, oldest first:\n\n{listing}"
 
 
+def _tree_state(manifest: dict) -> str:
+    """Say whether the snapshot was built from a clean commit or a modified tree, near the README's top."""
+    commit = str(manifest["generator_commit"])[:12]
+    if not manifest["dirty"]:
+        return (
+            f"**Built from a clean commit.** The working tree matched commit `{commit}` exactly when the "
+            "snapshot was generated (`dirty: false` in the manifest), so that commit alone reproduces it."
+        )
+    changes = manifest["working_tree_changes"]
+    return (
+        f"**Built from a modified working tree, not from a clean commit.** {len(changes)} path(s) "
+        f"differed from commit `{commit}` when the snapshot was generated (`dirty: true` in the "
+        f"manifest). `{PATCH_NAME}` holds the exact difference (apply it with `git apply` on top of that "
+        "commit to reproduce the tree), and the manifest's `working_tree_changes` lists every changed path "
+        "with its git status code and the SHA-256 of its content at the time."
+    )
+
+
 def _fill(template: str, values: dict[str, str]) -> str:
     """Fill the template; a placeholder left unfilled raises rather than shipping as `$name`."""
     try:
@@ -281,5 +299,6 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema, previous: Previou
         "input_table": _table(["Input file", "SHA-256"], input_rows),
         "versions": versions,
         "changes": _changes(previous, commit),
+        "tree_state": _tree_state(manifest),
     }
     return _fill(TEMPLATE_PATH.read_text(), values)

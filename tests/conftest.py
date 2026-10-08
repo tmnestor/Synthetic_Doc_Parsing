@@ -174,6 +174,18 @@ def export(tmp_path_factory: pytest.TempPathFactory) -> SnapshotSummary:
 
 
 @pytest.fixture(scope="session")
+def dirty_export(tmp_path_factory: pytest.TempPathFactory) -> tuple[SnapshotSummary, Path]:
+    """ONE single-receipt snapshot exported from a modified scratch repository, shared READ-ONLY.
+
+    Returns:
+        (the export's summary, the scratch repository whose working-tree state it recorded).
+    """
+    from tests.eval_export_tools import export_dirty_into
+
+    return export_dirty_into(tmp_path_factory.mktemp("dirty_snapshot"))
+
+
+@pytest.fixture(scope="session")
 def derived(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """ONE generate + derive of the real corpus, shared by tests that read derived outputs.
 

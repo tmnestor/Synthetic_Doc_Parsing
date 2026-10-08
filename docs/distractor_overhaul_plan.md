@@ -48,7 +48,7 @@ One plan per stage. Stage 0 is written in full below. Each later stage's plan is
 | 4 | Invoice rendering fixes; expanded catalogue on four layouts; four industry layouts; reseed | Fixes have regression tests; snapshot re-blessed once, deliberately |
 | 5 | Overlay: PAID stamp, bank annotations, geometry and contrast checks | No ink or stamp box meets a scored box across 165 cases |
 | 6 | Label variation: `label_styles` provider, `{LABEL_*}` bindings, unambiguity validator, sidecar | Each unambiguity rule has a failing fixture |
-| 7 | Snapshot export into `../evaluation_data/` (YAML key `eval_set.output_root`, `--out` removed): four halves, `MANIFEST.json`, README, tools | One flipped byte fails `verify_snapshot.py`; dirty tree refused; missing root fails fast |
+| 7 | Snapshot export into `../evaluation_data/` (YAML key `eval_set.output_root`, `--out` removed): four halves, `MANIFEST.json`, README, tools | One flipped byte fails `verify_snapshot.py`; dirty tree refused (recorded instead since 9 October 2026); missing root fails fast |
 
 "Plain snapshot unchanged" means `tests/test_pixel_snapshot.py` passes with no re-bless. History before Stage 0 is not preserved: no external team has used the corpus, so Stage 0 captures fresh baselines from HEAD rather than reconstructing old ones.
 

@@ -14,7 +14,8 @@ class SnapshotSummary:
     Attributes:
         path: The snapshot directory, under the name it is published as.
         stamp: Its date stamp, `%Y%m%d`.
-        repo_state: The repository state it was rendered from (clean, and unchanged at publish).
+        repo_state: The repository state it was rendered from (clean or modified, and unchanged at
+            publish).
         half_dirs: Half -> its directory inside the snapshot.
         counts: Half -> extraction document type -> number of images (the degraded half names
             receipts only).

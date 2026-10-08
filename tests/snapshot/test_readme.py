@@ -72,6 +72,30 @@ def test_counts_dates_and_commit_come_from_the_manifest(export: SnapshotSummary)
             assert f"| `{path}` | `{digest}` |" in text
 
 
+def _opening(text: str) -> str:
+    """The README before its first numbered section."""
+    return text[: text.index(SECTIONS[0])]
+
+
+def test_a_clean_snapshot_says_so_near_the_top(export: SnapshotSummary) -> None:
+    opening = _opening(_readme(export))
+    assert "**Built from a clean commit.**" in opening and "`dirty: false`" in opening
+    assert "working_tree.patch" not in opening and "modified working tree" not in opening
+
+
+def test_a_dirty_snapshot_says_so_near_the_top_and_points_to_the_patch(
+    dirty_export: tuple[SnapshotSummary, Path],
+) -> None:
+    summary, _ = dirty_export
+    manifest = _manifest(summary)
+    opening = _opening(_readme(summary))
+    count = len(manifest["working_tree_changes"])
+    assert "**Built from a modified working tree, not from a clean commit.**" in opening
+    assert f"{count} path(s) differed from commit `{manifest['generator_commit'][:12]}`" in opening
+    assert "`working_tree.patch`" in opening and "`working_tree_changes`" in opening
+    assert _readme(summary) == render_readme(manifest, schema=SCHEMA, previous=None)
+
+
 def test_the_readme_states_the_heavy_tier_is_not_reproducible(export: SnapshotSummary) -> None:
     heavy = _manifest(export)["degradation_tiers"][-1]["suffix"]
     text = _readme(export)

@@ -27,7 +27,7 @@ STAMP = "20310309"
 # The first cases of each type the small snapshot holds.
 SMALL_CASES = 3
 # A clean state at an invented commit id.
-FAKE_STATE = RepoState(commit="0123456789abcdef0123456789abcdef01234567", dirty_paths=())
+FAKE_STATE = RepoState(commit="0123456789abcdef0123456789abcdef01234567")
 
 
 def clean_state() -> RepoState:
@@ -105,6 +105,28 @@ def export_into(root: Path, *, cases: int | None = None) -> SnapshotSummary:
     """
     config = scratch_config(root) if cases is None else small_config(root, cases=cases)
     return export_snapshot(config, today=STAMP_DATE, repo_state=clean_state)
+
+
+def export_dirty_into(root: Path) -> tuple[SnapshotSummary, Path]:
+    """Export one receipt case under `root/out` from the real state of a modified scratch repository.
+
+    The repository (`root/repo`, from `tests.snapshot.git_tools`) carries a modified, a deleted, an
+    untracked text and an untracked binary file, so the export records every kind of change.
+
+    Args:
+        root: Scratch directory.
+
+    Returns:
+        (the export's summary, the scratch repository it recorded).
+    """
+    from generators.snapshot.repo_state import read_repo_state
+    from tests.snapshot.git_tools import make_dirty, make_repo
+
+    repo = make_repo(root / "repo")
+    make_dirty(repo)
+    state = read_repo_state(repo)
+    config = single_case_config(root, ["receipts"])
+    return export_snapshot(config, today=STAMP_DATE, repo_state=lambda: state), repo
 
 
 def read_jsonl(path: Path) -> list[dict]:

@@ -259,7 +259,7 @@ snapshot_<YYYYMMDD>/
 - `synthetic_` becomes `plain_`: every half is synthetic, and the name should say which is the control. The README records the rename.
 - `plain_`, `distractor_` and `labelled_varied_` share filenames, so pairing is a direct join. `plain_` against `distractor_` isolates the distractor effect; `distractor_` against `labelled_varied_` isolates the label effect. Degraded filenames keep their tier suffix as today.
 - Each snapshot holds 660 images: three clean halves of 165 plus 165 degraded.
-- The export refuses a dirty working tree, because a manifest naming a commit that did not produce the files is worse than none.
+- The export refuses a dirty working tree, because a manifest naming a commit that did not produce the files is worse than none. (Revised by the project owner on 9 October 2026: a modified tree is now exported and recorded, with `dirty: true`, a `working_tree_changes` list and `working_tree.patch`; only a tree changed during the export is refused. See the revision at the end of `docs/distractor_overhaul_stage7_plan.md`.)
 - **Every snapshot is written under `../evaluation_data/`**, the sibling directory beside the repository that already holds the earlier exports. The location is a required YAML key, `eval_set.output_root: ../evaluation_data` in `config/generation_config.yml`, resolved against the repository root; the `--out` option is removed so the destination cannot drift between runs. A missing key, or a root that does not exist, fails fast with the four-part diagnostic. Nothing a snapshot contains is ever written inside the repository.
 - **The working directories move too.** `output_dir` and `derived_dir` become `../evaluation_data/output` and `../evaluation_data/derived`, resolved against the repository root rather than the current working directory. A value that resolves inside the repository, or whose parent does not exist, fails fast with the four-part diagnostic.
 
@@ -313,7 +313,7 @@ Local pytest, test-first, at least 80% coverage.
 - **Control invariance:** existing layouts render pixel-identically to their current snapshots with `DISTRACTORS` off, except for the section 10 fixes.
 - **Density:** every distractor render meets its bounds.
 - **Labels:** with `LABEL_VARIATION` off, every `{LABEL_*}` resolves to today's label (so the other two renders are unchanged); each unambiguity rule has a deliberately failing fixture (a second checksum-valid ABN beside an unlabelled one, a near-miss sharing an unlabelled total's size and weight); every style occurs for every field across the corpus; the sidecar's styles match what was drawn.
-- **Snapshot:** a fixture export's manifest verifies with `verify_snapshot.py`; one flipped byte makes verification fail; a dirty tree is refused.
+- **Snapshot:** a fixture export's manifest verifies with `verify_snapshot.py`; one flipped byte makes verification fail; a dirty tree is refused (since 9 October 2026: recorded, with an altered `working_tree.patch` failing verification).
 
 ## 13. Sequencing
 

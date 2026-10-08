@@ -77,6 +77,21 @@ def test_one_flipped_byte_in_an_image_fails(copy: Path) -> None:
     assert result.returncode == 1 and relative in result.stderr
 
 
+def test_an_altered_working_tree_patch_fails(
+    dirty_export: tuple[SnapshotSummary, Path], tmp_path: Path
+) -> None:
+    """The patch is covered like every other file: a dirty snapshot verifies, an edited patch does not."""
+    summary, _ = dirty_export
+    copy = tmp_path / summary.path.name
+    shutil.copytree(summary.path, copy)
+    assert verify(copy) == [] and _run(copy).returncode == 0
+    patch = copy / "working_tree.patch"
+    patch.write_bytes(patch.read_bytes().replace(b"second line", b"second lime"))
+    assert verify(copy) == ["changed file: working_tree.patch"]
+    result = _run(copy)
+    assert result.returncode == 1 and "working_tree.patch" in result.stderr
+
+
 def test_a_missing_file_fails(copy: Path) -> None:
     image = _image(copy)
     image.unlink()

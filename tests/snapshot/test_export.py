@@ -5,6 +5,7 @@ clean repository state) is read-only. A test that needs a refusal, a replacement
 fail exports its own single-case snapshot under its own tmp_path.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -26,8 +27,9 @@ from generators.schema import field_names_for
 from generators.snapshot import export as export_module
 from generators.snapshot.config import HALVES, load_snapshot_config, resolve_output_root
 from generators.snapshot.export import SnapshotError, SnapshotSummary, export_snapshot
-from generators.snapshot.repo_state import RepoState, RepoStateError
+from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
+from tests.snapshot.git_tools import EXPECTED_STATUS, apply_to_clone, tree_files
 from tests.eval_export_tools import (
     CONFIG_PATH,
     FAKE_STATE,
@@ -305,18 +307,6 @@ def test_plain_renders_out_of_bounds_are_reported_not_refused(export: SnapshotSu
 # --- refusals and publishing -----------------------------------------------------------------------
 
 
-def test_a_dirty_tree_is_refused_before_any_render(tmp_path: Path) -> None:
-    config = _receipt_config(tmp_path)
-    root = load_snapshot_config(config).output_root
-    before = _entries(root)
-    dirty = RepoState(commit=FAKE_STATE.commit, dirty_paths=("config/invented.yml",))
-    with pytest.raises(RepoStateError) as err:
-        _export(config, lambda: dirty)
-    assert_diagnostic_error(err.value)
-    assert "config/invented.yml" in str(err.value)
-    assert _entries(root) == before
-
-
 def test_a_check_failing_before_rendering_leaves_the_root_untouched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -382,29 +372,103 @@ def test_an_earlier_snapshot_of_the_same_name_is_replaced(
     assert summary.total("plain") == 1 and summary.total("degraded") == len(TIERS)
 
 
-@pytest.mark.parametrize(
-    "end",
-    [
-        RepoState(commit="fedcba9876543210fedcba9876543210fedcba98", dirty_paths=()),
-        RepoState(commit=FAKE_STATE.commit, dirty_paths=("generators/receipt.py",)),
-    ],
-    ids=["new_commit", "newly_dirty"],
+# The state the mid-export tests start from: one modified file, at the fake commit.
+_DIRTY_START = RepoState(
+    commit=FAKE_STATE.commit,
+    changes=(TreeChange("config/invented.yml", " M", "a" * 64),),
+    patch=b"invented patch\n",
 )
-def test_a_state_changed_mid_export_publishes_nothing(tmp_path: Path, end: RepoState) -> None:
-    """Review Focus 1: a commit made, or a tracked file edited, while rendering leaves no snapshot."""
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "named"),
+    [
+        (FAKE_STATE, RepoState(commit="fedcba9876543210fedcba9876543210fedcba98"), "fedcba98765432"),
+        (
+            FAKE_STATE,
+            RepoState(
+                commit=FAKE_STATE.commit,
+                changes=(TreeChange("generators/receipt.py", " M", "b" * 64),),
+                patch=b"x",
+            ),
+            "generators/receipt.py",
+        ),
+        (
+            _DIRTY_START,
+            RepoState(
+                commit=FAKE_STATE.commit,
+                changes=(TreeChange("config/invented.yml", " M", "c" * 64),),
+                patch=b"edited again\n",
+            ),
+            "config/invented.yml",
+        ),
+        (_DIRTY_START, FAKE_STATE, "config/invented.yml"),
+    ],
+    ids=["new_commit", "newly_dirty", "edited_again", "reverted"],
+)
+def test_a_tree_changed_during_the_export_fails_fast_and_publishes_nothing(
+    tmp_path: Path, start: RepoState, end: RepoState, named: str
+) -> None:
+    """Review Focus 1: a commit made, or a file edited or reverted, while rendering leaves no snapshot,
+    since it would mix two states. A tree that was already modified at the start is not the failure."""
     config = _receipt_config(tmp_path)
     root = load_snapshot_config(config).output_root
-    states = iter([FAKE_STATE, end])
+    states = iter([start, end])
     with pytest.raises(SnapshotError) as err:
         _export(config, lambda: next(states))
     assert_diagnostic_error(err.value)
-    assert "changed while the snapshot was rendered" in str(err.value)
-    assert (
-        (end.commit in str(err.value))
-        if end.commit != FAKE_STATE.commit
-        else ("generators/receipt.py" in str(err.value))
-    )
+    message = str(err.value)
+    assert "changed while the snapshot was rendered" in message and named in message
+    assert "would mix two states" in message and "leave the repository untouched" in message
     assert _entries(root) == []
+
+
+def test_a_dirty_tree_exports_when_it_stays_the_same(tmp_path: Path) -> None:
+    """Decision 4 as revised: a modified tree is recorded, not refused."""
+    config = _receipt_config(tmp_path)
+    summary = _export(config, lambda: _DIRTY_START)
+    manifest = json.loads((summary.path / "MANIFEST.json").read_text())
+    assert manifest["dirty"] is True
+    assert manifest["working_tree_changes"] == [
+        {"path": "config/invented.yml", "sha256": "a" * 64, "status": " M"}
+    ]
+    assert (summary.path / "working_tree.patch").read_bytes() == b"invented patch\n"
+
+
+def test_a_dirty_export_records_every_change_with_its_hash(
+    dirty_export: tuple[SnapshotSummary, Path],
+) -> None:
+    summary, repo = dirty_export
+    manifest = json.loads((summary.path / "MANIFEST.json").read_text())
+    assert manifest["dirty"] is True
+    recorded = {row["path"]: row for row in manifest["working_tree_changes"]}
+    assert {path: row["status"] for path, row in recorded.items()} == EXPECTED_STATUS
+    assert recorded["gone.txt"]["sha256"] == "deleted"
+    for path, row in recorded.items():
+        if path != "gone.txt":
+            assert row["sha256"] == hashlib.sha256((repo / path).read_bytes()).hexdigest()
+    assert "ignored.log" not in recorded
+    assert [row["path"] for row in manifest["working_tree_changes"]] == sorted(recorded)
+
+
+def test_a_dirty_export_carries_a_patch_that_reproduces_the_tree(
+    dirty_export: tuple[SnapshotSummary, Path], tmp_path: Path
+) -> None:
+    summary, repo = dirty_export
+    patch = summary.path / "working_tree.patch"
+    manifest = json.loads((summary.path / "MANIFEST.json").read_text())
+    assert manifest["files"]["working_tree.patch"] == hashlib.sha256(patch.read_bytes()).hexdigest()
+    assert "  working_tree.patch" in (summary.path / "SHA256SUMS").read_text()
+    clone = apply_to_clone(repo, patch, tmp_path / "clone")
+    expected = {path: data for path, data in tree_files(repo).items() if path != "ignored.log"}
+    assert tree_files(clone) == expected
+
+
+def test_a_clean_export_has_no_patch_and_no_change_list(export: SnapshotSummary) -> None:
+    manifest = json.loads((export.path / "MANIFEST.json").read_text())
+    assert manifest["dirty"] is False and "working_tree_changes" not in manifest
+    assert not (export.path / "working_tree.patch").exists()
+    assert "working_tree.patch" not in manifest["files"]
 
 
 def test_a_tightened_density_bound_refuses_the_export(

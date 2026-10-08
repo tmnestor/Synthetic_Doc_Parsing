@@ -6,6 +6,10 @@ the label-style and refusal counts from the sidecar, the density metrics of ever
 SHA-256 of every file in the snapshot except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is
 POSIX and relative (to the snapshot root, or to the repository root for inputs); no absolute path is
 written. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads (Decision 10).
+
+`dirty` says whether the working tree differed from the commit. When it did, `working_tree_changes` lists
+every changed path with its status code and content hash, and `working_tree.patch` (hashed like every
+other file) holds the difference itself.
 """
 
 import hashlib
@@ -18,7 +22,7 @@ from pathlib import Path
 
 from generators.eval_set import _DATE_FORMAT
 from generators.labels.keys import LABEL_STYLES
-from generators.snapshot.repo_state import RepoState, RepoStateError
+from generators.snapshot.repo_state import DELETED, RepoState, RepoStateError
 from generators.snapshot.summary import SnapshotSummary
 
 # Contract constants: the names the spec fixes for the snapshot's own files.
@@ -26,6 +30,8 @@ MANIFEST_NAME = "MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS"
 README_NAME = "README.md"
 TOOLS_DIR = "tools"
+# Written only when the tree was modified: what differed from the recorded commit, as `git apply` reads.
+PATCH_NAME = "working_tree.patch"
 
 # Files neither hashed into `files` nor listed in SHA256SUMS: the manifest cannot vouch for itself.
 UNHASHED = (MANIFEST_NAME, CHECKSUMS_NAME)
@@ -67,7 +73,10 @@ def hash_files(snapshot_root: Path) -> dict[str, str]:
 
 
 def tracked_inputs(repo_root: Path, pathspecs: tuple[str, ...]) -> dict[str, str]:
-    """Hash the tracked files under the given pathspecs, read from the (clean) working tree.
+    """Hash the tracked files under the given pathspecs, as they stand in the working tree.
+
+    The working tree is what the export read, so a modified input is hashed as modified, and a tracked
+    input deleted from the working tree is recorded as `deleted`.
 
     Args:
         repo_root: The repository root.
@@ -94,7 +103,9 @@ def tracked_inputs(repo_root: Path, pathspecs: tuple[str, ...]) -> dict[str, str
             "  Recover:  run the export from the generator's repository checkout."
         )
     names = sorted(name for name in listed.stdout.split("\0") if name)
-    return {name: sha256_file(repo_root / name) for name in names}
+    return {
+        name: sha256_file(repo_root / name) if (repo_root / name).is_file() else DELETED for name in names
+    }
 
 
 def _versions() -> dict[str, str]:
@@ -164,7 +175,8 @@ def describe_snapshot(summary: SnapshotSummary, *, repo_state: RepoState, repo_r
 
     Args:
         summary: The export's `SnapshotSummary` (its counts, sidecar rows, density, names and tiers).
-        repo_state: The clean state the snapshot was rendered from.
+        repo_state: The state the snapshot was rendered from; when it is dirty, the description carries
+            `working_tree_changes`, one record per changed path.
         repo_root: The repository root, for the tracked inputs.
 
     Returns:
@@ -180,7 +192,7 @@ def describe_snapshot(summary: SnapshotSummary, *, repo_state: RepoState, repo_r
         "config_sha256": tracked_inputs(repo_root, _CONFIG_INPUTS),
         "counts": counts,
         "degradation_tiers": [{"name": name, "suffix": suffix} for name, suffix in summary.tiers],
-        "dirty": False,
+        "dirty": repo_state.dirty,
         "generator_commit": repo_state.commit,
         "geometry_dir": summary.geometry_dir,
         "ground_truth_files": [summary.csv_name, summary.jsonl_name],
@@ -193,6 +205,8 @@ def describe_snapshot(summary: SnapshotSummary, *, repo_state: RepoState, repo_r
         "snapshot_dir": summary.path.name,
         "versions": _versions(),
     }
+    if repo_state.dirty:
+        description["working_tree_changes"] = [change.as_record() for change in repo_state.changes]
     return dict(sorted(description.items()))
 
 
@@ -203,7 +217,7 @@ def build_manifest(
 
     Args:
         summary: The export's `SnapshotSummary`.
-        repo_state: The clean state the snapshot was rendered from.
+        repo_state: The state the snapshot was rendered from.
         repo_root: The repository root, for the tracked inputs.
         snapshot_root: The directory whose files are hashed (the staging directory, before publishing).
 

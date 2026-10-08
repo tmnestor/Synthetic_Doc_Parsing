@@ -575,16 +575,18 @@ def _print_label_summary(dtype: str, canonical: str, rows: list[dict], fields: t
 def eval_set(
     config: Path = typer.Option(_DEFAULT_CONFIG, help="Path to generation_config.yml"),
 ) -> None:
-    """Export the deliverable: one dated snapshot of four paired halves, from a committed tree.
+    """Export the deliverable: one dated snapshot of four paired halves, with its tree recorded.
 
     Writes `<eval_set.output_root>/<snapshot_dir_prefix>_<date>/`, holding the plain, distractor and
     labelled varied halves (every case of every type under the same generic filenames, with
     byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
     `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
     label_styles.jsonl, the scored-field geometry of the three clean halves, the tools, a README
-    generated from the manifest, MANIFEST.json and SHA256SUMS. Tracked changes are refused; every
-    render is checked before anything is published; a snapshot of the same name is replaced. Prints
-    MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
+    generated from the manifest, MANIFEST.json and SHA256SUMS. A modified working tree is not refused:
+    the manifest records `dirty: true` and every changed path, and the snapshot carries
+    working_tree.patch, the exact difference from the commit. A tree changed during the export is
+    refused. Every render is checked before anything is published; a snapshot of the same name is
+    replaced. Prints MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
     """
     from generators.degradation.tiers import TierConfigError
     from generators.drawn_fields import DrawnFieldsError
@@ -613,6 +615,14 @@ def eval_set(
         )
         typer.echo(f"{half}: {summary.total(half)} images ({per_type}) in {summary.half_dirs[half].name}")
     typer.echo(f"Snapshot: {summary.path}")
+    state = summary.repo_state
+    if state.dirty:
+        typer.echo(
+            f"Working tree: modified, {len(state.changes)} path(s) differ from {state.commit[:12]} "
+            "(recorded in MANIFEST.json and working_tree.patch)"
+        )
+    else:
+        typer.echo(f"Working tree: clean at {state.commit[:12]}")
     typer.echo(f"MANIFEST.json SHA-256: {summary.manifest_sha256} (record it beside the upload)")
 
 

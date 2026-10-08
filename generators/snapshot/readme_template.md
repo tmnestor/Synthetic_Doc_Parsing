@@ -8,6 +8,8 @@ verbatim from the answer key, so an extraction that disagrees with the answer ke
 It was generated on $snapshot_date from generator commit `$commit`. This README was generated from the
 snapshot's `MANIFEST.json`, so its counts cannot disagree with the files.
 
+$tree_state
+
 ## 1. Purpose and the four halves
 
 The snapshot holds $image_total images in four halves. The first three render every case of every
@@ -54,7 +56,9 @@ outputs elsewhere.
 The manifest cannot vouch for itself. Its own SHA-256 was printed when the snapshot was made and is
 recorded beside the upload; compare it with `shasum -a 256 MANIFEST.json`.
 
-**Provenance: what produced it?** `generator_commit` names the code. `config_sha256` and
+**Provenance: what produced it?** `generator_commit` names the code, and `dirty` says whether the working
+tree differed from that commit (when it did, `working_tree_changes` and `working_tree.patch` say how).
+`config_sha256` and
 `ground_truth_sha256` hash every input file the generator read, and `versions` records the libraries that
 shape the pixels ($versions). The input hashes:
 
