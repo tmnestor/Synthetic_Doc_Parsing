@@ -1,11 +1,13 @@
-"""Export an evaluation set into a scratch root (shared by the eval-set test modules).
+"""Export a snapshot into a scratch root (shared by the eval-set and snapshot test modules).
 
-Mirrors `derived_tools.derive_into`: copy `config/generation_config.yml` into the
-scratch root and point it at absolute repository paths, so the export neither
-depends on the working directory nor writes anywhere but `root`.
+Mirrors `derived_tools.derive_into`: copy `config/generation_config.yml` into the scratch root, point it
+at absolute repository paths and at an output root under the scratch directory, so the export neither
+depends on the working directory nor writes anywhere but `root`. The repository state is a fake clean
+one, so the tests run from a working tree under development (Decision 4).
 """
 
 import csv
+import itertools
 import json
 import re
 from collections.abc import Callable
@@ -14,17 +16,29 @@ from pathlib import Path
 
 import yaml
 
-from generators.eval_set import export_eval_set
+from generators.snapshot.export import SnapshotSummary, export_snapshot
+from generators.snapshot.repo_state import RepoState
 from tests.conftest import REPO_ROOT
 
 CONFIG_PATH = REPO_ROOT / "config" / "generation_config.yml"
 BASELINE_PATH = REPO_ROOT / "tests" / "fixtures" / "eval_format_baseline.json"
 STAMP_DATE = date(2031, 3, 9)
 STAMP = "20310309"
+# The first cases of each type the small snapshot holds.
+SMALL_CASES = 3
+# A clean state at an invented commit id.
+FAKE_STATE = RepoState(commit="0123456789abcdef0123456789abcdef01234567", dirty_paths=())
+
+
+def clean_state() -> RepoState:
+    """The fake clean repository state the test exports run from."""
+    return FAKE_STATE
 
 
 def scratch_config(root: Path, *, mutate: Callable[[dict], None] | None = None) -> Path:
     """Write a copy of the generation config under `root` with absolute input paths.
+
+    The output root becomes `root/out` (created), so a snapshot lands under the scratch directory.
 
     Args:
         root: Scratch directory that receives the config copy.
@@ -37,6 +51,9 @@ def scratch_config(root: Path, *, mutate: Callable[[dict], None] | None = None) 
     for doc_cfg in config["document_types"].values():
         doc_cfg["ground_truth"] = str(REPO_ROOT / doc_cfg["ground_truth"])
         doc_cfg["layouts"] = str(REPO_ROOT / doc_cfg["layouts"])
+    out = root / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    config["eval_set"]["output_root"] = str(out)
     if mutate is not None:
         mutate(config)
     path = root / "generation_config.yml"
@@ -44,45 +61,50 @@ def scratch_config(root: Path, *, mutate: Callable[[dict], None] | None = None) 
     return path
 
 
-def single_case_config(root: Path, doc_types: list[str]) -> Path:
-    """Write a scratch config whose ground truth holds ONE case per listed type.
-
-    Lets a test drive the real exporter end to end in seconds. The first entry of
-    each type's ground truth is copied verbatim into a scratch YAML under `root`.
+def small_config(root: Path, *, cases: int = SMALL_CASES, doc_types: list[str] | None = None) -> Path:
+    """Write a scratch config whose ground truth holds the first `cases` entries of each listed type.
 
     Args:
         root: Scratch directory.
-        doc_types: Keys of the top-level `document_types` block to keep.
+        cases: How many entries of each type to keep.
+        doc_types: Keys of the top-level `document_types` block to export; all three when None.
 
     Returns:
-        Path of the scratch config, with `eval_set.document_types` set to `doc_types`.
+        Path of the scratch config, with `eval_set.document_types` set to the types kept.
     """
 
     def mutate(config: dict) -> None:
-        for dtype in doc_types:
+        kept = doc_types if doc_types is not None else list(config["eval_set"]["document_types"])
+        for dtype in kept:
             doc_cfg = config["document_types"][dtype]
             entries = yaml.safe_load(Path(doc_cfg["ground_truth"]).read_text())
-            first = next(iter(entries))
             small = root / f"{dtype}.yml"
-            small.write_text(yaml.safe_dump({first: entries[first]}, sort_keys=False))
+            small.write_text(
+                yaml.safe_dump(dict(itertools.islice(entries.items(), cases)), sort_keys=False)
+            )
             doc_cfg["ground_truth"] = str(small)
-        config["eval_set"]["document_types"] = list(doc_types)
+        config["eval_set"]["document_types"] = list(kept)
 
     return scratch_config(root, mutate=mutate)
 
 
-def export_into(root: Path) -> dict:
-    """Run the full export under `root/out` with the real corpus.
+def single_case_config(root: Path, doc_types: list[str]) -> Path:
+    """Write a scratch config whose ground truth holds ONE case per listed type."""
+    return small_config(root, cases=1, doc_types=doc_types)
+
+
+def export_into(root: Path, *, cases: int | None = None) -> SnapshotSummary:
+    """Export a snapshot under `root/out` from a fake clean state.
 
     Args:
         root: Scratch directory.
+        cases: The first cases of each type to export; the whole corpus when None.
 
     Returns:
-        The summary dict from `export_eval_set`, plus `out` (the parent directory).
+        The export's summary.
     """
-    out = root / "out"
-    summary = export_eval_set(scratch_config(root), out, today=STAMP_DATE)
-    return {**summary, "out": str(out)}
+    config = scratch_config(root) if cases is None else small_config(root, cases=cases)
+    return export_snapshot(config, today=STAMP_DATE, repo_state=clean_state)
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -101,6 +123,21 @@ def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
 def load_baseline() -> dict:
     """Load the pinned structural baseline, `tests/fixtures/eval_format_baseline.json`."""
     return json.loads(BASELINE_PATH.read_text())
+
+
+def small_baseline(cases: int = SMALL_CASES) -> dict:
+    """The pinned baseline with its counts cut to a small snapshot of `cases` per type.
+
+    Columns, key order, the filename pattern and the required files are the pinned contract unchanged;
+    only the counts, which the full-corpus export asserts, follow the snapshot's size.
+    """
+    baseline = load_baseline()
+    baseline["images_per_suffix"] = dict.fromkeys(baseline["images_per_suffix"], cases)
+    total = cases * len(baseline["images_per_suffix"])
+    baseline["image_count"] = total
+    baseline["csv"]["row_count"] = total
+    baseline["jsonl"]["record_count"] = total
+    return baseline
 
 
 def capture_shape(directory: Path) -> dict:

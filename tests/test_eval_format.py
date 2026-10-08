@@ -9,8 +9,10 @@ independently of this format, so a value-based comparison would fail for the
 wrong reason forever. Shape is the only part of the dataset that is a contract
 with external consumers, and shape is what stays meaningful as a regression signal.
 
-Nothing outside the repository is read: a fresh export is written to a scratch
-directory and compared with the fixture, which pins all three document types. The
+Nothing outside the repository is read: a fresh snapshot is written to a scratch
+directory and its `plain_` half compared with the fixture, which pins all three document types.
+The small session snapshot is checked here against the fixture's columns and key order with its
+own counts; the pinned counts hold on the full-corpus export (tests/snapshot/test_full_export.py). The
 fixture was re-captured from the exporter by tests/regenerate_eval_format_baseline.py;
 test_fixture_describes_the_extraction_schema is its independent cross-check.
 
@@ -25,12 +27,14 @@ import pytest
 import yaml
 
 from generators.exporters.eval_projection import load_extraction_schema
+from generators.snapshot.export import SnapshotSummary
 from tests.conftest import REPO_ROOT
 from tests.eval_export_tools import (
     assert_eval_export_matches_baseline,
     capture_shape,
     load_baseline,
     read_csv,
+    small_baseline,
     read_jsonl,
 )
 
@@ -39,9 +43,9 @@ BANK_FIELDS = SCHEMA.get_extraction_fields("bank_statement")
 
 
 @pytest.fixture(scope="module")
-def clean(export: dict) -> Path:
-    """The clean half of the shared session export (read-only)."""
-    return Path(export["clean_dir"])
+def clean(export: SnapshotSummary) -> Path:
+    """The plain half of the shared session snapshot (read-only)."""
+    return export.half_dirs["plain"]
 
 
 def test_fixture_describes_the_extraction_schema() -> None:
@@ -70,16 +74,16 @@ def test_fixture_describes_the_extraction_schema() -> None:
     assert baseline["image_count"] == baseline["csv"]["row_count"] == baseline["jsonl"]["record_count"]
 
 
-def test_fresh_export_matches_baseline(clean: Path) -> None:
-    """A freshly exported clean directory has exactly the pinned shape, for all three types.
+def test_fresh_export_matches_baseline_shape(clean: Path) -> None:
+    """A freshly exported plain half has the pinned shape with the small snapshot's counts.
 
-    Replaces `test_legacy_dataset_matches_baseline`, which read a dataset outside the
-    repository. Image counts, filename pattern, CSV header and row count, and the JSONL
-    key order of every document type including bank statements are all pinned.
+    Filename pattern, CSV header, and the JSONL key order of every document type including bank
+    statements are pinned; the counts are the small snapshot's. The pinned counts themselves hold on
+    the full-corpus export.
     """
-    assert_eval_export_matches_baseline(clean, load_baseline())
+    assert_eval_export_matches_baseline(clean, small_baseline())
     shape = capture_shape(clean)
-    assert shape == {k: v for k, v in load_baseline().items() if k != "_comment"}
+    assert shape == {k: v for k, v in small_baseline().items() if k != "_comment"}
 
 
 def test_bank_statements_follow_the_schema(clean: Path) -> None:
@@ -111,7 +115,7 @@ def test_comparison_fails_when_the_shape_drifts(clean: Path, tmp_path: Path, tam
 
     Guards against a check that silently passes whatever it is given.
     """
-    baseline = copy.deepcopy(load_baseline())
+    baseline = copy.deepcopy(small_baseline())
     if tamper == "missing_image":
         baseline["images_per_suffix"]["receipt"] += 1
         baseline["image_count"] += 1

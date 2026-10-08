@@ -300,17 +300,25 @@ _STYLE_CELL = re.compile(r'(^|[,"])(labelled|variant|unlabelled)([,"]|$)')
 
 def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Path) -> None:
     """With a labelled varied run's sidecars on disk, derive, eval-set and the extraction ground-truth
-    script write nothing naming a label key, a style or a sidecar column."""
-    from generators.eval_set import export_eval_set
+    script write nothing naming a label key, a style or a sidecar column.
+
+    The snapshot's own labelled varied sidecar is metadata beside the ground truth and is not scanned;
+    every other file the snapshot writes is."""
+    from generators.snapshot.export import export_snapshot
+    from tests.eval_export_tools import clean_state
 
     _run(tmp_path, 1)
     config = tmp_path / "generation_config.yml"
+    data = yaml.safe_load(config.read_text())
+    data["eval_set"]["output_root"] = str(tmp_path / "out")
+    (tmp_path / "out").mkdir()
+    config.write_text(yaml.safe_dump(data, sort_keys=False))
     with pytest.MonkeyPatch.context() as mp:
         mp.chdir(REPO_ROOT)
         for command in (["generate"], ["derive"]):
             result = CliRunner().invoke(app, [*command, "--config", str(config)])
             assert result.exit_code == 0, result.output
-        export_eval_set(config, tmp_path / "out")
+        export_snapshot(config, repo_state=clean_state)
     extraction = tmp_path / "extraction.csv"
     subprocess.run(
         [sys.executable, "scripts/generate_extraction_gt.py", "--output", str(extraction)],
@@ -319,7 +327,11 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
         capture_output=True,
     )
     files = [extraction, *(tmp_path / "derived").rglob("*"), *(tmp_path / "out").rglob("*")]
-    scanned = [f for f in files if f.is_file() and f.suffix in {".csv", ".jsonl", ".json", ".txt", ".md"}]
+    scanned = [
+        f
+        for f in files
+        if f.is_file() and f.suffix in {".csv", ".jsonl", ".json", ".txt", ".md"} and f.name != SIDECAR_NAME
+    ]
     assert len(scanned) >= 5 and any(f.parent.name == "derived" for f in scanned), scanned
     for path in scanned:
         for number, line in enumerate(path.read_text().splitlines(), 1):

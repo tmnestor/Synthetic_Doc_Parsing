@@ -1324,7 +1324,8 @@ the in-house replacement reproduces the same contract.
 
 - [x] ~~test_legacy_dataset_matches_baseline~~ dropped: read a dataset outside the repository, which these tests must not depend on; replaced by test_fresh_export_matches_baseline and test_fixture_describes_the_extraction_schema
 - [x] `test_fixture_describes_the_extraction_schema (added)`
-- [x] `test_fresh_export_matches_baseline (added)`
+- [x] ~~test_fresh_export_matches_baseline~~ renamed 8 October 2026 (snapshot export): now `test_fresh_export_matches_baseline_shape`, on the small snapshot's plain half with its own counts; the pinned counts moved to tests/snapshot/test_full_export.py (`test_the_eval_format_baseline_holds_on_the_plain_half`, slow)
+- [x] `test_fresh_export_matches_baseline_shape`
 - [x] `test_bank_statements_follow_the_schema (added)`
 - [x] `test_header_leads_with_the_first_sorted_record (added)`
 - [x] `test_comparison_fails_when_the_shape_drifts (added, 3 parametrised cases)`
@@ -1355,19 +1356,22 @@ contract.
 - [x] `test_project_fields_unknown_document_type_is_diagnostic`
 - [x] `test_csv_from_jsonl_matches_records`
 - [x] `test_write_jsonl_preserves_field_order`
-- [x] `test_export_creates_dated_sibling_directories`: One directory per declared prefix, all sharing the same date stamp. Was `..._two_dated_sibling_directories`, pinning the count at two. A third was added, the combined half, for consumers that take a single input directory, so the assertion now derives the expected names from the configured prefixes rather than listing them.
-- [x] `test_the_two_directories_share_one_date_stamp` (renamed from `..._three_directories_...`): A mismatched stamp would let a run score new images against an older answer key and report plausible numbers. (adjusted: export writes two directories)
+- [x] ~~test_export_creates_dated_sibling_directories~~ renamed 8 October 2026 (snapshot export): now `test_export_creates_dated_half_directories`, the four halves and the geometry directory inside one dated snapshot. History: One directory per declared prefix, all sharing the same date stamp. Was `..._two_dated_sibling_directories`, pinning the count at two. A third was added, the combined half, for consumers that take a single input directory, so the assertion now derives the expected names from the configured prefixes rather than listing them.
+- [x] `test_export_creates_dated_half_directories`
+- [x] ~~test_the_two_directories_share_one_date_stamp~~ renamed 8 October 2026 (snapshot export): now `test_every_half_shares_the_snapshot_date_stamp`, over all four halves. History (renamed from `..._three_directories_...`): A mismatched stamp would let a run score new images against an older answer key and report plausible numbers. (adjusted: export writes two directories)
+- [x] `test_every_half_shares_the_snapshot_date_stamp`
 - [x] `test_export_matches_pinned_format`: The pinned format describes the *clean* export: every document type once, under `CASE###_<type>.png`. The degraded export deliberately no longer has that shape, it is receipts only, one image per severity tier, under `CASE###_receipt_v#.png`. Its shape is pinned separately in tests/test_eval_set_variants.py. (adjusted: fixture re-captured from the current three-type exporter)
 - [x] `test_the_two_directories_no_longer_mirror_each_other`: Different counts and different contents. The two halves used to happen to share a count; they no longer do, and asserting equality was pinning a coincidence. What is load-bearing is that every degraded name carries a tier suffix declared in the config, so the two halves can be joined by stripping it. (adjusted: with three types clean and three tiers degraded the counts coincide, so only contents and tier suffixes are asserted)
 - [x] `test_export_filenames_carry_no_layout_variant`: A leaked layout name would let a model infer the template for free.
 - [x] `test_each_directory_carries_its_own_ground_truth`: The degraded ground truth is written, not copied. It describes different rows entirely, receipt variants rather than one document per type, so a copy of the clean file would name images that do not exist in that directory.
 - [x] `test_every_csv_image_file_exists_in_its_own_directory`
 - [x] `test_jsonl_and_csv_agree_row_for_row`: CSV is a transposition of the JSONL: same order, same values.
-- [x] `test_export_refuses_non_empty_dir_without_force`: Either target directory being occupied stops the export, not just the first.
-- [x] `test_export_force_overwrites_non_empty_dir`
+- [x] ~~test_export_refuses_non_empty_dir_without_force~~ dropped 8 October 2026: `--out` and `--force` are removed; a snapshot of the same name is replaced (the owner's ruling), tested by tests/snapshot/test_export.py::test_an_earlier_snapshot_of_the_same_name_is_replaced
+- [x] ~~test_export_force_overwrites_non_empty_dir~~ dropped 8 October 2026: `--force` is removed; replacement is covered as above
 - [x] `test_missing_config_file_is_diagnostic (added)`
 - [x] `test_cli_eval_set_prints_both_lines (added)`
-- [x] `test_cli_eval_set_prints_both_lines_bug (added, xfail strict: pipeline.py:366 prints the clean count on the Degraded line)`
+- [x] ~~test_cli_eval_set_prints_both_lines_bug~~ renamed 8 October 2026: the bug is fixed (each half's line prints its own count), so the strict expected failure became the passing `test_cli_eval_set_prints_each_half_its_own_count` and lost its marker
+- [x] `test_cli_eval_set_prints_each_half_its_own_count`
 
 ## `tests/test_eval_set_variants.py`
 

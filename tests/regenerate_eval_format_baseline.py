@@ -1,6 +1,6 @@
 """Re-capture tests/fixtures/eval_format_baseline.json. Dry run unless --confirm.
 
-Exports a fresh evaluation set into a scratch directory, captures its SHAPE (filenames,
+Exports a fresh snapshot into a scratch directory, captures its plain half's SHAPE (filenames,
 counts, CSV columns, JSONL key order; never values) and reports how it differs from the
 pinned fixture. Pass --confirm to overwrite the fixture, which should be a deliberate act:
 a re-bless accepts the current exporter's shape as the contract.
@@ -40,7 +40,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as scratch:
         summary = export_into(Path(scratch))
-        shape = capture_shape(Path(summary["clean_dir"]))
+        shape = capture_shape(summary.half_dirs["plain"])
     old = json.loads(BASELINE_PATH.read_text()) if BASELINE_PATH.exists() else {}
     changed = differences(old, shape)
     print(f"{shape['image_count']} images captured; differing keys: {changed or 'none'}")

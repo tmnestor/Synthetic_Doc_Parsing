@@ -24,6 +24,7 @@ from generators.content_engine import ContentEngine, load_pools
 from generators.exporters.config import load_export_config
 from generators.layout_dsl.schema import LayoutSchemaError, validate_layout
 from generators.schema import field_names_for, validate_entry
+from generators.snapshot.export import SnapshotSummary
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.name_category import supplier_name_category
 from tests.renderer_helpers import layouts_for
@@ -286,11 +287,11 @@ def test_the_category_reaches_no_extraction_ground_truth(tmp_path: Path) -> None
     assert not _category_leaks(out.read_text(), categories)
 
 
-def test_the_category_reaches_no_eval_set_export(export: dict) -> None:
+def test_the_category_reaches_no_eval_set_export(export: SnapshotSummary) -> None:
     categories = {e["service_category"] for e in INVOICES.values()} | {
         e["merchant_category"] for e in RECEIPTS.values()
     }
-    files = [p for p in Path(export["out"]).rglob("*") if p.suffix in {".csv", ".jsonl", ".json", ".yml"}]
+    files = [p for p in export.path.rglob("*") if p.suffix in {".csv", ".jsonl", ".json", ".yml"}]
     assert files
     for path in files:
         assert not _category_leaks(path.read_text(), categories), path

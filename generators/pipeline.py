@@ -573,35 +573,35 @@ def _print_label_summary(dtype: str, canonical: str, rows: list[dict], fields: t
 @app.command("eval-set")
 @app.command("eval_set", hidden=True)
 def eval_set(
-    out: Path = typer.Option(..., "--out", help="Parent directory to write both dated sets into"),
     config: Path = typer.Option(_DEFAULT_CONFIG, help="Path to generation_config.yml"),
-    force: bool = typer.Option(False, "--force", help="Replace a non-empty output directory"),
 ) -> None:
-    """Export the deliverable: two dated sibling directories under one root.
+    """Export the deliverable: one dated snapshot of four paired halves, from a committed tree.
 
-    `synthetic_<date>/` holds 165 clean images across the three document types;
-    `degraded_<date>/` holds receipts only, one image per severity tier. The two
-    halves are NOT mirrors — the degraded one is 55 documents at 3 severities,
-    named `CASE001_receipt_v1.png` and up, and carries its own ground truth
-    describing those files rather than a copy of the clean one.
-
-    Filenames are generic — `CASE001_receipt.png`, never `CASE001_woolworths.png`
-    — so a model cannot infer the template before reading a pixel.
+    Writes `<eval_set.output_root>/<snapshot_dir_prefix>_<date>/`, holding the plain, distractor and
+    labelled varied halves (every case of every type under the same generic filenames, with
+    byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
+    `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
+    label_styles.jsonl and the scored-field geometry of the three clean halves. Tracked changes are
+    refused; every render is checked before anything is published; a snapshot of the same name is
+    replaced.
     """
-    from generators.eval_set import export_eval_set
+    from generators.snapshot.config import HALVES
+    from generators.snapshot.export import SnapshotError, export_snapshot
+    from generators.snapshot.repo_state import RepoStateError
 
     try:
-        summary = export_eval_set(config, out, force=force)
-    except (ValueError, FileNotFoundError) as exc:
-        rprint(f"[red]{exc}[/red]")
+        summary = export_snapshot(config)
+    except (ValueError, FileNotFoundError, RepoStateError, SnapshotError) as exc:
+        # Echoed plain rather than through rich, which would rewrap the four-part lines.
+        typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
 
-    rprint(f"[green]Clean:    {summary['images']} images in {summary['clean_dir']}[/green]")
-    rprint(f"[green]Degraded: {summary['images']} images in {summary['degraded_dir']}[/green]")
-    rprint(
-        f"[green]Ground truth written into both: {Path(summary['csv']).name}, "
-        f"{Path(summary['jsonl']).name}[/green]"
-    )
+    for half in HALVES:
+        per_type = ", ".join(
+            f"{count} {doc_type}" for doc_type, count in sorted(summary.counts[half].items())
+        )
+        typer.echo(f"{half}: {summary.total(half)} images ({per_type}) in {summary.half_dirs[half].name}")
+    typer.echo(f"Snapshot: {summary.path}")
 
 
 if __name__ == "__main__":

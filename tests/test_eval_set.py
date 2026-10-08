@@ -1,68 +1,73 @@
 """Eval-set export: config validation, projection, CSV/JSONL shape.
 
-The full export is exercised once, in the session-scoped `export` fixture
-(tests/conftest.py), because rendering the whole corpus twice (clean + degraded)
-is the expensive part; every property of the products is then asserted against
-that one export, which tests must treat as read-only.
+The export is exercised once, in the session-scoped `export` fixture (tests/conftest.py): a small
+snapshot of the first three cases of each type, because rendering every case three times and
+degrading each receipt is the expensive part; every property of its `plain_` and `degraded_` halves is
+asserted against that one export, which tests must treat as read-only. Totals over the whole corpus
+are asserted by the slow full-corpus export (tests/snapshot/test_full_export.py).
 
-Counts are derived from config/generation_config.yml and from the export
-itself, never written as literals, except where a test is about the documented
-export shape (one clean image per case per type).
+Counts are derived from config/generation_config.yml and from the export itself, never written as
+literals, except where a test is about the documented export shape (one clean image per case per
+type).
 """
 
 import re
-from datetime import date
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 import yaml
+from typer.testing import CliRunner
 
 from generators.degradation import load_tiers
-from generators.exporters.eval_projection import FIELD_ALIASES as SHARED_FIELD_ALIASES
 from generators.eval_set import (
     FIELD_ALIASES,
     NOT_FOUND,
     csv_from_jsonl,
-    export_eval_set,
     format_value,
     load_eval_set_config,
     project_fields,
     write_jsonl,
 )
+from generators.exporters.eval_projection import FIELD_ALIASES as SHARED_FIELD_ALIASES
 from generators.exporters.eval_projection import load_extraction_schema
 from generators.pipeline import _RENDERERS, app
+from generators.snapshot import export as export_module
+from generators.snapshot.config import HALVES, load_snapshot_config
+from generators.snapshot.export import SnapshotSummary
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.eval_export_tools import (
     CONFIG_PATH,
     STAMP,
     assert_eval_export_matches_baseline,
-    load_baseline,
+    clean_state,
     read_csv,
     read_jsonl,
     scratch_config,
     single_case_config,
+    small_baseline,
 )
 
 SCHEMA = load_extraction_schema()
 EVAL_CFG = yaml.safe_load(CONFIG_PATH.read_text())["eval_set"]
 REQUIRED_KEYS = [
+    "output_root",
+    "snapshot_dir_prefix",
+    "half_prefixes",
+    "geometry_dir",
     "document_types",
-    "clean_dir_prefix",
-    "degraded_dir_prefix",
     "csv_name",
     "jsonl_name",
 ]
 
 
 @pytest.fixture(scope="module")
-def clean(export: dict) -> Path:
-    return Path(export["clean_dir"])
+def clean(export: SnapshotSummary) -> Path:
+    return export.half_dirs["plain"]
 
 
 @pytest.fixture(scope="module")
-def degraded(export: dict) -> Path:
-    return Path(export["degraded_dir"])
+def degraded(export: SnapshotSummary) -> Path:
+    return export.half_dirs["degraded"]
 
 
 def _config_without(tmp_path: Path, drop: str | None = None, *, block: bool = True) -> Path:
@@ -85,7 +90,8 @@ def _config_without(tmp_path: Path, drop: str | None = None, *, block: bool = Tr
 def test_loads_real_config() -> None:
     """The real config is coherent: every declared type is renderable and every degraded type is produced.
 
-    Which types the corpus carries is an operator decision, so no list is pinned.
+    Which types the corpus carries is an operator decision, so no list is pinned. The snapshot's own
+    keys load too, the output root resolving to an existing directory outside the repository.
     """
     cfg = load_eval_set_config(CONFIG_PATH)
     top_level = yaml.safe_load(CONFIG_PATH.read_text())["document_types"]
@@ -98,15 +104,23 @@ def test_loads_real_config() -> None:
     # and at least one tier must be declared for them.
     assert "receipts" in cfg["document_types"]
     assert load_tiers(CONFIG_PATH)
+    snapshot = load_snapshot_config(CONFIG_PATH)
+    assert snapshot.output_root.is_dir() and not snapshot.output_root.is_relative_to(REPO_ROOT)
+    assert sorted(snapshot.half_prefixes) == sorted(HALVES)
 
 
 def test_relabel_keys_are_gone_from_the_config() -> None:
-    """The export owns its projection; no path into another repo may survive."""
+    """The export owns its projection; no path into another repo may survive.
+
+    The output root is the one path the block holds, and it points beside the repository.
+    """
     text = CONFIG_PATH.read_text()
     cfg = yaml.safe_load(text)["eval_set"]
     assert sorted(cfg) == sorted(REQUIRED_KEYS)
     assert not re.search(r"relabel|lmm_poc|field_schema", text, re.IGNORECASE)
-    for value in cfg.values():
+    for key, value in cfg.items():
+        if key == "output_root":
+            continue
         assert not (isinstance(value, str) and ("/" in value or ".." in value)), value
 
 
@@ -115,10 +129,10 @@ def test_missing_key_is_four_element_diagnostic(tmp_path: Path, key: str) -> Non
     """A missing eval_set key names what, where (file and dotted key), expected and recovery."""
     path = _config_without(tmp_path, key)
     with pytest.raises(ValueError) as err:
-        load_eval_set_config(path)
+        load_snapshot_config(path)
     assert_diagnostic_error(err.value)
     assert f"eval_set.{key}" in str(err.value)
-    assert str(path) in str(err.value)
+    assert str(path.resolve()) in str(err.value)
 
 
 def test_missing_eval_set_block_is_diagnostic(tmp_path: Path) -> None:
@@ -237,36 +251,34 @@ def test_write_jsonl_preserves_field_order(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_export_creates_dated_sibling_directories(export: dict) -> None:
-    """One directory per declared prefix, all sharing the same date stamp.
+def test_export_creates_dated_half_directories(export: SnapshotSummary) -> None:
+    """One directory per declared half prefix, plus the geometry directory, inside the dated snapshot.
 
-    Expected names are derived from the configured prefixes, so adding a prefix
-    does not require editing a list here.
+    Expected names are derived from the configured prefixes, so renaming a half does not require editing
+    a list here.
     """
-    out = Path(export["out"])
-    expected = {f"{EVAL_CFG[k]}_{STAMP}" for k in ("clean_dir_prefix", "degraded_dir_prefix")}
-    assert {p.name for p in out.iterdir()} == expected
-    assert Path(export["clean_dir"]).parent == out
-    assert Path(export["degraded_dir"]).parent == out
+    expected = {f"{EVAL_CFG['half_prefixes'][half]}_{STAMP}" for half in HALVES} | {
+        EVAL_CFG["geometry_dir"]
+    }
+    assert export.path.name == f"{EVAL_CFG['snapshot_dir_prefix']}_{STAMP}"
+    assert {p.name for p in export.path.iterdir()} == expected
+    assert {directory.parent for directory in export.half_dirs.values()} == {export.path}
 
 
-def test_the_two_directories_share_one_date_stamp(export: dict) -> None:
-    """A mismatched stamp would let a run score new images against an older answer key.
-
-    (adjusted: the export now writes two sibling directories, not three; the combined
-    half no longer exists. The property is the same for the two that do.)
-    """
-    stamps = {Path(export[k]).name.rsplit("_", 1)[1] for k in ("clean_dir", "degraded_dir")}
-    assert stamps == {STAMP}
+def test_every_half_shares_the_snapshot_date_stamp(export: SnapshotSummary) -> None:
+    """A mismatched stamp would let a run score new images against an older answer key."""
+    stamps = {directory.name.rsplit("_", 1)[1] for directory in export.half_dirs.values()}
+    assert stamps == {STAMP} == {export.stamp}
 
 
 def test_export_matches_pinned_format(clean: Path) -> None:
-    """The pinned format describes the *clean* export: every document type once, under CASE###_<type>.png.
+    """The pinned format describes the plain half: every document type once, under CASE###_<type>.png.
 
-    The degraded half deliberately has another shape (tier suffixes), asserted in
-    tests/test_eval_set_variants.py.
+    Checked here against the baseline's columns, key order and pattern with the small snapshot's counts;
+    the pinned counts themselves hold on the full-corpus export. The degraded half deliberately has
+    another shape (tier suffixes), asserted in tests/test_eval_set_variants.py.
     """
-    assert_eval_export_matches_baseline(clean, load_baseline())
+    assert_eval_export_matches_baseline(clean, small_baseline())
     types = {p.stem.split("_", 1)[1] for p in clean.glob("*.png")}
     assert types == set(SCHEMA.document_fields)
 
@@ -289,27 +301,29 @@ def test_the_two_directories_no_longer_mirror_each_other(clean: Path, degraded: 
         assert f"{match.group(1)}.png" in clean_names, f"{name} has no clean source"
 
 
-def test_export_filenames_carry_no_layout_variant(clean: Path, degraded: Path) -> None:
-    """A leaked layout name would let a model infer the template for free."""
+def test_export_filenames_carry_no_layout_variant(export: SnapshotSummary) -> None:
+    """A leaked layout name would let a model infer the template for free, in any half."""
     layout_ids: set[str] = set()
     for doc_cfg in yaml.safe_load(CONFIG_PATH.read_text())["document_types"].values():
         layout_ids |= set(yaml.safe_load((REPO_ROOT / doc_cfg["layouts"]).read_text()))
     types = "|".join(SCHEMA.document_fields)
     pattern = re.compile(rf"CASE\d{{3}}_({types})(_v\d+)?\.png")
-    for directory in (clean, degraded):
+    for directory in export.half_dirs.values():
         for image in directory.glob("*.png"):
             assert pattern.fullmatch(image.name), image.name
             body = image.stem.split("_", 1)[1]
             assert not any(layout_id in body for layout_id in layout_ids if layout_id not in types)
 
 
-def test_each_directory_carries_its_own_ground_truth(clean: Path, degraded: Path) -> None:
+def test_each_directory_carries_its_own_ground_truth(
+    export: SnapshotSummary, clean: Path, degraded: Path
+) -> None:
     """The degraded ground truth is written, not copied.
 
     It describes different rows (receipt variants), so a copy of the clean file would
     name images that do not exist in that directory.
     """
-    for directory in (clean, degraded):
+    for directory in export.half_dirs.values():
         names = {p.name for p in directory.glob("*.png")}
         assert {r["filename"] for r in read_jsonl(directory / "ground_truth.jsonl")} == names
         assert {r["image_file"] for r in read_csv(directory / "ground_truth.csv")[1]} == names
@@ -317,16 +331,16 @@ def test_each_directory_carries_its_own_ground_truth(clean: Path, degraded: Path
     assert (clean / "ground_truth.jsonl").read_bytes() != (degraded / "ground_truth.jsonl").read_bytes()
 
 
-def test_every_csv_image_file_exists_in_its_own_directory(clean: Path, degraded: Path) -> None:
-    """Every image_file in a directory's CSV is a file in that same directory."""
-    for directory in (clean, degraded):
+def test_every_csv_image_file_exists_in_its_own_directory(export: SnapshotSummary) -> None:
+    """Every image_file in a half's CSV is a file in that same half."""
+    for directory in export.half_dirs.values():
         for row in read_csv(directory / "ground_truth.csv")[1]:
             assert (directory / row["image_file"]).is_file(), row["image_file"]
 
 
-def test_jsonl_and_csv_agree_row_for_row(clean: Path, degraded: Path) -> None:
+def test_jsonl_and_csv_agree_row_for_row(export: SnapshotSummary) -> None:
     """CSV is a transposition of the JSONL: same order, same values."""
-    for directory in (clean, degraded):
+    for directory in export.half_dirs.values():
         records = read_jsonl(directory / "ground_truth.jsonl")
         header, rows = read_csv(directory / "ground_truth.csv")
         assert len(records) == len(rows)
@@ -336,64 +350,33 @@ def test_jsonl_and_csv_agree_row_for_row(clean: Path, degraded: Path) -> None:
                 assert row[column] == record.get(column, NOT_FOUND)
 
 
-def test_export_refuses_non_empty_dir_without_force(tmp_path: Path) -> None:
-    """Either target directory being occupied stops the export, not just the first."""
-    config = single_case_config(tmp_path, ["receipts"])
-    for prefix_key in ("clean_dir_prefix", "degraded_dir_prefix"):
-        out = tmp_path / f"out_{prefix_key}"
-        occupied = out / f"{EVAL_CFG[prefix_key]}_{STAMP}"
-        occupied.mkdir(parents=True)
-        (occupied / "keep.txt").write_text("precious")
-        with pytest.raises(ValueError) as err:
-            export_eval_set(config, out, today=date(2031, 3, 9))
-        assert_diagnostic_error(err.value)
-        assert "--force" in str(err.value)
-        assert (occupied / "keep.txt").read_text() == "precious"
-
-
-def test_export_force_overwrites_non_empty_dir(tmp_path: Path) -> None:
-    """With force, a non-empty target is replaced and the stale file is gone."""
-    config = single_case_config(tmp_path, ["receipts"])
-    out = tmp_path / "out"
-    stale = out / f"{EVAL_CFG['clean_dir_prefix']}_{STAMP}" / "stale.txt"
-    stale.parent.mkdir(parents=True)
-    stale.write_text("old")
-    summary = export_eval_set(config, out, force=True, today=date(2031, 3, 9))
-    assert not stale.exists()
-    assert summary["images"] == 1
-    assert summary["degraded_images"] == len(load_tiers(config))
-    assert (Path(summary["clean_dir"]) / "ground_truth.jsonl").is_file()
-
-
-def _run_cli(tmp_path: Path) -> tuple[str, int, int]:
+def _run_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, int, int]:
     """Run `eval-set` on a receipt plus an invoice case; return (output, clean, degraded) counts.
 
-    One receipt and one invoice give 2 clean images and one degraded image per tier,
-    so the two counts differ and a swapped number is visible.
+    One receipt and one invoice give 2 images in each clean half and one degraded image per tier,
+    so the counts differ and a swapped number is visible. The repository state is the fake clean one.
     """
     config = single_case_config(tmp_path, ["receipts", "invoices"])
-    result = CliRunner().invoke(
-        app, ["eval-set", "--out", str(tmp_path / "cli_out"), "--config", str(config)]
-    )
+    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root: clean_state())
+    result = CliRunner().invoke(app, ["eval-set", "--config", str(config)])
     assert result.exit_code == 0, result.output
     return result.output, 2, len(load_tiers(config))
 
 
-def test_cli_eval_set_prints_both_lines(tmp_path: Path) -> None:
-    """The `eval-set` command runs and reports a Clean line, a Degraded line and the ground-truth files."""
-    output, clean_count, degraded_count = _run_cli(tmp_path)
+def test_cli_eval_set_prints_both_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The `eval-set` command runs and reports a line per half and the snapshot path."""
+    output, clean_count, degraded_count = _run_cli(tmp_path, monkeypatch)
     assert clean_count != degraded_count
-    assert re.search(rf"Clean:\s+{clean_count} images", output)
-    assert re.search(r"Degraded:\s+\d+ images", output)
-    assert "ground_truth.csv" in output and "ground_truth.jsonl" in output
+    for half in HALVES:
+        assert re.search(rf"^{half}: \d+ images", output, re.MULTILINE), output
+    assert re.search(rf"^Snapshot: .*{EVAL_CFG['snapshot_dir_prefix']}_\d{{8}}$", output, re.MULTILINE)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="BUG: generators/pipeline.py:366 prints summary['images'] (the clean count) on the Degraded line",
-)
-def test_cli_eval_set_prints_both_lines_bug(tmp_path: Path) -> None:
-    """The Degraded line shows the degraded image count, not the clean one."""
-    output, _, degraded_count = _run_cli(tmp_path)
-    assert re.search(rf"Degraded:\s+{degraded_count} images", output)
+def test_cli_eval_set_prints_each_half_its_own_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each half's line shows that half's count: the degraded line no longer repeats the clean count."""
+    output, clean_count, degraded_count = _run_cli(tmp_path, monkeypatch)
+    for half in ("plain", "distractor", "labelled_varied"):
+        assert re.search(rf"^{half}: {clean_count} images", output, re.MULTILINE), output
+    assert re.search(rf"^degraded: {degraded_count} images", output, re.MULTILINE), output

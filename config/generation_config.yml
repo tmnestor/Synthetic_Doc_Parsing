@@ -87,18 +87,25 @@ derived_formats:
   csv: true
   jsonl: true
 
-# Evaluation-set export consumed by the extraction benchmark.
-# `python -m generators.pipeline eval-set --out <dir>` renders every document
-# of the listed types once, saving a clean copy into <out>/<clean_dir_prefix>_<date>/
-# and a degraded copy into <out>/<degraded_dir_prefix>_<date>/ under the same
-# generic {case}_{document_type}.png name, then writes the schema-projected
-# ground truth into both directories so each is self-contained.
-# Every key is required — the export fails fast on any omission.
+# Snapshot export consumed by the extraction benchmark.
+# `python -m generators.pipeline eval-set`, run from a committed tree, writes one dated snapshot
+# <output_root>/<snapshot_dir_prefix>_<date>/ holding four paired halves, each <half prefix>_<date>/:
+# plain (no distractors), distractor (the same pages with them), labelled_varied (those pages with their
+# ABN, GST and total labels varied, plus label_styles.jsonl) and degraded (each distractor receipt at
+# every receipt_degradation tier). The three clean halves share generic {case}_{document_type}.png names
+# and byte-identical ground truth; <geometry_dir>/ holds their scored-field boxes. output_root is
+# resolved against the repository root, must lie outside it and must already exist. A snapshot of the
+# same name is replaced. Every key is required; the export fails fast on any omission.
 eval_set:
-  # config/extraction_schema.yml declares exactly these three document types —
-  # the whole surviving corpus.
+  output_root: ../evaluation_data
+  snapshot_dir_prefix: snapshot
+  half_prefixes:
+    plain: plain
+    distractor: distractor
+    labelled_varied: labelled_varied
+    degraded: degraded
+  geometry_dir: geometry
+  # config/extraction_schema.yml declares exactly these three document types, the whole corpus.
   document_types: [bank_statements, invoices, receipts]
-  clean_dir_prefix: synthetic
-  degraded_dir_prefix: degraded
   csv_name: ground_truth.csv
   jsonl_name: ground_truth.jsonl

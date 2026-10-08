@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from generators import abn_register  # noqa: E402
+from generators.snapshot.export import SnapshotSummary  # noqa: E402
 
 # The register loader before the session patch below, for the tests of the loader itself.
 REAL_LOAD_ABN_REGISTER = abn_register.load_abn_register
@@ -155,20 +156,21 @@ def synthetic_invoice_links(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(scope="session")
-def export(tmp_path_factory: pytest.TempPathFactory) -> dict:
-    """ONE full eval-set export of the real corpus, shared by every test that reads it.
+def export(tmp_path_factory: pytest.TempPathFactory) -> SnapshotSummary:
+    """ONE small snapshot (the first three cases of each type), shared by every test that reads it.
 
-    Session-scoped because the export renders the whole corpus (about 45 s). It is
-    shared READ-ONLY: tests must never write into, or delete from, these directories.
-    A test that needs to mutate an export (force, refusal) builds its own under
-    its own tmp_path.
+    Exported from a fake clean repository state into a scratch output root. Session-scoped because it
+    renders every case three times and degrades each receipt three times (about 20 s). It is shared
+    READ-ONLY: tests must never write into, or delete from, it. A test that needs to mutate an export
+    builds its own under its own tmp_path. Totals over the whole corpus are asserted by the slow
+    full-corpus export in tests/snapshot/test_full_export.py.
 
     Returns:
-        The `export_eval_set` summary plus `out`, the parent directory.
+        The `SnapshotSummary` of the export.
     """
-    from tests.eval_export_tools import export_into
+    from tests.eval_export_tools import SMALL_CASES, export_into
 
-    return export_into(tmp_path_factory.mktemp("shared_eval_export"))
+    return export_into(tmp_path_factory.mktemp("shared_snapshot"), cases=SMALL_CASES)
 
 
 @pytest.fixture(scope="session")

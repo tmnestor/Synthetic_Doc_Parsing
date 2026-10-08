@@ -1,5 +1,8 @@
-"""The degraded eval set holds the degraded type at each declared tier, with
+"""The degraded half holds the degraded type at each declared tier, with
 extraction ground truth duplicated per variant.
+
+Asserted on the small snapshot of the session-scoped `export` fixture (the first
+three cases of each type); its `plain_` half is the clean source each variant pairs with.
 
 Every expectation here is read from config/generation_config.yml (types,
 tiers, ground-truth paths) or from the export itself rather than written as a
@@ -22,7 +25,8 @@ from generators.degradation import load_tiers
 from generators.eval_set import _DEGRADED_TYPE
 from generators.exporters.eval_projection import load_extraction_schema
 from tests.conftest import REPO_ROOT
-from tests.eval_export_tools import CONFIG_PATH, read_csv, read_jsonl
+from generators.snapshot.export import SnapshotSummary
+from tests.eval_export_tools import CONFIG_PATH, SMALL_CASES, read_csv, read_jsonl
 
 SCHEMA = load_extraction_schema()
 CONFIG = yaml.safe_load(CONFIG_PATH.read_text())
@@ -32,8 +36,9 @@ DECLARED = CONFIG["eval_set"]["document_types"]
 
 
 def _cases(dtype: str) -> list[str]:
-    """Case ids in a document type's ground truth."""
-    return list(yaml.safe_load((REPO_ROOT / CONFIG["document_types"][dtype]["ground_truth"]).read_text()))
+    """Case ids of a document type the small snapshot exports: the first SMALL_CASES of its ground truth."""
+    path = REPO_ROOT / CONFIG["document_types"][dtype]["ground_truth"]
+    return list(yaml.safe_load(path.read_text()))[:SMALL_CASES]
 
 
 def _split(name: str) -> tuple[str, str, str | None]:
@@ -44,13 +49,13 @@ def _split(name: str) -> tuple[str, str, str | None]:
 
 
 @pytest.fixture(scope="module")
-def clean(export: dict) -> Path:
-    return Path(export["clean_dir"])
+def clean(export: SnapshotSummary) -> Path:
+    return export.half_dirs["plain"]
 
 
 @pytest.fixture(scope="module")
-def degraded(export: dict) -> Path:
-    return Path(export["degraded_dir"])
+def degraded(export: SnapshotSummary) -> Path:
+    return export.half_dirs["degraded"]
 
 
 def test_clean_dir_holds_every_declared_type_once_per_case(clean: Path) -> None:
@@ -97,11 +102,11 @@ def test_every_degraded_document_has_one_image_per_tier(degraded: Path) -> None:
         assert found == SUFFIXES, f"{case}: {found}"
 
 
-def test_degraded_count_is_cases_times_types_times_tiers(export: dict, degraded: Path) -> None:
+def test_degraded_count_is_cases_times_types_times_tiers(export: SnapshotSummary, degraded: Path) -> None:
     """Degraded images = cases of the degraded type x tiers declared (one type degrades)."""
     cases = _cases("receipts")
     assert len(list(degraded.glob("*.png"))) == len(cases) * 1 * len(TIERS)
-    assert export["degraded_images"] == len(cases) * len(TIERS)
+    assert export.total("degraded") == len(cases) * len(TIERS)
 
 
 def test_degraded_ground_truth_has_one_row_per_variant(degraded: Path) -> None:
@@ -170,10 +175,12 @@ def test_degraded_header_carries_no_column_for_an_absent_type(degraded: Path) ->
 def test_case_ids_still_resolve_for_linking(clean: Path, degraded: Path) -> None:
     """Case ids are unsuffixed, so transaction_links.yml keeps resolving.
 
-    Every linked receipt's case id has a clean receipt and a full set of degraded variants.
+    Every linked receipt's case id among the exported cases has a clean receipt and a full set of
+    degraded variants.
     """
     links = yaml.safe_load((REPO_ROOT / "ground_truth" / "transaction_links.yml").read_text())
     linked_cases = {re.match(r"(CASE\d{3})_", key).group(1) for key in links if "receipt" in key}  # type: ignore[union-attr]
+    linked_cases &= set(_cases("receipts"))
     assert linked_cases
     clean_receipts = {_split(p.name)[0] for p in clean.glob("*_receipt.png")}
     degraded_cases = {_split(p.name)[0] for p in degraded.glob("*.png")}
@@ -182,12 +189,12 @@ def test_case_ids_still_resolve_for_linking(clean: Path, degraded: Path) -> None
     assert all(re.fullmatch(r"CASE\d{3}", c) for c in degraded_cases)
 
 
-def test_summary_reports_both_counts(export: dict, clean: Path, degraded: Path) -> None:
-    """The summary's counts equal the images actually written to each half."""
-    assert export["images"] == len(list(clean.glob("*.png")))
-    assert export["degraded_images"] == len(list(degraded.glob("*.png")))
-    assert export["csv"] == str(clean / "ground_truth.csv")
-    assert export["jsonl"] == str(clean / "ground_truth.jsonl")
+def test_summary_reports_both_counts(export: SnapshotSummary) -> None:
+    """The summary's counts equal the images actually written to each half, per document type."""
+    for half, directory in export.half_dirs.items():
+        assert export.total(half) == len(list(directory.glob("*.png")))
+        for doc_type, count in export.counts[half].items():
+            assert count == len(list(directory.glob(f"CASE*_{doc_type}*.png"))), (half, doc_type)
 
 
 def test_every_degraded_row_names_a_declared_tier(degraded: Path) -> None:
