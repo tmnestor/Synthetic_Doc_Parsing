@@ -22,14 +22,13 @@ except ImportError as err:  # pragma: no cover - environment failure, not logic
     raise ImportError(
         "Augraphy is not installed.\n"
         f"  What:     receipt degradation needs augraphy, which failed to import: {err}.\n"
-        "  Where:    environment.yml -> dependencies.pip\n"
-        "  Expected: augraphy==8.2.6 installed WITHOUT its declared dependencies, "
-        "since it requires `opencv-python` (the full GUI build) which would displace "
-        "the pinned opencv-python-headless. numpy must also be <=2.4, the ceiling "
-        "numba imposes.\n"
-        "  Recover:  conda env update -n synthetic -f environment.yml --prune, then "
-        "`pip uninstall -y opencv-python && pip install --no-deps augraphy==8.2.6` "
-        "if the full opencv was pulled in."
+        "  Where:    scripts/post_install.sh -> AUGRAPHY_VERSION (augraphy is installed by this "
+        "script, not by environment.yml)\n"
+        "  Expected: augraphy installed WITHOUT its declared dependencies beside the pinned "
+        "opencv-python-headless, and no full GUI opencv-python (which needs libGL). numpy must "
+        "also be <=2.4, the ceiling numba imposes.\n"
+        "  Recover:  with the environment active, run `bash scripts/post_install.sh` from the "
+        "repository root (after every `conda env create` or `conda env update`)."
     ) from err
 
 # YAML name -> Augraphy class. Deliberately excludes DirtyRollers and

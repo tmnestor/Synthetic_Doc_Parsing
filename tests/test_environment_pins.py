@@ -53,7 +53,6 @@ def test_code_libraries_are_pinned_and_installed_at_the_pin(dist: str) -> None:
 # Augraphy's dependency block, pinned on 6 October 2026 because degraded pixels depend on
 # it, plus the three packages a `--prune` once removed.
 AUGRAPHY_STACK = [
-    "augraphy",
     "opencv-python-headless",
     "numba",
     "llvmlite",
@@ -84,6 +83,36 @@ def test_augraphy_stack_is_pinned_and_installed_at_the_pin(dist: str) -> None:
     pins = re.findall(rf"^\s*-\s*{re.escape(dist)}==([\w.]+)\s*$", ENV, re.MULTILINE)
     assert len(pins) == 1, f"environment.yml must pin {dist} exactly once with =="
     assert version(dist) == pins[0], f"{dist}: installed {version(dist)}, pinned {pins[0]}"
+
+
+POST_INSTALL = (REPO_ROOT / "scripts" / "post_install.sh").read_text()
+
+
+def test_augraphy_is_not_installed_from_environment_yml() -> None:
+    """Listing augraphy in environment.yml would pull in the GUI opencv and break `import cv2`."""
+    listed = re.findall(r"^\s*-\s*augraphy\b", ENV, re.MULTILINE)
+    assert not listed, "augraphy must be installed by scripts/post_install.sh, not environment.yml"
+
+
+def test_augraphy_is_pinned_once_in_post_install_and_installed_at_the_pin() -> None:
+    """The post-install script holds the single augraphy pin, and the environment matches it."""
+    pins = re.findall(r'^AUGRAPHY_VERSION="([\w.]+)"$', POST_INSTALL, re.MULTILINE)
+    assert len(pins) == 1, "scripts/post_install.sh must set AUGRAPHY_VERSION exactly once"
+    assert version("augraphy") == pins[0], f"augraphy: installed {version('augraphy')}, pinned {pins[0]}"
+
+
+def test_post_install_reads_the_headless_pin_from_environment_yml() -> None:
+    """The headless OpenCV version is declared once, in environment.yml."""
+    assert "opencv-python-headless==" in ENV
+    assert not re.search(r'HEADLESS_VERSION="[\d.]+"', POST_INSTALL), "do not repeat the pin in the script"
+
+
+def test_no_gui_opencv_is_installed() -> None:
+    """The full GUI build would displace the headless cv2 and need libGL."""
+    from importlib.metadata import PackageNotFoundError
+
+    with pytest.raises(PackageNotFoundError):
+        version("opencv-python")
 
 
 def test_the_pin_check_can_fail() -> None:

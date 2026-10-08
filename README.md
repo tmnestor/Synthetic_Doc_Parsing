@@ -166,13 +166,13 @@ typer                   # CLI framework
 rich                    # Coloured console output
 Faker                   # Fictional en_AU people and addresses
 opencv-python-headless  # Camera-scan degrade/rectify (cv2 perspective warp)
-augraphy                # Receipt ink/paper damage (install --no-deps)
+augraphy                # Receipt ink/paper damage (installed by scripts/post_install.sh)
 apted                   # MIT tree-edit-distance backend for CORD scoring
 rapidfuzz               # Fuzzy string matching
 docile-benchmark        # Published DocILE KILE/LIR scorer (self-score check)
 ```
 
-All dependencies are declared in `environment.yml` (conda env `synthetic`).
+All dependencies are declared in `environment.yml` (conda env `synthetic`), except `augraphy`, which `scripts/post_install.sh` installs and pins.
 
 **Building your own environment** — another team, a new machine, CI:
 
@@ -182,7 +182,7 @@ conda activate synthetic
 bash scripts/post_install.sh          # REQUIRED — see below
 ```
 
-The post-install step is not optional. `augraphy` declares the full GUI `opencv-python` as a hard dependency, so plain `conda env create` installs it and it **displaces the pinned `opencv-python-headless`** (both provide `cv2`). A conda YAML cannot express a per-package `--no-deps`, so the fix lives in `scripts/post_install.sh`, which is idempotent and verifies the result. `environment.yml` also carries no `name:` or `channels:` key by design — a `name:` conflicts with `--prefix` installs, and a `channels:` key would override the host's mirror configuration and break locked-down environments.
+The post-install step installs `augraphy`, which receipt degradation (and so `eval-set`) needs. `augraphy` declares the full GUI `opencv-python` as a hard dependency, which would **displace the pinned `opencv-python-headless`** (both provide `cv2`) and, on a host without GUI libraries, make `import cv2` fail with `libGL.so.1: cannot open shared object file`. A conda YAML cannot express a per-package `--no-deps`, so `augraphy` is not in `environment.yml`: `scripts/post_install.sh` installs it with `--no-deps`, holds its version pin, removes the GUI build from an older environment, and verifies the result. It is idempotent; run it after every `conda env create` or `conda env update`. `environment.yml` also carries no `name:` or `channels:` key by design — a `name:` conflicts with `--prefix` installs, and a `channels:` key would override the host's mirror configuration and break locked-down environments.
 
 Three packages — `apted`, `rapidfuzz`, `docile-benchmark` — back the local CORD/DocILE scoring tests only. Nothing in `generate`, `derive` or `eval-set` imports them, so they can be omitted when provisioning a generation-only host.
 

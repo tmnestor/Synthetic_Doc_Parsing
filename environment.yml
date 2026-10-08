@@ -20,21 +20,20 @@
 #     "Unable to determine environment".
 #
 # ============================================================================
-# THE POST-INSTALL STEP IS NOT OPTIONAL
+# THE POST-INSTALL STEP
 # ============================================================================
 #
-# `augraphy` declares `opencv-python` -- the full GUI build -- as a hard
-# dependency. Plain `conda env create` therefore installs it, and it DISPLACES
-# the `opencv-python-headless` pinned below (both provide `cv2`). On a
-# locked-down host it also drags in GUI system libraries that may not exist.
+# `augraphy` (receipt degradation) declares `opencv-python` -- the full GUI
+# build -- as a hard dependency. Installed from this file, it would pull that
+# build in and DISPLACE the `opencv-python-headless` pinned below (both provide
+# `cv2`); on a host without GUI system libraries, `import cv2` then fails with
+# "libGL.so.1: cannot open shared object file".
 #
-# There is no way to express a per-package `--no-deps` in a conda YAML file, so
-# the fix has to live outside it:
-#
-#     pip uninstall -y opencv-python
-#     pip install --no-deps augraphy==8.2.6
-#
-# `scripts/post_install.sh` does exactly that and is idempotent. Verify with:
+# A conda YAML cannot express a per-package `--no-deps`, so augraphy is NOT
+# listed here. `scripts/post_install.sh` installs it with `--no-deps`, holds its
+# version pin, and removes the GUI build if an older environment still has it.
+# Without the step, everything except receipt degradation still works, and
+# degradation fails with a message naming the script. Idempotent. Verify with:
 #
 #     pip list | grep -i opencv     # must show ONLY opencv-python-headless
 #     python -c "import cv2, augraphy; print(cv2.__version__, augraphy.__version__)"
@@ -68,6 +67,7 @@
 #   opencv      Camera-scan warp output must stay byte-stable across rebuilds.
 #   augraphy    Augmentation behaviour is version-dependent, and its parameter
 #               names are mapped by hand in generators/degradation/augment.py.
+#               Pinned in scripts/post_install.sh, not here (see above).
 #
 # Everything else floats: whatever the host's index offers is fine.
 #
@@ -95,9 +95,11 @@ dependencies:
       # Perspective warp for the camera model, shared with the offline
       # rectifier (rectify_camera_scan.py).
       - opencv-python-headless==4.13.0.92
-      # Ink/paper damage applied to the flat page before the warp.
-      # See "THE POST-INSTALL STEP IS NOT OPTIONAL" above.
-      - augraphy==8.2.6
+      # Ink/paper damage applied to the flat page before the warp comes from
+      # augraphy, which is deliberately NOT listed here: it declares the full
+      # GUI opencv-python as a dependency, and listing it would let that build
+      # displace the headless one above. scripts/post_install.sh installs it
+      # with --no-deps and holds its pin. See "THE POST-INSTALL STEP" above.
 
       # --- Inline code marks (generators/layout_dsl/primitives_codes.py) ----
       # Pure Python. Used only to compute module patterns; the DSL draws the
@@ -200,7 +202,8 @@ dependencies:
 # =============================================================================
 # KNOWN-GOOD RESOLVED VERSIONS (macOS arm64, 2026-10-06)
 # =============================================================================
-# Reference only. Augraphy and its dependencies are pinned above; pyyaml,
+# Reference only. Augraphy's dependencies are pinned above and augraphy itself
+# in scripts/post_install.sh; pyyaml,
 # typer, rich and the local-scoring packages still float. Use this list to
 # diagnose a version-skew failure, or to seed an internal mirror request.
 #

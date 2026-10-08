@@ -4,13 +4,15 @@
 # Run this after EVERY `conda env create` or `conda env update`.
 #
 # Why it exists: `augraphy` declares `opencv-python` (the full GUI build) as a
-# hard dependency, so conda/pip installs it and it displaces the
-# `opencv-python-headless` build pinned in environment.yml -- both provide
-# `cv2`, and the last one installed wins. On a locked-down host the GUI build
-# also drags in system libraries that may not be present.
+# hard dependency. Installed normally, it pulls that build in and displaces the
+# `opencv-python-headless` build pinned in environment.yml (both provide
+# `cv2`, and the last one installed wins); on a host without GUI system
+# libraries `import cv2` then fails ("libGL.so.1: cannot open shared object").
 #
-# A conda YAML cannot express a per-package `--no-deps`, so the fix has to live
-# here. Idempotent: safe to re-run.
+# A conda YAML cannot express a per-package `--no-deps`, so augraphy is not in
+# environment.yml at all: this script is its only install point and holds its
+# version pin. The headless OpenCV pin is read from environment.yml, so it is
+# declared once. Idempotent: safe to re-run.
 #
 # Usage:
 #     bash scripts/post_install.sh                # uses the active env
@@ -18,8 +20,16 @@
 
 set -euo pipefail
 
+# The one pin for augraphy (tests/test_environment_pins.py checks it).
 AUGRAPHY_VERSION="8.2.6"
-HEADLESS_VERSION="4.13.0.92"
+
+ENV_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/environment.yml"
+HEADLESS_VERSION="$(sed -nE 's/^[[:space:]]*-[[:space:]]*opencv-python-headless==([0-9.]+)[[:space:]]*$/\1/p' "${ENV_FILE}")"
+if [[ -z "${HEADLESS_VERSION}" ]]; then
+    echo "ERROR: no 'opencv-python-headless==X.Y.Z' pin found in ${ENV_FILE}." >&2
+    echo "  Fix:  restore the pin under dependencies -> pip in environment.yml." >&2
+    exit 1
+fi
 
 if [[ -n "${CONDA_ENV:-}" ]]; then
     PIP=(conda run -n "${CONDA_ENV}" pip)
