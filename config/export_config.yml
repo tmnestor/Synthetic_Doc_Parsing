@@ -1,0 +1,40 @@
+# Export policy for the portable ground-truth schemas.
+# Every key is required. Omitting a key is an error, never a default.
+# See docs/GroundTruth_Export_Spec.md.
+
+# ABN/TFN are stored space-separated ('79 104 332 181'). The spaced form is
+# emitted in `text` because it is what the renderer draws and therefore what a
+# VLM reads; the digits-only form is used only for internal equality checks.
+abn_tfn_canonical_form: spaced
+abn_tfn_equality_form: digits_only
+
+# CORD has no labelled slot for supplier, ABN, address or date. Those live under
+# an `extension` key which is excluded from the headline tree-edit-distance score
+# (so the number stays comparable to public CORD leaderboards) and reported
+# separately.
+cord_extension_scoring: excluded_scored_separately
+
+# Which derived views the `derive` subcommand emits. Ship a target as a no-op by
+# removing it from this list, never by deleting the key.
+export_targets:
+  - cord
+  - doc_refs
+  - docile
+  - native
+
+# Confirmed byte-exact against rossumai/docile in Task 2.
+docile_fieldtypes:
+  SUPPLIER_NAME: vendor_name
+  BUSINESS_ADDRESS: vendor_address
+  BUSINESS_ABN: vendor_registration_id
+  INVOICE_DATE: date_issue
+  PAYMENT_DUE_DATE: date_due
+  GST_AMOUNT: amount_total_tax
+  TOTAL_AMOUNT_GROSS: amount_total_gross
+  TOTAL_AMOUNT_NET: amount_total_net
+  PAYER_NAME: customer_billing_name
+  PAYER_ADDRESS: customer_billing_address
+  LINE_ITEM_DESCRIPTIONS: line_item_description
+  LINE_ITEM_QUANTITIES: line_item_quantity
+  LINE_ITEM_PRICES: line_item_unit_price_gross
+  LINE_ITEM_TOTAL_PRICES: line_item_amount_gross

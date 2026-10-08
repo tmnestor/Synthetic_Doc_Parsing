@@ -1,0 +1,550 @@
+# Receipt layouts. Visual DNA lives in the shared `body:` tree below; each
+# layout supplies only what genuinely differs -- page geometry, type size, line
+# pitch, per-field budgets and footer wording.
+#
+# Every primitive parameter a receipt layout must supply a default for, minus
+# the two that are a function of the layout's own line pitch (`line_advance`
+# and `spacer_height`), which each layout declares itself. `validate_layout`'s
+# per-layout coverage check (schema.py) still sees every key explicitly once
+# PyYAML expands `<<:`.
+#
+# Values are the legacy renderer's Python literals, transcribed verbatim:
+# `family: liberation_mono` is `receipt.py`'s `is_mono` (every layout declared
+# `font_family: monospace`), `rule_fill_char: "-"` is `draw_separator`'s
+# default glyph, and `table_header: false` is the fact that the legacy
+# line-item loop drew no column header row at all (receipt.py:259-296),
+# unlike every bank table.
+#
+# Every receipt layout stays monospace. That is not inertia: these layouts are
+# built around a fixed advance width -- `rule_fill_char: "-"` draws separators
+# by repeating a glyph to fill the width, and the narrow thermal pages are
+# sized to a monospace column count. A proportional face would desynchronise
+# both. Liberation Mono is also advance-identical to the DejaVu Sans Mono it
+# replaces, so receipt geometry is unchanged by the swap; only glyph shapes and
+# line height move.
+#
+# Follow-up worth considering separately: `receipt_retail_tax` and
+# `receipt_professional` are not thermal-printer documents in reality and would
+# be more realistic in a proportional face. That is a layout redesign (widths
+# and separators both assume monospace), not a one-line family change.
+_receipt_defaults_values: &receipt_defaults_values
+  role: body
+  color: "black"
+  align: left
+  bold: false
+  family: liberation_mono
+  rule_thickness: 1
+  rule_pad_above: 0
+  rule_pad_below: 0
+  rule_fill_char: "-"
+  pair_value_align: left
+  pair_min_gap: 0
+  # The POS "Date" line's separator. Every right-aligned pair below overrides
+  # it with "": legacy's `draw_line_item` drew those labels with no
+  # punctuation, the amount alone carrying the right-hand column.
+  pair_separator: ": "
+  table_header: false
+  table_header_bold: true
+  table_header_rule_top: true
+  table_header_rule_gap: 16
+  table_row_inset_y: 0
+  table_cell_line_spacing: row_height
+  table_group_gap: 10
+  table_fill_inset: 0
+  table_dividers: []
+  table_offset_y: 0
+  table_capture: true
+  table_sub_line_height: 0
+  banner_text_color: "white"
+  banner_text_y: 0
+  banner_role: body
+  panel_padding: 0
+  panel_border_color: "black"
+  split_gap: 0
+  split_divider_color: "black"
+
+# Every receipt derives the same three sets of off-ground-truth values: the POS
+# detail line (time/register/staff/receipt number), the EFTPOS terminal slip,
+# and the ex-GST subtotal. See generators/layout_dsl/field_providers.py.
+# `receipt_distractors` draws nothing on a plain render; with distractors on it
+# selects 3 to 6 of the items below per case (config/distractors.yml).
+# `label_styles` words the ABN, GST and TOTAL labels through their label sites:
+# each site's `labelled` is exactly what the receipt printed before label sites
+# existed (the ABN line's ": " folded into its wording), which every plain and
+# distractor render draws; `pool` names the variant wordings in
+# config/distractors.yml -> label_variation.pools.
+_receipt_field_providers: &receipt_field_providers
+  - {name: receipt_pos, params: {}}
+  - {name: receipt_payment, params: {}}
+  - {name: computed_totals, params: {}}
+  - {name: receipt_distractors, params: {}}
+  - name: label_styles
+    params:
+      sites:
+        BUSINESS_ABN: {labelled: "ABN: ", pool: abn_receipt}
+        GST_AMOUNT: {labelled: "GST", pool: gst_receipt}
+        TOTAL_AMOUNT: {labelled: "TOTAL", pool: total_receipt}
+
+# The shared body draws every receipt item, each block gated on its own DX_ key,
+# so every layout but hospitality lists all fourteen; per-case variety comes from
+# the selection.
+_receipt_distractor_items: &receipt_distractor_items
+  - rc_store_number
+  - rc_merchant_id
+  - rc_acn
+  - rc_phone
+  - rc_website
+  - rc_transaction_id
+  - rc_member_number
+  - rc_points_balance
+  - rc_you_saved
+  - rc_item_count
+  - rc_returns_by
+  - rc_survey_code
+  - rc_survey_url
+  - rc_returns_policy
+
+# A cafe takes no returns: the hospitality layout lists every receipt item but the
+# returns-by date and the returns policy, so their blocks in the shared body never
+# print on it.
+_hospitality_distractor_items: &hospitality_distractor_items
+  - rc_store_number
+  - rc_merchant_id
+  - rc_acn
+  - rc_phone
+  - rc_website
+  - rc_transaction_id
+  - rc_member_number
+  - rc_points_balance
+  - rc_you_saved
+  - rc_item_count
+  - rc_survey_code
+  - rc_survey_url
+
+# All six layouts drew the identical eleven-section sequence in the legacy
+# renderer -- they differed only in the values each layout declares below, so
+# the body itself is shared. Every spacer takes its height from the layout's
+# own `defaults.spacer_height` (legacy's `line_h // 4`), and the line-item
+# table its pitch from the layout's own `row_height` (legacy's `line_h`).
+# The body is three stacks, each drawing exactly what its blocks would draw in
+# its place: everything to the footer line, the returns wording, and the codes
+# beneath it. Every layout draws all three but hospitality, whose cafe takes no
+# returns and so draws no returns stack.
+_receipt_main: &receipt_main
+  type: stack
+  children:
+    # Distractors (blocks gated `when: DX_...`) draw only in a distractor render,
+    # each where a real receipt prints it, through the DISTRACTOR_LINE and
+    # DISTRACTOR_PARAGRAPH budgets; a plain render skips every one of them.
+    # --- merchant header ---------------------------------------------------
+    # The printed logo is generated from the trading name's initials. It stands
+    # with the store line, so it is gated on that line's key and appears only in
+    # a distractor render that also prints the store number.
+    - {type: logo, content: "{SUPPLIER_NAME}", style: circle, size: 48,
+       min_text_size: 12, text_color: white, inset: 0, align: center, when: DX_STORE_NUMBER}
+    - {type: spacer, when: DX_STORE_NUMBER}
+    - {type: text, content: "{SUPPLIER_NAME}", align: center, bold: true,
+       budget: SUPPLIER_NAME, field: SUPPLIER_NAME}
+    - {type: text, content: "{BUSINESS_ADDRESS}", align: center,
+       budget: BUSINESS_ADDRESS, field: BUSINESS_ADDRESS, when: BUSINESS_ADDRESS}
+    - {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", align: center,
+       budget: ABN_LINE, field: BUSINESS_ABN, when: BUSINESS_ABN}
+    - {type: text, content: "ACN: {DX_ACN}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_ACN}
+    # The store and merchant ID values carry their own "Store " and "MID "
+    # labels (config/distractors.yml rules), so the blocks add none.
+    - {type: text, content: "{DX_STORE_NUMBER}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_STORE_NUMBER}
+    - {type: text, content: "{DX_MERCHANT_ID}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_MERCHANT_ID}
+    - {type: text, content: "Ph: {DX_PHONE}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_PHONE}
+    - {type: text, content: "{DX_WEBSITE}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_WEBSITE}
+    - {type: spacer}
+    - {type: rule}
+    # --- POS detail --------------------------------------------------------
+    - type: split
+      children:
+        - [{type: pair, label: "Date", value: "{INVOICE_DATE}", field: INVOICE_DATE}]
+        - [{type: text, content: "Time: {POS_TIME}", align: right}]
+    - type: split
+      children:
+        - [{type: text, content: "Reg: {POS_REGISTER}  Staff: {POS_STAFF}"}]
+        - [{type: text, content: "#{RECEIPT_NUMBER}", align: right}]
+    - {type: text, content: "Trans ID: {DX_TRANSACTION_ID}",
+       budget: DISTRACTOR_LINE, when: DX_TRANSACTION_ID}
+    - {type: rule}
+    # --- line items --------------------------------------------------------
+    # A line of more than one unit prints as a till prints it: the description
+    # and the line total, then a unit line beneath giving the quantity and the
+    # unit price in the layout's own wording (`unit_line_format`), each value
+    # exactly the ground-truth string and recorded as LINE_ITEM_QUANTITIES[i]
+    # and LINE_ITEM_PRICES[i]. A line of one unit prints no unit line: its
+    # quantity is implied and its unit price is its total (the exemption in
+    # config/field_definitions.yml). The unit line sits one row below the
+    # description (`defaults.table_offset_y`) and adds one row to the line's
+    # advance (`defaults.table_sub_line_height`), each the layout's own pitch;
+    # it shrinks within LINE_ITEM_UNIT, or fails, rather than clipping.
+    - type: table
+      rows: receipt_line_items
+      frame: plain
+      grouping: none
+      params:
+        fields: {description: LINE_ITEM_DESCRIPTIONS, quantity: LINE_ITEM_QUANTITIES,
+                 price: LINE_ITEM_PRICES, total: LINE_ITEM_TOTAL_PRICES}
+      params_from_layout: {unit_line_format: unit_line_format}
+      columns:
+        - {key: description, label: Description, align: left, x: 0,
+           budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS,
+           sub_line: {key: unit_line, budget: LINE_ITEM_UNIT,
+                      span_fields: {key: unit_line_spans,
+                                    fields: {quantity: LINE_ITEM_QUANTITIES, price: LINE_ITEM_PRICES}}}}
+        - {key: total, label: Amount, align: right, x_right: 0,
+           budget: LINE_ITEM_AMOUNT, currency: plain, field: LINE_ITEM_TOTAL_PRICES}
+    - {type: rule}
+    - {type: text, content: "Items: {DX_ITEM_COUNT}", budget: DISTRACTOR_LINE,
+       when: DX_ITEM_COUNT}
+    # --- totals ------------------------------------------------------------
+    # The totals block, declared as the page's one totals region (a stack draws
+    # exactly what its children would draw in its place). GST and TOTAL label
+    # their values through label sites, each with the empty separator it
+    # always had.
+    - type: stack
+      region: totals
+      children:
+        # SUBTOTAL is suppressed on its own derived key rather than GST_AMOUNT:
+        # `computed_totals` emits it only when both TOTAL and GST are present,
+        # which is exactly legacy's `if gst and total:` guard.
+        - {type: pair, label: "SUBTOTAL", value: "{SUBTOTAL_AMOUNT}", value_align: right,
+           separator: "", currency: plain, when: SUBTOTAL_AMOUNT}
+        - {type: pair, label: "{LABEL_GST_AMOUNT}", value: "{GST_AMOUNT}", value_align: right,
+           separator: "", currency: plain, field: GST_AMOUNT, when: GST_AMOUNT}
+        - {type: pair, label: "{LABEL_TOTAL_AMOUNT}", value: "{TOTAL_AMOUNT}", value_align: right,
+           separator: "", currency: symbol, bold: true, field: TOTAL_AMOUNT}
+        # A money figure beside TOTAL: the near-miss for TOTAL_AMOUNT.
+        - {type: text, content: "You saved ${DX_YOU_SAVED}", align: center, bold: true,
+           budget: DISTRACTOR_LINE, when: DX_YOU_SAVED}
+    - {type: rule}
+    # --- loyalty -------------------------------------------------------------
+    # The points balance requires a member number (config/distractors.yml), so
+    # the member line always heads this group when it prints.
+    - {type: text, content: "Member: {DX_MEMBER_NUMBER}", budget: DISTRACTOR_LINE,
+       when: DX_MEMBER_NUMBER}
+    - {type: text, content: "Points balance: {DX_POINTS_BALANCE}",
+       budget: DISTRACTOR_LINE, when: DX_POINTS_BALANCE}
+    - {type: rule, when: DX_MEMBER_NUMBER}
+    # --- EFTPOS terminal slip ----------------------------------------------
+    # Three variants, selected entirely by `when:` over the receipt_payment
+    # provider's emits. PAYMENT_AID is the card/wallet discriminator: every
+    # scheme declares an EMV application identifier and a cash payment has none,
+    # so it is NOT_FOUND there and `is_present` treats it as absent.
+    # PAYMENT_WALLET_LABEL additionally marks the wallet variant.
+    - {type: text, content: "CUSTOMER COPY", align: center, bold: true,
+       budget: PAYMENT_ACQUIRER, when: PAYMENT_AID}
+    - {type: text, content: "{PAYMENT_ACQUIRER}", align: center,
+       budget: PAYMENT_ACQUIRER, when: PAYMENT_AID}
+    - {type: spacer, when: PAYMENT_AID}
+    - {type: text, content: "CONTACTLESS - {PAYMENT_WALLET_LABEL}",
+       budget: PAYMENT_LINE, when: PAYMENT_WALLET_LABEL}
+    - {type: text, content: "{PAYMENT_SCHEME_DISPLAY} {PAYMENT_ACCOUNT_TYPE}",
+       budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: text, content: "AID: {PAYMENT_AID}", budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: text, content: "Card: {PAYMENT_MASKED_PAN} {PAYMENT_ENTRY_MODE}",
+       budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: text, content: "PSN: {PAYMENT_PSN}, ATC: {PAYMENT_ATC}",
+       budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: spacer, when: PAYMENT_AID}
+    # Binds {TOTAL_AMOUNT} directly: receipt_payment deliberately emits no
+    # purchase total, so the printed amount can never drift from the scored
+    # field. Three spaces in the label, as legacy printed it.
+    - {type: pair, label: "Purchase   AUD", value: "{TOTAL_AMOUNT}", value_align: right,
+       separator: "", currency: symbol, when: PAYMENT_AID}
+    - {type: text, content: "APPROVED   00", budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: spacer, when: PAYMENT_AID}
+    - {type: text, content: "Terminal ID: {PAYMENT_TERMINAL_ID}",
+       budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: text, content: "Transaction Ref: {PAYMENT_TRANSACTION_REF}",
+       budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: text, content: "{PAYMENT_TIMESTAMP}", budget: PAYMENT_LINE, when: PAYMENT_AID}
+    - {type: spacer, when: PAYMENT_AID}
+    - {type: text, content: "Retain copy for your records", align: center,
+       budget: PAYMENT_ACQUIRER, when: PAYMENT_AID}
+    # Cash variant: the provider already formats both amounts, so neither
+    # carries `currency:`.
+    #
+    # No document in the corpus reaches these two blocks. Every receipt is
+    # linked to a bank transaction, so its scheme comes from the bank row rather
+    # than the weighted pool, and `Cash` carries weight 0 in that pool anyway,
+    # so `PAYMENT_KIND` is never "cash" and the pixel snapshots say nothing
+    # about them. A cash receipt also suppresses every `when: PAYMENT_AID` block
+    # above, collapsing the slip from roughly twenty lines to two, which then
+    # meets the page's crop-to-content height. That collapse is covered instead
+    # by patching the pool and rendering a whole page (see
+    # `test_a_whole_cash_receipt_page_renders_on_every_layout`). Any edit here
+    # is unprotected by the snapshots; run that test.
+    - {type: pair, label: "CASH TENDERED", value: "{PAYMENT_TENDERED}",
+       value_align: right, separator: "", when: PAYMENT_TENDERED}
+    - {type: pair, label: "CHANGE", value: "{PAYMENT_CHANGE}", value_align: right,
+       separator: "", bold: true, when: PAYMENT_CHANGE}
+    - {type: rule}
+    # --- footer ------------------------------------------------------------
+    - {type: spacer}
+    - {type: text, from_layout: footer_text, align: center}
+_receipt_returns: &receipt_returns
+  type: stack
+  children:
+    # A date beside the scored INVOICE_DATE, and the store's returns wording.
+    - {type: spacer, when: DX_RETURNS_BY}
+    - {type: text, content: "Returns by {DX_RETURNS_BY}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_RETURNS_BY}
+    - {type: spacer, when: DX_RETURNS_POLICY}
+    - {type: text, content: "{DX_RETURNS_POLICY}", align: center,
+       budget: DISTRACTOR_PARAGRAPH, when: DX_RETURNS_POLICY}
+_receipt_codes: &receipt_codes
+  type: stack
+  children:
+    # The transaction barcode (Code 128 set C): 16 digits at 2px per module span
+    # 286px with their 10-module quiet zones, inside the 294px of the 57mm page.
+    # Its digits print 4px below the bars, clear of them.
+    - {type: spacer, when: DX_TRANSACTION_ID}
+    - {type: barcode, content: "{DX_TRANSACTION_ID}", symbology: code128,
+       height: 40, module_px: 2, quiet_zone: 10, human_readable: true,
+       caption_gap: 4, align: center, when: DX_TRANSACTION_ID}
+    # The survey QR code. Its code prints on a line of its own, gated on the
+    # code's key rather than as the QR caption, because the survey code may be
+    # selected without the URL (the URL requires the code, not the reverse) and
+    # a selected item must always print. Its own spacer keeps it clear of
+    # whatever prints above it: the barcode digits when the QR code is absent,
+    # else the QR code, under which it sits where a caption would.
+    - {type: spacer, when: DX_SURVEY_URL}
+    - {type: text, content: "Scan to rate your visit", align: center,
+       budget: DISTRACTOR_LINE, when: DX_SURVEY_URL}
+    - {type: qrcode, content: "{DX_SURVEY_URL}", module_px: 3, quiet_zone: 4,
+       error_level: m, align: center, when: DX_SURVEY_URL}
+    - {type: spacer, when: DX_SURVEY_CODE}
+    - {type: text, content: "Survey code {DX_SURVEY_CODE}", align: center,
+       budget: DISTRACTOR_LINE, when: DX_SURVEY_CODE}
+
+_receipt_body: &receipt_body
+  - *receipt_main
+  - *receipt_returns
+  - *receipt_codes
+
+_hospitality_body: &hospitality_body
+  - *receipt_main
+  - *receipt_codes
+
+layouts:
+# Each layout declares the merchant categories (receipt_categories in config/data_pools.yml) whose
+# receipts it prints, and the seed draws a receipt's layout from those serving its merchant's category, so
+# a fuel receipt signs off "Drive safely" and a pharmacy never does. Every category is served by at least
+# one layout.
+  receipt_thermal_80mm:
+    width: 420
+    margin: 12
+    content_width: 396
+    # Receipts are variable-height: the body is drawn onto a canvas this tall
+    # and cropped to the y the engine returns. Replaces the legacy renderer's
+    # `max_h = 4000` literal.
+    canvas_ceiling: 4000
+    row_height: 20
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  {quantity} @ ${price} EA"
+    footer_text: "Thank you for shopping with us"
+    merchant_categories: [grocery, pharmacy, retail, liquor]
+    font_sizes: {body: 18}
+    defaults:
+      <<: *receipt_defaults_values
+      # Absolute pixels, not int(size * 1.4): a receipt's line pitch is 20px
+      # against an 18pt body, a ratio of 1.11.
+      line_advance: {body: 20}
+      spacer_height: 5              # legacy: line_h // 4
+      table_offset_y: 20            # the unit line sits one row below its description
+      table_sub_line_height: 20     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *receipt_distractor_items
+    overlay: []
+    # Per-field pixel budgets (width = content box = width - 2*margin for centered
+    # header fields; line-item desc/amount derived from geometry). fit_text keeps
+    # content within these losslessly; see docs/fit_safety_design.md.
+    # DISTRACTOR_LINE and DISTRACTOR_PARAGRAPH fit distractor text only (a long
+    # website shrinks; the returns policy wraps), each at this layout's content
+    # width, so no distractor shares a scored field's budget.
+    field_budgets:
+      SUPPLIER_NAME: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 396, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 318, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 70, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 318, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 396, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *receipt_body
+
+  receipt_thermal_57mm:
+    width: 310
+    margin: 8
+    content_width: 294
+    canvas_ceiling: 4000
+    row_height: 16
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  {quantity} @ ${price}"
+    footer_text: "Thank you"
+    merchant_categories: [grocery, liquor, pharmacy]
+    font_sizes: {body: 14}
+    defaults:
+      <<: *receipt_defaults_values
+      line_advance: {body: 16}
+      spacer_height: 4              # legacy: line_h // 4
+      table_offset_y: 16            # the unit line sits one row below its description
+      table_sub_line_height: 16     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *receipt_distractor_items
+    overlay: []
+    field_budgets:
+      SUPPLIER_NAME: {width: 294, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 294, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 294, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 234, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 52, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 234, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 294, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 294, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 294, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 294, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *receipt_body
+
+  receipt_retail_tax:
+    width: 420
+    margin: 12
+    content_width: 396
+    canvas_ceiling: 4000
+    row_height: 20
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  Qty {quantity} @ ${price} each"
+    footer_text: "Thank you for shopping with us"
+    merchant_categories: [hardware, electronics, retail, office, automotive]
+    font_sizes: {body: 16}
+    defaults:
+      <<: *receipt_defaults_values
+      line_advance: {body: 20}
+      spacer_height: 5              # legacy: line_h // 4
+      table_offset_y: 20            # the unit line sits one row below its description
+      table_sub_line_height: 20     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *receipt_distractor_items
+    overlay: []
+    field_budgets:
+      SUPPLIER_NAME: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 396, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 324, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 64, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 324, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 396, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *receipt_body
+
+  receipt_fuel:
+    width: 420
+    margin: 12
+    content_width: 396
+    canvas_ceiling: 4000
+    row_height: 20
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  {quantity} @ ${price} ea"
+    footer_text: "Drive safely"
+    merchant_categories: [fuel, automotive]
+    font_sizes: {body: 16}
+    defaults:
+      <<: *receipt_defaults_values
+      line_advance: {body: 20}
+      spacer_height: 5              # legacy: line_h // 4
+      table_offset_y: 20            # the unit line sits one row below its description
+      table_sub_line_height: 20     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *receipt_distractor_items
+    overlay: []
+    field_budgets:
+      SUPPLIER_NAME: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 396, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 324, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 64, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 324, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 396, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 396, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 396, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *receipt_body
+
+  receipt_professional:
+    width: 440
+    margin: 12
+    content_width: 416
+    canvas_ceiling: 4000
+    row_height: 20
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  Qty {quantity} x ${price}"
+    footer_text: "Thank you for your business"
+    merchant_categories: [office, electronics, hardware]
+    font_sizes: {body: 16}
+    defaults:
+      <<: *receipt_defaults_values
+      line_advance: {body: 20}
+      spacer_height: 5              # legacy: line_h // 4
+      table_offset_y: 20            # the unit line sits one row below its description
+      table_sub_line_height: 20     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *receipt_distractor_items
+    overlay: []
+    field_budgets:
+      SUPPLIER_NAME: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 416, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 344, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 64, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 344, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 416, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 416, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 416, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *receipt_body
+
+  receipt_hospitality:
+    width: 440
+    margin: 12
+    content_width: 416
+    canvas_ceiling: 4000
+    row_height: 20
+    # The unit line printed beneath a line of more than one unit (see the line-items table).
+    unit_line_format: "  {quantity} @ ${price}"
+    footer_text: "Thank you, enjoy your day"
+    merchant_categories: [cafe]
+    font_sizes: {body: 16}
+    defaults:
+      <<: *receipt_defaults_values
+      line_advance: {body: 20}
+      spacer_height: 5              # legacy: line_h // 4
+      table_offset_y: 20            # the unit line sits one row below its description
+      table_sub_line_height: 20     # and adds one row to the line's advance
+    field_providers: *receipt_field_providers
+    distractor_items: *hospitality_distractor_items
+    overlay: []
+    field_budgets:
+      SUPPLIER_NAME: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      BUSINESS_ADDRESS: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 2}
+      ABN_LINE: {width: 416, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_DESC: {width: 344, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_AMOUNT: {width: 64, fit: shrink, min_font: 10, max_lines: 1}
+      LINE_ITEM_UNIT: {width: 344, fit: shrink, min_font: 10, max_lines: 1}
+      PAYMENT_ACQUIRER: {width: 416, fit: shrink, min_font: 8, max_lines: 1}
+      PAYMENT_LINE: {width: 416, fit: shrink, min_font: 8, max_lines: 1}
+      DISTRACTOR_LINE: {width: 416, fit: shrink_then_wrap, min_font: 9, max_lines: 2}
+      DISTRACTOR_PARAGRAPH: {width: 416, fit: shrink_then_wrap, min_font: 10, max_lines: 4}
+    body: *hospitality_body

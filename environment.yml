@@ -1,0 +1,274 @@
+# Conda environment for the synthetic document generator.
+#
+# ============================================================================
+# WHICH ARE YOU?
+# ============================================================================
+#
+# (a) ON THE SHARED PREFIX -- you only LOAD the env, nothing to build:
+#
+#         conda activate /efs/shared/.conda/envs/synthetic
+#
+# (b) BUILDING YOUR OWN -- another team, a new machine, CI:
+#
+#         conda env create -n synthetic -f environment.yml
+#         conda activate synthetic
+#         bash scripts/post_install.sh        # <-- REQUIRED, see below
+#
+#     `-n` (or `--prefix`) is required. This file deliberately carries no
+#     `name:` key, because a `name:` is mutually exclusive with the `--prefix`
+#     flag the shared-prefix maintainer uses. Without one, conda errors with
+#     "Unable to determine environment".
+#
+# ============================================================================
+# THE POST-INSTALL STEP IS NOT OPTIONAL
+# ============================================================================
+#
+# `augraphy` declares `opencv-python` -- the full GUI build -- as a hard
+# dependency. Plain `conda env create` therefore installs it, and it DISPLACES
+# the `opencv-python-headless` pinned below (both provide `cv2`). On a
+# locked-down host it also drags in GUI system libraries that may not exist.
+#
+# There is no way to express a per-package `--no-deps` in a conda YAML file, so
+# the fix has to live outside it:
+#
+#     pip uninstall -y opencv-python
+#     pip install --no-deps augraphy==8.2.6
+#
+# `scripts/post_install.sh` does exactly that and is idempotent. Verify with:
+#
+#     pip list | grep -i opencv     # must show ONLY opencv-python-headless
+#     python -c "import cv2, augraphy; print(cv2.__version__, augraphy.__version__)"
+#
+# ============================================================================
+# PACKAGE SOURCES
+# ============================================================================
+#
+# Deliberately not pinned here -- they come from the host's own config, kept
+# OUT of this repo:
+#   - Python interpreter -> conda, from the channel in ~/.condarc
+#   - Libraries          -> pip,   from the index in ~/.pip/pip.conf
+#
+# On the locked-down PROD remote these point at internal Artifactory mirrors;
+# the public repos are unreachable there. That is why this file has no
+# `channels:` key -- adding one would override the host's mirror config and
+# break PROD.
+#
+# ============================================================================
+# WHAT IS PINNED, AND WHY
+# ============================================================================
+#
+#   pillow      Its bundled FreeType drives font getbbox() metrics, which drive
+#               every fit_text() shrink/wrap decision and therefore the rendered
+#               pixels. Unpinning diverges images Mac<->PROD.
+#   numpy       Ceiling, not preference: numba (an augraphy import) requires
+#               <=2.4. Pinned exactly so the constraint is visible rather than
+#               silently resolved.
+#   faker       Determines generated content, so pinning keeps a reseeded
+#               ground truth reproducible across rebuilds.
+#   opencv      Camera-scan warp output must stay byte-stable across rebuilds.
+#   augraphy    Augmentation behaviour is version-dependent, and its parameter
+#               names are mapped by hand in generators/degradation/augment.py.
+#
+# Everything else floats: whatever the host's index offers is fine.
+#
+# ============================================================================
+
+dependencies:
+  # Python 3.12 is the only hard interpreter requirement (the codebase uses
+  # 3.12 syntax: `X | Y` unions, `contextlib.chdir`).
+  - python=3.12
+  - pip
+  - pip:
+
+      # --- Core runtime: generation, rendering, export ---------------------
+      # Required everywhere, PROD included.
+      - pillow==12.2.0
+      - numpy==2.3.5
+      - pyyaml
+      - typer
+      - rich
+
+      # --- Content reseeding (scripts/seed_*.py) ---------------------------
+      - faker==40.8.0
+
+      # --- Receipt degradation (generators/degradation/) -------------------
+      # Perspective warp for the camera model, shared with the offline
+      # rectifier (rectify_camera_scan.py).
+      - opencv-python-headless==4.13.0.92
+      # Ink/paper damage applied to the flat page before the warp.
+      # See "THE POST-INSTALL STEP IS NOT OPTIONAL" above.
+      - augraphy==8.2.6
+
+      # --- Inline code marks (generators/layout_dsl/primitives_codes.py) ----
+      # Pure Python. Used only to compute module patterns; the DSL draws the
+      # modules itself, so no image writer or extra dependency is involved.
+      # python-barcode serves EAN-13 only: Code 128 is encoded in-repo
+      # (generators/layout_dsl/code128.py), since 0.16.1 drops a leading "99" pair.
+      - segno==1.6.6
+      - python-barcode==0.16.1
+
+      # --- Test-only ---------------------------------------------------------
+      # Decodes rendered barcodes and QR codes in the local suite, proving the
+      # marks are real, scannable symbols. Not imported by the generator.
+      - zxing-cpp==3.1.1
+
+      # Augraphy's real transitive requirements, listed explicitly because it
+      # is (re)installed with --no-deps, and pinned exactly because degraded
+      # pixels depend on them: an unpinned update moved numba, llvmlite and
+      # scikit-image underneath the degradation tiers on 6 October 2026.
+      # numba and llvmlite are a MATCHED PAIR released in lockstep; if a
+      # mirror lacks this numba, change both pins together and re-run the
+      # degradation tests. scipy is not an Augraphy requirement on paper but
+      # comes in through scikit-image and drives its image operations.
+      - numba==0.68.0
+      - llvmlite==0.50.0
+      - scikit-image==0.26.0
+      - scipy==1.18.0
+      - scikit-learn==1.9.1
+      - lazy_loader==0.6
+      - imageio==2.38.0
+      - tifffile==2026.9.20
+      - networkx==3.7
+      - joblib==1.6.0
+      - threadpoolctl==3.7.0
+      - narwhals==2.26.0
+
+      # Listed so `conda env update --prune` cannot remove them: on
+      # 6 October 2026 a prune dropped all three because nothing above named
+      # them, although pandas and matplotlib need them at import.
+      - python-dateutil==2.9.0.post0
+      - six==1.17.0
+      - typing_extensions==4.16.0
+
+      # Import-time only, and usually already present. `import augraphy` loads
+      # every augmentation module, two of which use HTTP (Scribbles fetches
+      # fonts by URL; the Figshare downloader pulls datasets). Neither is in
+      # the allow-list in generators/degradation/augment.py, so THE PIPELINE
+      # MAKES NO NETWORK CALLS and runs air-gapped. charset-normalizer is a
+      # further step removed -- it decodes response bodies never fetched -- but
+      # pip enforces it as a hard requirement of requests, so it cannot be
+      # dropped.
+      - requests==2.34.2
+      - urllib3==2.8.0
+      - idna==3.20
+      - certifi==2026.7.22
+      - charset-normalizer==3.5.2
+
+      # --- Local scoring / test only: NOT required in PROD -----------------
+      # PROD generates and exports; it never scores. Nothing in `generate`,
+      # `derive` or `eval-set` imports anything below, so the whole section is
+      # safe to omit when provisioning a generation-only host -- and omitting it
+      # is what keeps the PROD mirror request short.
+      #
+      # These three back the correctness harness that proves the CORD and DocILE
+      # projections are faithful rather than merely well-formed (37 tests).
+      #
+      # apted            tree-edit distance for the vendored CORD evaluator
+      #                  (generators/exporters/cord_eval.py). MIT; used in
+      #                  place of zss (non-SPDX/historically GPL) per
+      #                  docs/GroundTruth_Export_Spec.md.
+      # rapidfuzz        leaf-node rename cost in cord_eval.py, replacing
+      #                  donut's nltk.edit_distance. MIT.
+      # docile-benchmark published DocILE KILE/LIR scorer, for the DocILE
+      #                  self-score tests. Apache-2.0. Resolves cleanly on a
+      #                  plain pip dry run -- no ancient datasets/pyarrow/numpy
+      #                  (unlike donut-python's backtrack to numpy 1.19.4), and
+      #                  every dependency ships a py3.12/arm64 wheel.
+      - apted
+      - rapidfuzz
+      - docile-benchmark
+
+      # And these three are the scoring notebook's stack
+      # (score_extractions.ipynb). Declared rather than assumed: they were
+      # previously installed on this machine but absent from this file, which
+      # made `conda env update --prune` liable to remove the notebook's
+      # dependencies. The notebook imports nothing from this repo, so this is
+      # the only place its requirements are recorded.
+      #
+      # pandas           every table the notebook computes, and the parsing of
+      #                  the ground-truth CSV. BSD-3.
+      # matplotlib       the figures. seaborn draws onto it, and the two bar
+      #                  charts call it directly. PSF-based licence.
+      # seaborn          the distribution, heatmap and faceted views, which are
+      #                  a great deal more code in bare matplotlib. BSD-3.
+      #                  Colour is set explicitly from the notebook's own
+      #                  CVD-validated palette, never from a seaborn default.
+      - pandas
+      - matplotlib
+      - seaborn
+
+# =============================================================================
+# KNOWN-GOOD RESOLVED VERSIONS (macOS arm64, 2026-10-06)
+# =============================================================================
+# Reference only. Augraphy and its dependencies are pinned above; pyyaml,
+# typer, rich and the local-scoring packages still float. Use this list to
+# diagnose a version-skew failure, or to seed an internal mirror request.
+#
+#   pillow 12.2.0          numpy 2.3.5           pyyaml 6.0.3
+#   typer 0.27.2           rich 15.0.0           faker 40.8.0
+#   opencv-python-headless 4.13.0.92             augraphy 8.2.6
+#   numba 0.68.0           llvmlite 0.50.0       scikit-image 0.26.0
+#   scikit-learn 1.9.1     lazy-loader 0.6       imageio 2.38.0
+#   tifffile 2026.9.20     networkx 3.7          joblib 1.6.0
+#   threadpoolctl 3.7.0    narwhals 2.26.0       requests 2.34.2
+#   urllib3 2.8.0          idna 3.20             certifi 2026.07.22
+#   charset-normalizer 3.5.2                     scipy 1.18.0
+#   apted 1.0.3            rapidfuzz 3.14.6      docile-benchmark 0.3.5
+#   pandas 3.0.6           matplotlib 3.11.2     seaborn 0.13.2
+#   segno 1.6.6            python-barcode 0.16.1 zxing-cpp 3.1.1
+#   python-dateutil 2.9.0.post0  six 1.17.0   typing_extensions 4.16.0
+#
+# Dev tooling is intentionally absent from the spec above (install separately
+# if you run the suite): pytest 9.1.1, ruff 0.15.15, mypy 2.3.0.
+#
+# =============================================================================
+# CONDA ENVIRONMENT CRUD COMMANDS - QUICK REFERENCE
+# =============================================================================
+#
+# Environment Location (macOS, local):
+# /opt/homebrew/Caskroom/miniforge/base/envs/synthetic
+#
+# Environment Location (shared prefix):
+# /efs/shared/.conda/envs/synthetic
+#
+# CREATE: Create environment from this file
+# conda env create -n synthetic -f environment.yml
+# conda env create --prefix /efs/shared/.conda/envs/synthetic -f environment.yml
+#   ...then ALWAYS: bash scripts/post_install.sh
+#
+# READ: List all environments
+# conda env list
+# conda list -n synthetic          # Show packages in the environment
+#
+# UPDATE: Update existing environment from file
+# conda env update -n synthetic -f environment.yml --prune
+#   ...then ALWAYS: bash scripts/post_install.sh
+#
+# DELETE: Remove environment
+# conda env remove -n synthetic
+#
+# ACTIVATE: Activate environment
+# conda activate synthetic
+# conda activate /efs/shared/.conda/envs/synthetic
+#
+# DEACTIVATE: Deactivate environment
+# conda deactivate
+#
+# RUN WITHOUT ACTIVATING (preferred for scripting)
+# conda run -n synthetic python -m generators.pipeline validate
+#
+# EXPORT: Export environment to file
+# conda env export -n synthetic > environment.yml
+#   NOTE: a raw export overwrites everything above -- the comments, the
+#   PROD-vs-local split, and the post-install warning. Re-add them, or edit
+#   this file by hand instead.
+#
+# CLONE: Create copy of environment
+# conda create --name synthetic_probe --clone synthetic
+#
+# VERIFY: Confirm the install is correct
+# conda run -n synthetic pip list | grep -i opencv    # ONLY headless
+# conda run -n synthetic python -c "import cv2, augraphy, numpy; \
+#     print(cv2.__version__, augraphy.__version__, numpy.__version__)"
+# conda run -n synthetic python -m generators.pipeline validate
+# =============================================================================

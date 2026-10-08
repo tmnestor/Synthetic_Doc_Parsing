@@ -1,0 +1,89 @@
+{
+  "_comment": "Pins the SHAPE of an evaluation-set export (filenames, counts, CSV columns, JSONL key order), never values. Re-captured from the current exporter on 6 October 2026, because history before the test-suite rebuild is not preserved (owner's decision). The independent cross-check is test_fixture_describes_the_extraction_schema, which derives the same lists from config/extraction_schema.yml and the ground truth. Re-bless with `python tests/regenerate_eval_format_baseline.py --confirm`.",
+  "filename_pattern": "^CASE\\d{3}_(bank_statement|invoice|receipt)\\.png$",
+  "document_type_suffixes": [
+    "bank_statement",
+    "invoice",
+    "receipt"
+  ],
+  "image_count": 165,
+  "images_per_suffix": {
+    "bank_statement": 55,
+    "invoice": 55,
+    "receipt": 55
+  },
+  "required_files": [
+    "ground_truth.csv",
+    "ground_truth.jsonl"
+  ],
+  "csv": {
+    "columns": [
+      "image_file",
+      "DOCUMENT_TYPE",
+      "STATEMENT_DATE_RANGE",
+      "LINE_ITEM_DESCRIPTIONS",
+      "TRANSACTION_DATES",
+      "TRANSACTION_AMOUNTS_PAID",
+      "BUSINESS_ABN",
+      "SUPPLIER_NAME",
+      "BUSINESS_ADDRESS",
+      "PAYER_NAME",
+      "PAYER_ADDRESS",
+      "INVOICE_DATE",
+      "LINE_ITEM_QUANTITIES",
+      "LINE_ITEM_PRICES",
+      "LINE_ITEM_TOTAL_PRICES",
+      "IS_GST_INCLUDED",
+      "GST_AMOUNT",
+      "TOTAL_AMOUNT"
+    ],
+    "row_count": 165
+  },
+  "jsonl": {
+    "record_count": 165,
+    "keys_by_document_type": {
+      "BANK_STATEMENT": [
+        "filename",
+        "DOCUMENT_TYPE",
+        "STATEMENT_DATE_RANGE",
+        "LINE_ITEM_DESCRIPTIONS",
+        "TRANSACTION_DATES",
+        "TRANSACTION_AMOUNTS_PAID"
+      ],
+      "INVOICE": [
+        "filename",
+        "DOCUMENT_TYPE",
+        "BUSINESS_ABN",
+        "SUPPLIER_NAME",
+        "BUSINESS_ADDRESS",
+        "PAYER_NAME",
+        "PAYER_ADDRESS",
+        "INVOICE_DATE",
+        "LINE_ITEM_DESCRIPTIONS",
+        "LINE_ITEM_QUANTITIES",
+        "LINE_ITEM_PRICES",
+        "LINE_ITEM_TOTAL_PRICES",
+        "IS_GST_INCLUDED",
+        "GST_AMOUNT",
+        "TOTAL_AMOUNT"
+      ],
+      "RECEIPT": [
+        "filename",
+        "DOCUMENT_TYPE",
+        "BUSINESS_ABN",
+        "SUPPLIER_NAME",
+        "BUSINESS_ADDRESS",
+        "PAYER_NAME",
+        "PAYER_ADDRESS",
+        "INVOICE_DATE",
+        "LINE_ITEM_DESCRIPTIONS",
+        "LINE_ITEM_QUANTITIES",
+        "LINE_ITEM_PRICES",
+        "LINE_ITEM_TOTAL_PRICES",
+        "IS_GST_INCLUDED",
+        "GST_AMOUNT",
+        "TOTAL_AMOUNT"
+      ]
+    }
+  }
+}

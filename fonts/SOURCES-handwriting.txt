@@ -1,0 +1,34 @@
+Provenance of the handwriting faces vendored beside Kalam (added 7 October 2026)
+================================================================================
+
+Each face is redistributed under the SIL Open Font License 1.1; its licence is the
+LICENSE-<Face>.txt beside it, copied verbatim from the same upstream directory. Every file
+was taken from the Google Fonts repository at commit
+2c605eeda2de57af2b34822b79986f5140299862 (https://github.com/google/fonts).
+
+Indie Flower (static upstream, vendored unchanged)
+  IndieFlower-Regular.ttf  sha256 ccc94b22b156e9c5dfe50fd051f01b097600b252c24473e624bb43a143140a94
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/indieflower/IndieFlower-Regular.ttf
+  LICENSE-IndieFlower.txt  sha256 d9cdb075679d15a99bab2a8541b9c4fdc71347502111fbe9affd1d462219d96b
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/indieflower/OFL.txt
+  The face ships one weight, so it has no bold.
+
+Patrick Hand (static upstream, vendored unchanged)
+  PatrickHand-Regular.ttf  sha256 0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/patrickhand/PatrickHand-Regular.ttf
+  LICENSE-PatrickHand.txt  sha256 377f4f9c19e935228552478eb68cc2ed82910988a60ba60e2ac73b09f32d02d1
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/patrickhand/OFL.txt
+  The face ships one weight, so it has no bold.
+
+Caveat (upstream ships only a variable font; static instances cut with fontTools 4.63.0)
+  Source: Caveat[wght].ttf  sha256 0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/caveat/Caveat%5Bwght%5D.ttf
+  LICENSE-Caveat.txt  sha256 1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b
+    https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/caveat/OFL.txt
+  The licence declares no Reserved Font Name, so the instances keep the family name.
+  Commands (SOURCE_DATE_EPOCH=0 fixes the head table's timestamp, so the cut is reproducible
+  byte for byte):
+    SOURCE_DATE_EPOCH=0 fonttools varLib.instancer "Caveat[wght].ttf" wght=400 --static --update-name-table -o Caveat-Regular.ttf
+    SOURCE_DATE_EPOCH=0 fonttools varLib.instancer "Caveat[wght].ttf" wght=700 --static --update-name-table -o Caveat-Bold.ttf
+  Caveat-Regular.ttf  sha256 8eec68d12e7dd190fae9ea909d008a5d7bdb643ef3624352fde22718bddc8e22
+  Caveat-Bold.ttf     sha256 347512ca6fce5dca0bf00f000e2fb4784389237daf6bd32cdeb25e17e2af2a9b

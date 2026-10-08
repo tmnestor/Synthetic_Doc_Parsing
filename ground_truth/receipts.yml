@@ -1,0 +1,967 @@
+CASE001:
+  layout: receipt_fuel
+  merchant_category: automotive
+  degradation_seed: 1897
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Northern Auto Parts
+    BUSINESS_ABN: 79 104 332 181
+    BUSINESS_ADDRESS: 312 Ward Ln, New Farm QLD 4005
+    INVOICE_DATE: 07/09/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '13.06'
+    TOTAL_AMOUNT: '143.67'
+    LINE_ITEM_DESCRIPTIONS: Motor Oil 5L|Tyre Pressure Gauge|Microfibre Wash Mitt|Coolant
+      5L|Wiper Blades Pair
+    LINE_ITEM_QUANTITIES: 1|1|1|1|1
+    LINE_ITEM_PRICES: 58.51|9.30|8.65|35.08|32.13
+    LINE_ITEM_TOTAL_PRICES: 58.51|9.30|8.65|35.08|32.13
+CASE002:
+  layout: receipt_thermal_80mm
+  merchant_category: liquor
+  degradation_seed: 4610
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Verrall Wine & Spirits
+    BUSINESS_ABN: 85 960 013 389
+    BUSINESS_ADDRESS: 1 Montgomery Cl, Unley SA 5061
+    INVOICE_DATE: 29/05/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '14.75'
+    TOTAL_AMOUNT: '162.21'
+    LINE_ITEM_DESCRIPTIONS: Gin 700ml|Wine White 750ml
+    LINE_ITEM_QUANTITIES: 1|6
+    LINE_ITEM_PRICES: 67.47|15.79
+    LINE_ITEM_TOTAL_PRICES: 67.47|94.74
+CASE003:
+  layout: receipt_thermal_57mm
+  merchant_category: pharmacy
+  degradation_seed: 2192
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Greater Chemist
+    BUSINESS_ABN: 61 083 863 794
+    BUSINESS_ADDRESS: 398 Jones Pde, Glenelg SA 5045
+    INVOICE_DATE: 24/08/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '8.05'
+    TOTAL_AMOUNT: '88.53'
+    LINE_ITEM_DESCRIPTIONS: Paracetamol Tablets 24pk|Adhesive Bandages 40pk|Hand Soap
+      Refill 1L|Shampoo 400ml|Vitamin C 60 Tablets|Cough Lozenges 16pk
+    LINE_ITEM_QUANTITIES: 1|2|1|2|2|2
+    LINE_ITEM_PRICES: 5.44|7.27|9.47|5.65|16.45|7.44
+    LINE_ITEM_TOTAL_PRICES: 5.44|14.54|9.47|11.30|32.90|14.88
+CASE004:
+  layout: receipt_retail_tax
+  merchant_category: electronics
+  degradation_seed: 6091
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: National AV & Appliances
+    BUSINESS_ABN: 50 026 542 351
+    BUSINESS_ADDRESS: 388 Williams Ln, Newtown NSW 2042
+    INVOICE_DATE: 12/06/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '13.04'
+    TOTAL_AMOUNT: '143.44'
+    LINE_ITEM_DESCRIPTIONS: Bluetooth Headphones|Phone Case
+    LINE_ITEM_QUANTITIES: 1|1
+    LINE_ITEM_PRICES: 115.81|27.63
+    LINE_ITEM_TOTAL_PRICES: 115.81|27.63
+CASE005:
+  layout: receipt_fuel
+  merchant_category: automotive
+  degradation_seed: 1417
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Riverside Auto Parts
+    BUSINESS_ABN: 94 161 559 407
+    BUSINESS_ADDRESS: 225 Smith Tce, South Yarra VIC 3141
+    INVOICE_DATE: 28/03/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '20.45'
+    TOTAL_AMOUNT: '225.00'
+    LINE_ITEM_DESCRIPTIONS: Wiper Blades Pair|Car Vacuum Cleaner|Microfibre Wash Mitt|Coolant
+      5L|Motor Oil 5L
+    LINE_ITEM_QUANTITIES: 1|1|1|1|2
+    LINE_ITEM_PRICES: 23.50|50.16|6.73|35.91|54.35
+    LINE_ITEM_TOTAL_PRICES: 23.50|50.16|6.73|35.91|108.70
+CASE006:
+  layout: receipt_retail_tax
+  merchant_category: hardware
+  degradation_seed: 9549
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Prime Timber & Tools
+    BUSINESS_ABN: 22 816 184 959
+    BUSINESS_ADDRESS: 331 Patrick Ave, Glenelg SA 5045
+    INVOICE_DATE: 14/03/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '2.21'
+    TOTAL_AMOUNT: '24.36'
+    LINE_ITEM_DESCRIPTIONS: Masking Tape 24mm
+    LINE_ITEM_QUANTITIES: '4'
+    LINE_ITEM_PRICES: '6.09'
+    LINE_ITEM_TOTAL_PRICES: '24.36'
+CASE007:
+  layout: receipt_professional
+  merchant_category: electronics
+  degradation_seed: 3247
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Metro AV & Appliances
+    BUSINESS_ABN: 92 310 341 316
+    BUSINESS_ADDRESS: 139 Johnson Dr, Leederville WA 6007
+    INVOICE_DATE: 18/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '31.23'
+    TOTAL_AMOUNT: '343.56'
+    LINE_ITEM_DESCRIPTIONS: Batteries AA 8pk|Bluetooth Headphones|Wireless Mouse|Phone
+      Case
+    LINE_ITEM_QUANTITIES: 2|1|2|2
+    LINE_ITEM_PRICES: 9.62|163.96|50.04|30.14
+    LINE_ITEM_TOTAL_PRICES: 19.24|163.96|100.08|60.28
+CASE008:
+  layout: receipt_thermal_80mm
+  merchant_category: pharmacy
+  degradation_seed: 3805
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Eastern Pharmacy
+    BUSINESS_ABN: 14 475 255 341
+    BUSINESS_ADDRESS: 12 Perkins Ct, Hawthorn East VIC 3123
+    INVOICE_DATE: 29/07/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '6.45'
+    TOTAL_AMOUNT: '70.94'
+    LINE_ITEM_DESCRIPTIONS: Paracetamol Tablets 24pk|Sunscreen SPF50 200ml|Cough Lozenges
+      16pk|Shampoo 400ml|Vitamin C 60 Tablets
+    LINE_ITEM_QUANTITIES: 2|1|2|1|2
+    LINE_ITEM_PRICES: 3.40|12.38|6.39|11.68|13.65
+    LINE_ITEM_TOTAL_PRICES: 6.80|12.38|12.78|11.68|27.30
+CASE009:
+  layout: receipt_professional
+  merchant_category: electronics
+  degradation_seed: 7223
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Southcott AV & Appliances
+    BUSINESS_ABN: 90 928 327 648
+    BUSINESS_ADDRESS: 86 Lopez Tce, Alexandria NSW 2015
+    INVOICE_DATE: 15/02/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '4.30'
+    TOTAL_AMOUNT: '47.28'
+    LINE_ITEM_DESCRIPTIONS: HDMI Cable 2m
+    LINE_ITEM_QUANTITIES: '3'
+    LINE_ITEM_PRICES: '15.76'
+    LINE_ITEM_TOTAL_PRICES: '47.28'
+CASE010:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 1805
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ravensdale Provisions
+    BUSINESS_ABN: 63 350 305 641
+    BUSINESS_ADDRESS: 387 Harrell Tce, Battery Point TAS 7004
+    INVOICE_DATE: 28/01/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '2.46'
+    TOTAL_AMOUNT: '27.11'
+    LINE_ITEM_DESCRIPTIONS: Pasta 500g|Olive Oil 500ml
+    LINE_ITEM_QUANTITIES: 1|2
+    LINE_ITEM_PRICES: 3.73|11.69
+    LINE_ITEM_TOTAL_PRICES: 3.73|23.38
+CASE011:
+  layout: receipt_professional
+  merchant_category: office
+  degradation_seed: 3790
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Norcott Office Supplies
+    BUSINESS_ABN: 58 395 376 724
+    BUSINESS_ADDRESS: 191 Decker Ct, Toowoomba QLD 4350
+    INVOICE_DATE: 25/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '10.06'
+    TOTAL_AMOUNT: '110.61'
+    LINE_ITEM_DESCRIPTIONS: Pens Ballpoint 10pk|Whiteboard Markers 4pk|Lever Arch
+      File|Printer Paper A4 500pk
+    LINE_ITEM_QUANTITIES: 2|1|4|4
+    LINE_ITEM_PRICES: 6.82|11.49|6.70|14.67
+    LINE_ITEM_TOTAL_PRICES: 13.64|11.49|26.80|58.68
+CASE012:
+  layout: receipt_retail_tax
+  merchant_category: office
+  degradation_seed: 9836
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Capital Office Supplies
+    BUSINESS_ABN: 55 238 849 696
+    BUSINESS_ADDRESS: 336 Fernandez Gr, Parramatta NSW 2150
+    INVOICE_DATE: 01/03/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.98'
+    TOTAL_AMOUNT: '87.78'
+    LINE_ITEM_DESCRIPTIONS: Pens Ballpoint 10pk|Desk Stapler|Whiteboard Markers 4pk|Lever
+      Arch File
+    LINE_ITEM_QUANTITIES: 3|2|2|2
+    LINE_ITEM_PRICES: 8.98|11.98|11.07|7.37
+    LINE_ITEM_TOTAL_PRICES: 26.94|23.96|22.14|14.74
+CASE013:
+  layout: receipt_retail_tax
+  merchant_category: electronics
+  degradation_seed: 7636
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Southern Tech Store
+    BUSINESS_ABN: 16 532 871 012
+    BUSINESS_ADDRESS: 80 Hughes Cres, South Yarra VIC 3141
+    INVOICE_DATE: 08/05/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '20.21'
+    TOTAL_AMOUNT: '222.27'
+    LINE_ITEM_DESCRIPTIONS: Bluetooth Headphones|USB-C Charger 20W|Wireless Mouse|Batteries
+      AA 8pk
+    LINE_ITEM_QUANTITIES: 1|1|1|2
+    LINE_ITEM_PRICES: 135.30|31.34|34.91|10.36
+    LINE_ITEM_TOTAL_PRICES: 135.30|31.34|34.91|20.72
+CASE014:
+  layout: receipt_retail_tax
+  merchant_category: automotive
+  degradation_seed: 8328
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ashcroft Auto Parts
+    BUSINESS_ABN: 64 269 166 978
+    BUSINESS_ADDRESS: 30 Harris Gr, Hobart TAS 7000
+    INVOICE_DATE: 25/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.03'
+    TOTAL_AMOUNT: '77.35'
+    LINE_ITEM_DESCRIPTIONS: Tyre Pressure Gauge|Coolant 5L|Car Air Freshener
+    LINE_ITEM_QUANTITIES: 1|2|2
+    LINE_ITEM_PRICES: 19.91|18.33|10.39
+    LINE_ITEM_TOTAL_PRICES: 19.91|36.66|20.78
+CASE015:
+  layout: receipt_thermal_57mm
+  merchant_category: grocery
+  degradation_seed: 3078
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Regional Provisions
+    BUSINESS_ABN: 86 480 184 514
+    BUSINESS_ADDRESS: 331 Washington Ave, Paddington QLD 4064
+    INVOICE_DATE: 06/03/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.84'
+    TOTAL_AMOUNT: '64.23'
+    LINE_ITEM_DESCRIPTIONS: Olive Oil 500ml|Yoghurt Tub 1kg|Milk 2L|Cereal Box 500g
+    LINE_ITEM_QUANTITIES: 2|3|2|1
+    LINE_ITEM_PRICES: 10.82|8.04|4.85|8.77
+    LINE_ITEM_TOTAL_PRICES: 21.64|24.12|9.70|8.77
+CASE016:
+  layout: receipt_professional
+  merchant_category: hardware
+  degradation_seed: 3933
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Regional Hardware
+    BUSINESS_ABN: 45 627 048 281
+    BUSINESS_ADDRESS: 235 Caldwell Gr, St Kilda VIC 3182
+    INVOICE_DATE: 25/06/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '33.76'
+    TOTAL_AMOUNT: '371.40'
+    LINE_ITEM_DESCRIPTIONS: Screwdriver Set|Masking Tape 24mm|Garden Hose 20m|Drill
+      Bit Set|Extension Cord 10m|Potting Mix 25L
+    LINE_ITEM_QUANTITIES: 2|1|1|2|1|4
+    LINE_ITEM_PRICES: 36.15|5.59|64.48|77.93|36.77|9.10
+    LINE_ITEM_TOTAL_PRICES: 72.30|5.59|64.48|155.86|36.77|36.40
+CASE017:
+  layout: receipt_professional
+  merchant_category: electronics
+  degradation_seed: 8559
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Goswell AV & Appliances
+    BUSINESS_ABN: 86 489 325 288
+    BUSINESS_ADDRESS: 311 Garner Ln, Fremantle WA 6160
+    INVOICE_DATE: 29/05/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '4.38'
+    TOTAL_AMOUNT: '48.22'
+    LINE_ITEM_DESCRIPTIONS: Wireless Mouse
+    LINE_ITEM_QUANTITIES: '1'
+    LINE_ITEM_PRICES: '48.22'
+    LINE_ITEM_TOTAL_PRICES: '48.22'
+CASE018:
+  layout: receipt_fuel
+  merchant_category: fuel
+  degradation_seed: 6904
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Riverside Roadhouse
+    BUSINESS_ABN: 10 095 701 543
+    BUSINESS_ADDRESS: 127 Bradshaw Way, Battery Point TAS 7004
+    INVOICE_DATE: 01/11/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '27.88'
+    TOTAL_AMOUNT: '306.69'
+    LINE_ITEM_DESCRIPTIONS: Windscreen Washer 1L|Premium Unleaded 98|Car Wash Premium|Unleaded
+      91|Diesel
+    LINE_ITEM_QUANTITIES: 2|1|1|1|1
+    LINE_ITEM_PRICES: 7.41|78.88|20.87|62.65|129.47
+    LINE_ITEM_TOTAL_PRICES: 14.82|78.88|20.87|62.65|129.47
+CASE019:
+  layout: receipt_thermal_57mm
+  merchant_category: liquor
+  degradation_seed: 5040
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Prime Bottle Shop
+    BUSINESS_ABN: 77 039 117 182
+    BUSINESS_ADDRESS: 57 Walsh Gr, Norwood SA 5067
+    INVOICE_DATE: 21/07/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '24.67'
+    TOTAL_AMOUNT: '271.32'
+    LINE_ITEM_DESCRIPTIONS: Wine White 750ml|Gin 700ml|Beer Case 24|Cider 6pk|Ice
+      Bag 5kg
+    LINE_ITEM_QUANTITIES: 3|1|2|2|2
+    LINE_ITEM_PRICES: 14.83|63.43|50.88|26.26|4.56
+    LINE_ITEM_TOTAL_PRICES: 44.49|63.43|101.76|52.52|9.12
+CASE020:
+  layout: receipt_professional
+  merchant_category: office
+  degradation_seed: 9265
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Coastal Print & Office
+    BUSINESS_ABN: 76 278 248 963
+    BUSINESS_ADDRESS: 100 Jackson Cres, New Farm QLD 4005
+    INVOICE_DATE: 03/04/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '16.37'
+    TOTAL_AMOUNT: '180.04'
+    LINE_ITEM_DESCRIPTIONS: Whiteboard Markers 4pk|Lever Arch File|Pens Ballpoint
+      10pk|Toner Cartridge Black|Sticky Notes 12pk|Desk Stapler
+    LINE_ITEM_QUANTITIES: 1|3|3|1|1|2
+    LINE_ITEM_PRICES: 11.40|4.95|5.03|110.13|9.09|9.74
+    LINE_ITEM_TOTAL_PRICES: 11.40|14.85|15.09|110.13|9.09|19.48
+CASE021:
+  layout: receipt_thermal_57mm
+  merchant_category: grocery
+  degradation_seed: 2854
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Verrall Foodstore
+    BUSINESS_ABN: 19 834 657 871
+    BUSINESS_ADDRESS: 92 Casey Ln, Newtown NSW 2042
+    INVOICE_DATE: 18/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '1.92'
+    TOTAL_AMOUNT: '21.08'
+    LINE_ITEM_DESCRIPTIONS: Pasta 500g|Milk 2L|Dishwashing Liquid
+    LINE_ITEM_QUANTITIES: 3|1|1
+    LINE_ITEM_PRICES: 3.07|5.13|6.74
+    LINE_ITEM_TOTAL_PRICES: 9.21|5.13|6.74
+CASE022:
+  layout: receipt_fuel
+  merchant_category: fuel
+  degradation_seed: 4513
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ravensdale Service Station
+    BUSINESS_ABN: 98 331 509 839
+    BUSINESS_ADDRESS: 91 Martin Cl, Hawthorn East VIC 3123
+    INVOICE_DATE: 14/08/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '11.73'
+    TOTAL_AMOUNT: '129.01'
+    LINE_ITEM_DESCRIPTIONS: Diesel|Unleaded 91|Coffee Regular|Windscreen Washer 1L
+    LINE_ITEM_QUANTITIES: 1|1|1|2
+    LINE_ITEM_PRICES: 59.68|50.17|4.96|7.10
+    LINE_ITEM_TOTAL_PRICES: 59.68|50.17|4.96|14.20
+CASE023:
+  layout: receipt_thermal_57mm
+  merchant_category: liquor
+  degradation_seed: 1110
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ockendon Cellars
+    BUSINESS_ABN: 22 301 031 051
+    BUSINESS_ADDRESS: 373 Berry St, Prospect SA 5082
+    INVOICE_DATE: 14/06/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '37.50'
+    TOTAL_AMOUNT: '412.53'
+    LINE_ITEM_DESCRIPTIONS: Ice Bag 5kg|Wine Red 750ml|Beer Case 24|Gin 700ml|Sparkling
+      Wine 750ml|Wine White 750ml
+    LINE_ITEM_QUANTITIES: 1|5|1|1|3|2
+    LINE_ITEM_PRICES: 5.37|24.17|65.88|67.46|33.05|26.91
+    LINE_ITEM_TOTAL_PRICES: 5.37|120.85|65.88|67.46|99.15|53.82
+CASE024:
+  layout: receipt_retail_tax
+  merchant_category: retail
+  degradation_seed: 5581
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ravensdale General Store
+    BUSINESS_ABN: 12 834 738 299
+    BUSINESS_ADDRESS: 373 Brown Rd, Subiaco WA 6008
+    INVOICE_DATE: 04/12/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '11.64'
+    TOTAL_AMOUNT: '128.06'
+    LINE_ITEM_DESCRIPTIONS: Kitchen Sponge 6pk|Bath Towel|Storage Container 10L|Cushion
+      Cover
+    LINE_ITEM_QUANTITIES: 2|3|2|3
+    LINE_ITEM_PRICES: 5.16|17.47|7.66|16.67
+    LINE_ITEM_TOTAL_PRICES: 10.32|52.41|15.32|50.01
+CASE025:
+  layout: receipt_fuel
+  merchant_category: automotive
+  degradation_seed: 1416
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Statewide Tyre & Auto
+    BUSINESS_ABN: 11 746 644 968
+    BUSINESS_ADDRESS: 354 Hodges Cl, Cronulla NSW 2230
+    INVOICE_DATE: 07/11/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '8.09'
+    TOTAL_AMOUNT: '89.03'
+    LINE_ITEM_DESCRIPTIONS: Tyre Pressure Gauge|Car Vacuum Cleaner
+    LINE_ITEM_QUANTITIES: 1|1
+    LINE_ITEM_PRICES: 19.61|69.42
+    LINE_ITEM_TOTAL_PRICES: 19.61|69.42
+CASE026:
+  layout: receipt_retail_tax
+  merchant_category: office
+  degradation_seed: 6308
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Carrington Office Supplies
+    BUSINESS_ABN: 64 667 010 651
+    BUSINESS_ADDRESS: 213 Aguilar Gr, South Yarra VIC 3141
+    INVOICE_DATE: 15/11/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '2.93'
+    TOTAL_AMOUNT: '32.24'
+    LINE_ITEM_DESCRIPTIONS: Whiteboard Markers 4pk|Printer Paper A4 500pk
+    LINE_ITEM_QUANTITIES: 2|1
+    LINE_ITEM_PRICES: 11.08|10.08
+    LINE_ITEM_TOTAL_PRICES: 22.16|10.08
+CASE027:
+  layout: receipt_thermal_57mm
+  merchant_category: pharmacy
+  degradation_seed: 8226
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Capital Pharmacy
+    BUSINESS_ABN: 35 333 872 624
+    BUSINESS_ADDRESS: 16 Sutton Way, Brunswick VIC 3056
+    INVOICE_DATE: 21/10/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '4.58'
+    TOTAL_AMOUNT: '50.36'
+    LINE_ITEM_DESCRIPTIONS: Sunscreen SPF50 200ml|Cough Lozenges 16pk|Hand Soap Refill
+      1L
+    LINE_ITEM_QUANTITIES: 2|2|1
+    LINE_ITEM_PRICES: 14.63|5.86|9.38
+    LINE_ITEM_TOTAL_PRICES: 29.26|11.72|9.38
+CASE028:
+  layout: receipt_retail_tax
+  merchant_category: retail
+  degradation_seed: 1132
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Central General Store
+    BUSINESS_ABN: 23 731 781 080
+    BUSINESS_ADDRESS: 149 Smith Dr, Fortitude Valley QLD 4006
+    INVOICE_DATE: 14/11/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '14.14'
+    TOTAL_AMOUNT: '155.51'
+    LINE_ITEM_DESCRIPTIONS: Cushion Cover|Bath Towel|Cotton T-Shirt|Coat Hangers 10pk|Desk
+      Lamp
+    LINE_ITEM_QUANTITIES: 2|2|3|2|1
+    LINE_ITEM_PRICES: 11.40|31.97|8.16|8.99|26.31
+    LINE_ITEM_TOTAL_PRICES: 22.80|63.94|24.48|17.98|26.31
+CASE029:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 1535
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Fenwick Provisions
+    BUSINESS_ABN: 54 132 677 360
+    BUSINESS_ADDRESS: 217 Lewis Cres, Alexandria NSW 2015
+    INVOICE_DATE: 13/12/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.02'
+    TOTAL_AMOUNT: '77.20'
+    LINE_ITEM_DESCRIPTIONS: Dishwashing Liquid|Bread White 700g|Olive Oil 500ml|Chicken
+      Breast 500g|Cereal Box 500g
+    LINE_ITEM_QUANTITIES: 2|2|2|2|2
+    LINE_ITEM_PRICES: 5.18|3.52|14.74|10.39|4.77
+    LINE_ITEM_TOTAL_PRICES: 10.36|7.04|29.48|20.78|9.54
+CASE030:
+  layout: receipt_thermal_80mm
+  merchant_category: pharmacy
+  degradation_seed: 4049
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Statewide Pharmacy
+    BUSINESS_ABN: 94 260 647 468
+    BUSINESS_ADDRESS: 49 Gay Ct, Manuka ACT 2603
+    INVOICE_DATE: 14/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '2.73'
+    TOTAL_AMOUNT: '30.05'
+    LINE_ITEM_DESCRIPTIONS: Paracetamol Tablets 24pk|Hand Soap Refill 1L|Adhesive
+      Bandages 40pk|Shampoo 400ml
+    LINE_ITEM_QUANTITIES: 1|1|1|1
+    LINE_ITEM_PRICES: 6.87|6.51|5.19|11.48
+    LINE_ITEM_TOTAL_PRICES: 6.87|6.51|5.19|11.48
+CASE031:
+  layout: receipt_professional
+  merchant_category: hardware
+  degradation_seed: 9850
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Tremayne Trade Supplies
+    BUSINESS_ABN: 63 723 430 980
+    BUSINESS_ADDRESS: 336 Lopez Way, St Kilda VIC 3182
+    INVOICE_DATE: 19/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.84'
+    TOTAL_AMOUNT: '86.26'
+    LINE_ITEM_DESCRIPTIONS: Extension Cord 10m|Masking Tape 24mm
+    LINE_ITEM_QUANTITIES: 2|2
+    LINE_ITEM_PRICES: 36.97|6.16
+    LINE_ITEM_TOTAL_PRICES: 73.94|12.32
+CASE032:
+  layout: receipt_professional
+  merchant_category: electronics
+  degradation_seed: 8189
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Denholm Digital Supplies
+    BUSINESS_ABN: 24 500 978 820
+    BUSINESS_ADDRESS: 115 Ruiz Blvd, Brunswick VIC 3056
+    INVOICE_DATE: 19/11/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '27.92'
+    TOTAL_AMOUNT: '307.15'
+    LINE_ITEM_DESCRIPTIONS: Phone Case|USB Hub 4-port|HDMI Cable 2m|Bluetooth Headphones
+    LINE_ITEM_QUANTITIES: 2|2|3|1
+    LINE_ITEM_PRICES: 35.96|33.34|14.68|124.51
+    LINE_ITEM_TOTAL_PRICES: 71.92|66.68|44.04|124.51
+CASE033:
+  layout: receipt_retail_tax
+  merchant_category: hardware
+  degradation_seed: 6968
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Calloway Home Improvement
+    BUSINESS_ABN: 36 812 191 361
+    BUSINESS_ADDRESS: 211 Brown Cres, South Yarra VIC 3141
+    INVOICE_DATE: 03/06/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '11.65'
+    TOTAL_AMOUNT: '128.12'
+    LINE_ITEM_DESCRIPTIONS: Drill Bit Set|Masking Tape 24mm|Potting Mix 25L|Garden
+      Hose 20m
+    LINE_ITEM_QUANTITIES: 1|2|1|1
+    LINE_ITEM_PRICES: 56.88|3.52|17.75|46.45
+    LINE_ITEM_TOTAL_PRICES: 56.88|7.04|17.75|46.45
+CASE034:
+  layout: receipt_thermal_80mm
+  merchant_category: liquor
+  degradation_seed: 4871
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Farrant Liquor Merchants
+    BUSINESS_ABN: 42 939 909 169
+    BUSINESS_ADDRESS: 143 George Cl, St Kilda VIC 3182
+    INVOICE_DATE: 04/03/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '30.34'
+    TOTAL_AMOUNT: '333.70'
+    LINE_ITEM_DESCRIPTIONS: Sparkling Wine 750ml|Cider 6pk|Gin 700ml|Ice Bag 5kg|Wine
+      White 750ml|Wine Red 750ml
+    LINE_ITEM_QUANTITIES: 3|2|1|2|1|3
+    LINE_ITEM_PRICES: 33.24|24.67|52.39|6.77|15.24|34.49
+    LINE_ITEM_TOTAL_PRICES: 99.72|49.34|52.39|13.54|15.24|103.47
+CASE035:
+  layout: receipt_thermal_80mm
+  merchant_category: liquor
+  degradation_seed: 2515
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Calloway Bottle Shop
+    BUSINESS_ABN: 81 985 435 346
+    BUSINESS_ADDRESS: 391 Miller Dr, Brunswick VIC 3056
+    INVOICE_DATE: 03/12/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '11.40'
+    TOTAL_AMOUNT: '125.45'
+    LINE_ITEM_DESCRIPTIONS: Gin 700ml|Cider 6pk
+    LINE_ITEM_QUANTITIES: 1|2
+    LINE_ITEM_PRICES: 76.17|24.64
+    LINE_ITEM_TOTAL_PRICES: 76.17|49.28
+CASE036:
+  layout: receipt_thermal_80mm
+  merchant_category: retail
+  degradation_seed: 4395
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ellery Emporium
+    BUSINESS_ABN: 73 247 510 799
+    BUSINESS_ADDRESS: 40 Mack Ln, Parramatta NSW 2150
+    INVOICE_DATE: 13/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.12'
+    TOTAL_AMOUNT: '56.31'
+    LINE_ITEM_DESCRIPTIONS: Bath Towel|Cotton T-Shirt|Coat Hangers 10pk|Kitchen Sponge
+      6pk
+    LINE_ITEM_QUANTITIES: 1|1|1|3
+    LINE_ITEM_PRICES: 25.22|11.19|9.07|3.61
+    LINE_ITEM_TOTAL_PRICES: 25.22|11.19|9.07|10.83
+CASE037:
+  layout: receipt_retail_tax
+  merchant_category: office
+  degradation_seed: 4243
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Blackwood Print & Office
+    BUSINESS_ABN: 90 118 384 251
+    BUSINESS_ADDRESS: 273 Phillips St, Norwood SA 5067
+    INVOICE_DATE: 20/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.77'
+    TOTAL_AMOUNT: '85.43'
+    LINE_ITEM_DESCRIPTIONS: Sticky Notes 12pk|Printer Paper A4 500pk|Pens Ballpoint
+      10pk|Desk Stapler
+    LINE_ITEM_QUANTITIES: 1|1|3|2
+    LINE_ITEM_PRICES: 7.09|12.46|6.06|23.85
+    LINE_ITEM_TOTAL_PRICES: 7.09|12.46|18.18|47.70
+CASE038:
+  layout: receipt_hospitality
+  merchant_category: cafe
+  degradation_seed: 9598
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Goswell Cafe
+    BUSINESS_ABN: 96 354 278 498
+    BUSINESS_ADDRESS: 272 Walker Cres, Parramatta NSW 2150
+    INVOICE_DATE: 09/10/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '6.71'
+    TOTAL_AMOUNT: '73.79'
+    LINE_ITEM_DESCRIPTIONS: Ham and Cheese Croissant|Big Breakfast|Orange Juice 300ml|Flat
+      White
+    LINE_ITEM_QUANTITIES: 1|2|1|3
+    LINE_ITEM_PRICES: 10.06|21.41|5.85|5.02
+    LINE_ITEM_TOTAL_PRICES: 10.06|42.82|5.85|15.06
+CASE039:
+  layout: receipt_professional
+  merchant_category: office
+  degradation_seed: 7008
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Southern Office Supplies
+    BUSINESS_ABN: 31 084 124 118
+    BUSINESS_ADDRESS: 58 Calderon Rd, Prospect SA 5082
+    INVOICE_DATE: 10/03/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '8.87'
+    TOTAL_AMOUNT: '97.55'
+    LINE_ITEM_DESCRIPTIONS: Toner Cartridge Black
+    LINE_ITEM_QUANTITIES: '1'
+    LINE_ITEM_PRICES: '97.55'
+    LINE_ITEM_TOTAL_PRICES: '97.55'
+CASE040:
+  layout: receipt_thermal_57mm
+  merchant_category: pharmacy
+  degradation_seed: 2227
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Regional Pharmacy
+    BUSINESS_ABN: 46 244 935 348
+    BUSINESS_ADDRESS: 149 Novak Cl, Parramatta NSW 2150
+    INVOICE_DATE: 10/09/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.42'
+    TOTAL_AMOUNT: '59.67'
+    LINE_ITEM_DESCRIPTIONS: Hand Soap Refill 1L|Shampoo 400ml|Paracetamol Tablets
+      24pk|Cough Lozenges 16pk|Vitamin C 60 Tablets|Adhesive Bandages 40pk
+    LINE_ITEM_QUANTITIES: 1|1|2|2|1|1
+    LINE_ITEM_PRICES: 7.14|7.97|6.30|7.32|11.76|5.56
+    LINE_ITEM_TOTAL_PRICES: 7.14|7.97|12.60|14.64|11.76|5.56
+CASE041:
+  layout: receipt_retail_tax
+  merchant_category: office
+  degradation_seed: 5610
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Harbourside Stationery Co
+    BUSINESS_ABN: 14 740 164 005
+    BUSINESS_ADDRESS: 311 Santiago Ave, Richmond VIC 3121
+    INVOICE_DATE: 09/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '8.17'
+    TOTAL_AMOUNT: '89.92'
+    LINE_ITEM_DESCRIPTIONS: Sticky Notes 12pk|Lever Arch File|Printer Paper A4 500pk|Pens
+      Ballpoint 10pk|Whiteboard Markers 4pk
+    LINE_ITEM_QUANTITIES: 3|6|1|3|1
+    LINE_ITEM_PRICES: 6.55|6.61|12.31|4.13|5.91
+    LINE_ITEM_TOTAL_PRICES: 19.65|39.66|12.31|12.39|5.91
+CASE042:
+  layout: receipt_retail_tax
+  merchant_category: automotive
+  degradation_seed: 7644
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ellery Motor Spares
+    BUSINESS_ABN: 47 242 786 801
+    BUSINESS_ADDRESS: 118 Gill Blvd, Cronulla NSW 2230
+    INVOICE_DATE: 23/03/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '4.34'
+    TOTAL_AMOUNT: '47.72'
+    LINE_ITEM_DESCRIPTIONS: Motor Oil 5L
+    LINE_ITEM_QUANTITIES: '1'
+    LINE_ITEM_PRICES: '47.72'
+    LINE_ITEM_TOTAL_PRICES: '47.72'
+CASE043:
+  layout: receipt_fuel
+  merchant_category: fuel
+  degradation_seed: 1973
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Carrington Petroleum
+    BUSINESS_ABN: 35 128 059 826
+    BUSINESS_ADDRESS: 242 Meyers Tce, Paddington QLD 4064
+    INVOICE_DATE: 03/05/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '17.57'
+    TOTAL_AMOUNT: '193.28'
+    LINE_ITEM_DESCRIPTIONS: Coffee Regular|Premium Unleaded 98|Bottled Water 600ml|Diesel
+    LINE_ITEM_QUANTITIES: 2|1|2|1
+    LINE_ITEM_PRICES: 5.18|116.13|3.42|59.95
+    LINE_ITEM_TOTAL_PRICES: 10.36|116.13|6.84|59.95
+CASE044:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 8336
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Carrington Grocer
+    BUSINESS_ABN: 18 204 505 331
+    BUSINESS_ADDRESS: 38 Navarro Way, South Yarra VIC 3141
+    INVOICE_DATE: 21/08/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.21'
+    TOTAL_AMOUNT: '57.33'
+    LINE_ITEM_DESCRIPTIONS: Bread White 700g|Olive Oil 500ml|Chicken Breast 500g
+    LINE_ITEM_QUANTITIES: 2|1|3
+    LINE_ITEM_PRICES: 4.03|14.20|11.69
+    LINE_ITEM_TOTAL_PRICES: 8.06|14.20|35.07
+CASE045:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 4755
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Ashby Corner Market
+    BUSINESS_ABN: 38 586 923 226
+    BUSINESS_ADDRESS: 32 Mason Ave, Parramatta NSW 2150
+    INVOICE_DATE: 04/11/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '0.24'
+    TOTAL_AMOUNT: '2.65'
+    LINE_ITEM_DESCRIPTIONS: Pasta 500g
+    LINE_ITEM_QUANTITIES: '1'
+    LINE_ITEM_PRICES: '2.65'
+    LINE_ITEM_TOTAL_PRICES: '2.65'
+CASE046:
+  layout: receipt_thermal_80mm
+  merchant_category: pharmacy
+  degradation_seed: 3565
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Northern Pharmacy
+    BUSINESS_ABN: 21 025 634 216
+    BUSINESS_ADDRESS: 1 Rubio Pl, Parramatta NSW 2150
+    INVOICE_DATE: 19/03/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '7.10'
+    TOTAL_AMOUNT: '78.05'
+    LINE_ITEM_DESCRIPTIONS: Adhesive Bandages 40pk|Paracetamol Tablets 24pk|Vitamin
+      C 60 Tablets|Shampoo 400ml|Hand Soap Refill 1L|Cough Lozenges 16pk
+    LINE_ITEM_QUANTITIES: 2|2|2|1|2|1
+    LINE_ITEM_PRICES: 6.68|6.58|9.39|8.93|7.59|8.64
+    LINE_ITEM_TOTAL_PRICES: 13.36|13.16|18.78|8.93|15.18|8.64
+CASE047:
+  layout: receipt_fuel
+  merchant_category: fuel
+  degradation_seed: 7972
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Western Roadhouse
+    BUSINESS_ABN: 62 073 375 433
+    BUSINESS_ADDRESS: 287 Lawson Ave, Richmond VIC 3121
+    INVOICE_DATE: 10/05/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '1.80'
+    TOTAL_AMOUNT: '19.80'
+    LINE_ITEM_DESCRIPTIONS: Bottled Water 600ml|Car Wash Premium
+    LINE_ITEM_QUANTITIES: 1|1
+    LINE_ITEM_PRICES: 2.56|17.24
+    LINE_ITEM_TOTAL_PRICES: 2.56|17.24
+CASE048:
+  layout: receipt_thermal_57mm
+  merchant_category: grocery
+  degradation_seed: 6161
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Metro Foodstore
+    BUSINESS_ABN: 88 036 541 458
+    BUSINESS_ADDRESS: 210 Brown Cl, Norwood SA 5067
+    INVOICE_DATE: 04/01/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '4.48'
+    TOTAL_AMOUNT: '49.26'
+    LINE_ITEM_DESCRIPTIONS: Frozen Pizza|Olive Oil 500ml|Bread White 700g|Tomato Sauce
+      500ml
+    LINE_ITEM_QUANTITIES: 1|2|1|2
+    LINE_ITEM_PRICES: 6.12|15.03|4.64|4.22
+    LINE_ITEM_TOTAL_PRICES: 6.12|30.06|4.64|8.44
+CASE049:
+  layout: receipt_retail_tax
+  merchant_category: electronics
+  degradation_seed: 7258
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Metro Digital Supplies
+    BUSINESS_ABN: 40 685 014 294
+    BUSINESS_ADDRESS: 215 Martinez Gr, Prospect SA 5082
+    INVOICE_DATE: 26/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '25.83'
+    TOTAL_AMOUNT: '284.14'
+    LINE_ITEM_DESCRIPTIONS: Wireless Mouse|Batteries AA 8pk|USB Hub 4-port|HDMI Cable
+      2m|USB-C Charger 20W
+    LINE_ITEM_QUANTITIES: 2|3|2|3|1
+    LINE_ITEM_PRICES: 42.79|9.20|26.47|29.25|30.27
+    LINE_ITEM_TOTAL_PRICES: 85.58|27.60|52.94|87.75|30.27
+CASE050:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 2866
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Bramwell Fresh Market
+    BUSINESS_ABN: 85 019 655 698
+    BUSINESS_ADDRESS: 347 Brown Ln, Toowoomba QLD 4350
+    INVOICE_DATE: 26/12/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.18'
+    TOTAL_AMOUNT: '56.95'
+    LINE_ITEM_DESCRIPTIONS: Chips BBQ 175g|Coffee Beans 1kg
+    LINE_ITEM_QUANTITIES: 1|2
+    LINE_ITEM_PRICES: 3.63|26.66
+    LINE_ITEM_TOTAL_PRICES: 3.63|53.32
+CASE051:
+  layout: receipt_hospitality
+  merchant_category: cafe
+  degradation_seed: 5251
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Dunmore Cafe
+    BUSINESS_ABN: 46 169 340 608
+    BUSINESS_ADDRESS: 157 Ramos Rd, Unley SA 5061
+    INVOICE_DATE: 28/09/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '5.72'
+    TOTAL_AMOUNT: '62.94'
+    LINE_ITEM_DESCRIPTIONS: Flat White|Ham and Cheese Croissant|Avocado on Toast|Big
+      Breakfast
+    LINE_ITEM_QUANTITIES: 1|2|1|1
+    LINE_ITEM_PRICES: 4.16|7.22|19.29|25.05
+    LINE_ITEM_TOTAL_PRICES: 4.16|14.44|19.29|25.05
+CASE052:
+  layout: receipt_thermal_80mm
+  merchant_category: grocery
+  degradation_seed: 5982
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Yarrow Fresh Market
+    BUSINESS_ABN: 12 835 615 951
+    BUSINESS_ADDRESS: 96 Allison Tce, Alexandria NSW 2015
+    INVOICE_DATE: 10/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '0.87'
+    TOTAL_AMOUNT: '9.58'
+    LINE_ITEM_DESCRIPTIONS: Bread White 700g
+    LINE_ITEM_QUANTITIES: '2'
+    LINE_ITEM_PRICES: '4.79'
+    LINE_ITEM_TOTAL_PRICES: '9.58'
+CASE053:
+  layout: receipt_retail_tax
+  merchant_category: automotive
+  degradation_seed: 7230
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: Eastern Automotive Supplies
+    BUSINESS_ABN: 43 484 656 482
+    BUSINESS_ADDRESS: 33 Jones Way, Chatswood NSW 2067
+    INVOICE_DATE: 11/02/2024
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '18.81'
+    TOTAL_AMOUNT: '206.92'
+    LINE_ITEM_DESCRIPTIONS: Tyre Pressure Gauge|Wiper Blades Pair|Motor Oil 5L|Car
+      Air Freshener|Car Vacuum Cleaner
+    LINE_ITEM_QUANTITIES: 1|1|2|1|1
+    LINE_ITEM_PRICES: 11.11|32.56|43.14|13.29|63.68
+    LINE_ITEM_TOTAL_PRICES: 11.11|32.56|86.28|13.29|63.68
+CASE054:
+  layout: receipt_hospitality
+  merchant_category: cafe
+  degradation_seed: 6810
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: National Coffee House
+    BUSINESS_ABN: 93 366 299 468
+    BUSINESS_ADDRESS: 147 Collins Rd, Chatswood NSW 2067
+    INVOICE_DATE: 21/01/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '9.36'
+    TOTAL_AMOUNT: '102.99'
+    LINE_ITEM_DESCRIPTIONS: Ham and Cheese Croissant|Big Breakfast|Long Black|Orange
+      Juice 300ml|Avocado on Toast
+    LINE_ITEM_QUANTITIES: 1|2|3|2|1
+    LINE_ITEM_PRICES: 8.85|24.63|4.92|6.99|16.14
+    LINE_ITEM_TOTAL_PRICES: 8.85|49.26|14.76|13.98|16.14
+CASE055:
+  layout: receipt_retail_tax
+  merchant_category: electronics
+  degradation_seed: 1740
+  fields:
+    DOCUMENT_TYPE: RECEIPT
+    SUPPLIER_NAME: National Digital Supplies
+    BUSINESS_ABN: 22 044 369 957
+    BUSINESS_ADDRESS: 102 Campbell Cres, Unley SA 5061
+    INVOICE_DATE: 06/07/2023
+    IS_GST_INCLUDED: 'true'
+    GST_AMOUNT: '26.93'
+    TOTAL_AMOUNT: '296.27'
+    LINE_ITEM_DESCRIPTIONS: USB-C Charger 20W|USB Hub 4-port|Bluetooth Headphones|Batteries
+      AA 8pk|Wireless Mouse
+    LINE_ITEM_QUANTITIES: 1|2|1|3|2
+    LINE_ITEM_PRICES: 28.33|25.62|121.34|14.70|25.63
+    LINE_ITEM_TOTAL_PRICES: 28.33|51.24|121.34|44.10|51.26

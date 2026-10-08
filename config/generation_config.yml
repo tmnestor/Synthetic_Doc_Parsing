@@ -1,0 +1,104 @@
+# Working directories are resolved against the repository root and must stay outside it.
+output_dir: ../evaluation_data/output
+derived_dir: ../evaluation_data/derived
+ground_truth_dir: ground_truth
+# `generate --distractors` writes its renders to <output_dir>/<distractor_output_subdir>/<type>/,
+# beside the plain renders in <output_dir>/clean/<type>/. A single directory name; never `clean`.
+distractor_output_subdir: distractor
+# `generate --distractors --label-variation` writes its renders to
+# <output_dir>/<labelled_varied_output_subdir>/<type>/, each type directory with its label_styles.jsonl
+# sidecar. A single directory name; never `clean` nor the distractor directory.
+labelled_varied_output_subdir: labelled_varied
+
+document_types:
+  bank_statements:
+    ground_truth: ground_truth/bank_statements.yml
+    layouts: config/layouts/bank_statements.yml
+    output_subdir: bank_statements
+    generate_clean: true
+  receipts:
+    ground_truth: ground_truth/receipts.yml
+    layouts: config/layouts/receipts.yml
+    output_subdir: receipts
+    generate_clean: true
+  invoices:
+    ground_truth: ground_truth/invoices.yml
+    layouts: config/layouts/invoices.yml
+    output_subdir: invoices
+    generate_clean: true
+
+# Receipt degradation. Receipts are the only type users photograph -- bank
+# statements and invoices arrive as clean PDFs or printouts -- so they are the
+# only type degraded. Each tier below produces one variant per receipt, so the
+# length of this list IS the variant count.
+#
+# Ordering is significant: a tier's index fixes its seed offset, so reordering
+# the list changes every rendered image.
+#
+# Excluded deliberately: Augraphy's DirtyRollers and BadPhotoCopy model
+# photocopier damage, a different story from a phone photograph. Also excluded:
+# Augraphy's geometric augmentations -- the warp owns geometry, and stacking a
+# second perspective transform would defeat the rectifier's quad detection.
+receipt_degradation:
+  tiers:
+    - name: light
+      suffix: v1
+      ink:    [{augmentation: InkBleed, intensity: [0.05, 0.15], kernel: 3}]
+      paper:  [{augmentation: LightingGradient, max_brightness: 255, direction: 90}]
+      warp:   {foreshorten: [0.01, 0.03], rotation_deg: [-3, 3], margin: [0.05, 0.10]}
+      camera: {blur: [0.2, 0.5], noise_sigma: [1, 3], jpeg: [85, 95]}
+
+    - name: moderate
+      suffix: v2
+      ink:    [{augmentation: InkBleed, intensity: [0.15, 0.30], kernel: 5}]
+      paper:
+        - {augmentation: LightingGradient, max_brightness: 245, direction: 45}
+        - {augmentation: ShadowCast, side: bottom, opacity: [0.25, 0.45]}
+      warp:   {foreshorten: [0.03, 0.06], rotation_deg: [-8, 8], margin: [0.07, 0.14]}
+      camera: {blur: [0.4, 0.8], noise_sigma: [2, 5], jpeg: [65, 80]}
+
+    # Calibrated against rendered output, not guessed. Three constraints the
+    # first pass violated, all on the same principle -- heavy must be hard to
+    # read, never impossible, because a field a careful human cannot read is
+    # measuring noise rather than robustness:
+    #
+    #   fold_count 2 -> 1   Augraphy renders a fold as a hard black wedge, not
+    #                       a shaded crease. Two folds put one across the
+    #                       supplier name; one keeps it clear of the header.
+    #   max_brightness      230 -> 240. At 230 the gradient compounded with the
+    #                       cast shadow and buried the top-left corner.
+    #   shadow opacity      [0.40, 0.60] -> [0.30, 0.45], same reason -- the two
+    #                       darkening effects stack, so neither can sit at its
+    #                       own limit.
+    #
+    # The steep warp is untouched: geometry is what makes this tier hard, and
+    # it costs no legibility.
+    - name: heavy
+      suffix: v3
+      ink:    [{augmentation: InkBleed, intensity: [0.30, 0.50], kernel: 5}]
+      paper:
+        - {augmentation: Folding, fold_count: 1, fold_noise: 0.1}
+        - {augmentation: LightingGradient, max_brightness: 240, direction: 135}
+        - {augmentation: ShadowCast, side: left, opacity: [0.30, 0.45]}
+      warp:   {foreshorten: [0.06, 0.10], rotation_deg: [-14, 14], margin: [0.10, 0.18]}
+      camera: {blur: [0.7, 1.3], noise_sigma: [4, 8], jpeg: [50, 65]}
+
+derived_formats:
+  csv: true
+  jsonl: true
+
+# Evaluation-set export consumed by the extraction benchmark.
+# `python -m generators.pipeline eval-set --out <dir>` renders every document
+# of the listed types once, saving a clean copy into <out>/<clean_dir_prefix>_<date>/
+# and a degraded copy into <out>/<degraded_dir_prefix>_<date>/ under the same
+# generic {case}_{document_type}.png name, then writes the schema-projected
+# ground truth into both directories so each is self-contained.
+# Every key is required — the export fails fast on any omission.
+eval_set:
+  # config/extraction_schema.yml declares exactly these three document types —
+  # the whole surviving corpus.
+  document_types: [bank_statements, invoices, receipts]
+  clean_dir_prefix: synthetic
+  degraded_dir_prefix: degraded
+  csv_name: ground_truth.csv
+  jsonl_name: ground_truth.jsonl

@@ -1,0 +1,9 @@
+{
+ "cord.jsonl": "bee25f234b8094c00f5d92af267f69420bc24f581f8ef3518891c47525b7efb8",
+ "doc_refs.jsonl": "f9070829c1449bccebbb240a7d1a90599836d8e1fc5087531cf6e3f744db6bbd",
+ "docile.jsonl": "072b0719227f58df21b8fed6fbd15f211de00f2b2c4885396a03ec28f467203b",
+ "geometry.jsonl": "da95c3838fb00be481a0888804040c875f1f15eb8a591580f45e0ba1dd7f2946",
+ "ground_truth.csv": "84ac6944d20968c381e6db39c29a6d609c67fa4c7108c07495fdea8fb30de5f9",
+ "ground_truth.jsonl": "b4334cbafca625df80098392b44d77c65c62ce82de3d6ba2815e584c3d4f05c4",
+ "native.jsonl": "3266bbaca0f3da17a71c8e49e007ff250b774f50b1de2c89a19165aec6b7cc57"
+}

@@ -1,0 +1,1509 @@
+# Invoice layouts. Every invoice is a fixed A4-ish page of the same geometry,
+# so the four layouts share their page box, type sizes, budgets and almost all
+# of their blocks; each `body:` below is a sequence of the shared blocks in this
+# file, and the differences between the four are exactly the differences you can
+# read in those four sequences.
+#
+# Type sizes keep the names the legacy file already used, and so does the odd
+# ordering they imply: `subheader` (28) is the invoice's workhorse size -- it is
+# what `_normalize_layout` handed the legacy renderer as `font_size_small` --
+# while `body` (20) is used only for the supplier and payer *name* lines.
+#
+# Distractors. Every block gated `when: DX_...` draws only in a distractor render,
+# where a real Australian business invoice prints it: letterhead (logo, tagline,
+# phone numbers and email) above the title; identifiers beside the seller block;
+# the due and supply dates beside the invoice date; job and contact notes;
+# payment details beside the totals, with the amount paid and balance due of a
+# paid invoice in the totals column, or an unpaid one's account summary in a
+# panel under it; a services panel and offer; the terms under "Payment Terms:" (heading and terms
+# print together); and a footer band
+# at the foot of the page, carrying an unpaid invoice's remittance slip below a
+# dashed tear line. Which payment state a case is in is drawn per case
+# (config/distractors.yml -> states), and a case prints the items of its state
+# only. A plain render skips every one of them, so it is unchanged. Blocks sit
+# side by side in split columns, as on a real invoice, which keeps a page with
+# every item drawn on one A4 sheet (the renderer refuses a body that runs past
+# the bottom margin). Every near-miss value prints beside its own
+# label ("Amount paid", "Balance due", "Previous balance", "This invoice", "Ship To", "Due date",
+# "Date of supply"), never a scored field's. Distractor text fits through the
+# DISTRACTOR_* budgets, each sized to the column it draws in.
+_invoice_page: &invoice_page
+  page_dimensions:
+    width: 1900
+    height: 3508
+  margin: 100
+  content_width: 1700
+  font_sizes:
+    header: 48
+    subheader: 28
+    body: 20
+
+# Per-field pixel budgets. The seller fields draw in the 1100px left column of
+# the seller row and the payer fields in the 850px left column of the parties
+# row (both split rows below), so each budget is its column's width; the
+# line-item description column is 900px wide (see the table block below).
+# DISTRACTOR_* budgets fit distractor text only, never a scored field: LINE and
+# PARAGRAPH span the content width, WIDE the 1100px seller column and the
+# services panel, HALF a 850px column, META the 600px identifier column and the
+# 580px offer column, THIRD a 566px date column, and AMOUNT a money figure in
+# the 400px totals column.
+_invoice_field_budgets: &invoice_field_budgets
+  SUPPLIER_NAME: {width: 1100, fit: shrink_then_wrap, min_font: 12, max_lines: 2}
+  BUSINESS_ADDRESS: {width: 1100, fit: shrink_then_wrap, min_font: 12, max_lines: 2}
+  ABN_LINE: {width: 1100, fit: shrink, min_font: 12, max_lines: 1}
+  PAYER_NAME: {width: 850, fit: shrink_then_wrap, min_font: 12, max_lines: 2}
+  PAYER_ADDRESS: {width: 850, fit: shrink_then_wrap, min_font: 12, max_lines: 2}
+  LINE_ITEM_DESC: {width: 870, fit: shrink, min_font: 12, max_lines: 1}
+  DISTRACTOR_LINE: {width: 1700, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+  DISTRACTOR_PARAGRAPH: {width: 1700, fit: shrink_then_wrap, min_font: 16, max_lines: 3}
+  DISTRACTOR_WIDE: {width: 1060, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+  DISTRACTOR_HALF: {width: 820, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+  DISTRACTOR_META: {width: 580, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+  DISTRACTOR_THIRD: {width: 540, fit: shrink, min_font: 16, max_lines: 1}
+  DISTRACTOR_AMOUNT: {width: 200, fit: shrink, min_font: 16, max_lines: 1}
+
+# The ex-GST subtotal exists nowhere in ground truth: the legacy renderer
+# computed TOTAL_AMOUNT - GST_AMOUNT inline. See generators/layout_dsl/
+# field_providers.py's computed_totals, which every receipt already uses.
+# `invoice_distractors` draws nothing on a plain render; with distractors on it
+# selects 14 to 22 of the items below per case (config/distractors.yml).
+# `label_styles` words the ABN, GST and Total labels through their label sites:
+# each site's `labelled` is exactly what the invoice printed before label sites
+# existed, its separator folded in ("ABN: ", "GST (10%):", "Total:"), which every
+# plain and distractor render draws; `pool` names the variant wordings in
+# config/distractors.yml -> label_variation.pools. The GST-inclusive layout
+# prints GST as a component after the total, under its own wording and pool.
+_invoice_field_providers: &invoice_field_providers
+  - {name: computed_totals, params: {}}
+  - {name: invoice_distractors, params: {}}
+  - name: label_styles
+    params:
+      sites:
+        BUSINESS_ABN: {labelled: "ABN: ", pool: abn_invoice}
+        GST_AMOUNT: {labelled: "GST (10%):", pool: gst_invoice_added}
+        TOTAL_AMOUNT: {labelled: "Total:", pool: total_invoice}
+_invoice_inclusive_field_providers: &invoice_inclusive_field_providers
+  - {name: computed_totals, params: {}}
+  - {name: invoice_distractors, params: {}}
+  - name: label_styles
+    params:
+      sites:
+        BUSINESS_ABN: {labelled: "ABN: ", pool: abn_invoice}
+        GST_AMOUNT: {labelled: "GST included (10%):", pool: gst_invoice_included}
+        TOTAL_AMOUNT: {labelled: "Total:", pool: total_invoice}
+
+# The shared blocks draw every invoice item, each gated on its own DX_ key, so
+# every layout lists all of them; per-case variety comes from the selection.
+_invoice_distractor_items: &invoice_distractor_items
+  - in_invoice_number
+  - in_po_number
+  - in_customer_number
+  - in_acn
+  - in_accreditation
+  - in_tagline
+  - in_phone
+  - in_mobile
+  - in_freecall
+  - in_email
+  - in_website
+  - in_social
+  - in_remit_po_box
+  - in_branch_address
+  - in_due_date
+  - in_supply_date
+  - in_services
+  - in_promo_price
+  - in_contact_person
+  - in_job_reference
+  - in_amount_paid
+  - in_balance_due
+  - in_paid_stamp
+  - in_paid_date
+  - in_account_summary
+  - in_previous_balance
+  - in_bank_account
+  - in_bpay
+  - in_payid
+  - in_surcharge_note
+  - in_terms
+  - in_late_fee
+  - in_remittance_total
+  - in_thank_you
+  - in_remit_barcode
+  - in_page_number
+
+# The service categories (config/data_pools.yml) an invoice layout's content may
+# draw: the seed picks a case's supplier, and so its line items, from its layout's
+# list. The four general layouts carry the professional-services categories; the
+# four industry layouts below each declare their own.
+_invoice_general_categories: &invoice_general_categories
+  [accounting, legal, it_services, consulting, marketing]
+
+# Every primitive parameter an invoice layout must supply a default for.
+# Values are the legacy renderer's Python literals, transcribed verbatim.
+_invoice_defaults_values: &invoice_defaults_values
+  role: subheader
+  color: "black"
+  align: left
+  bold: false
+  # legacy: font_family: sans-serif. Carlito is the shared baseline (it is
+  # metric-compatible with Calibri, the modern AU invoice register); the two
+  # layouts below override it to liberation_sans so the corpus carries both
+  # typographic registers rather than one.
+  family: carlito
+  # Every separator the legacy renderer drew was the same one: a 1px #CCCCCC
+  # line 8px below the cursor, with the cursor advancing 20px in total.
+  rule_thickness: 1
+  rule_pad_above: 8
+  rule_pad_below: 11
+  rule_fill_char: none
+  spacer_height: 20               # the gap legacy left after each line-item table
+  pair_value_align: left
+  pair_min_gap: 0
+  # The "Date" line's separator. The right-aligned totals pairs below override
+  # it with ":" -- legacy printed "Total:" hard against its label, with no
+  # trailing space before the right-aligned amount.
+  pair_separator: ": "
+  table_header: true
+  table_header_bold: false        # legacy drew the column headings in font_s, unbolded
+  table_header_rule_top: true
+  table_header_rule_gap: 16
+  table_row_inset_y: 0
+  # Legacy passed no line_spacing when drawing a line-item description, so its
+  # recorded box is one fitted-font line tall (28px), not one 52px row tall.
+  table_cell_line_spacing: font
+  table_group_gap: 10
+  table_fill_inset: 0
+  table_dividers: []
+  table_offset_y: 0
+  table_capture: true
+  table_sub_line_height: 0
+  banner_text_color: "white"
+  banner_text_y: 0
+  banner_role: header
+  panel_padding: 0
+  panel_border_color: "black"
+  split_gap: 0
+  split_divider_color: "black"
+  # Legacy advanced by a per-line literal after every line it drew, not by a
+  # ratio of the font size, so every text/pair block below declares its own
+  # `line_advance:`. This mapping (int(font_sizes.<role> * 1.4), the convention
+  # the bank layouts use) is what the line-item table's own header-label advance
+  # resolves through -- the one advance no block declares.
+  line_advance: {header: 67, subheader: 39, body: 28}
+
+# --- letterhead (distractor render only) ----------------------------------------
+# The generated logo is the trading name's initials with the tagline beneath it,
+# both gated on the tagline's key, so the logo appears only when the letterhead
+# prints the tagline. The phone numbers and email sit opposite, right-aligned.
+_invoice_letterhead: &invoice_letterhead
+  type: split
+  widths: [850, 850]
+  children:
+    - - {type: logo, content: "{SUPPLIER_NAME}", style: circle, size: 120, min_text_size: 24,
+         text_color: white, inset: 18, color: "#1F3A5F", align: left, when: DX_TAGLINE}
+      - {type: spacer, height: 12, when: DX_TAGLINE}
+      - {type: text, content: "{DX_TAGLINE}", color: "#1F3A5F", budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_TAGLINE}
+      - {type: spacer, height: 24, when: DX_TAGLINE}
+    - - {type: text, content: "Phone: {DX_PHONE}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_PHONE}
+      - {type: text, content: "Mobile: {DX_MOBILE}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_MOBILE}
+      - {type: text, content: "Freecall: {DX_FREECALL}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_FREECALL}
+      - {type: text, content: "Email: {DX_EMAIL}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_EMAIL}
+      - {type: spacer, height: 24, when: DX_EMAIL}
+
+_invoice_title: &invoice_title
+  {type: text, content: "TAX INVOICE", role: header, bold: true, line_advance: 80}
+
+_invoice_rule: &invoice_rule {type: rule, color: "#CCCCCC"}
+
+# --- seller ------------------------------------------------------------------
+_invoice_seller_name: &invoice_seller_name
+  {type: text, content: "{SUPPLIER_NAME}", role: body, budget: SUPPLIER_NAME,
+   field: SUPPLIER_NAME, line_advance: 48}
+_invoice_seller_address: &invoice_seller_address
+  {type: text, content: "{BUSINESS_ADDRESS}", budget: BUSINESS_ADDRESS,
+   field: BUSINESS_ADDRESS, line_advance: 40}
+_invoice_seller_abn: &invoice_seller_abn
+  {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", budget: ABN_LINE,
+   field: BUSINESS_ABN, line_advance: 64}
+
+# The seller block on the left, with its branch, remittance address and ACN (the
+# near-misses for BUSINESS_ADDRESS and BUSINESS_ABN, each labelled) above the
+# ABN; the invoice's own identifiers right-aligned opposite. On a plain render the
+# right column is empty and the left draws exactly the three seller lines.
+_invoice_seller: &invoice_seller
+  type: split
+  widths: [1100, 600]
+  children:
+    - - *invoice_seller_name
+      - *invoice_seller_address
+      - {type: text, content: "Branch: {DX_BRANCH_ADDRESS}", budget: DISTRACTOR_WIDE,
+         line_advance: 40, when: DX_BRANCH_ADDRESS}
+      - {type: text, content: "Remittance address: {DX_REMIT_PO_BOX}", budget: DISTRACTOR_WIDE,
+         line_advance: 40, when: DX_REMIT_PO_BOX}
+      - {type: text, content: "ACN: {DX_ACN}", budget: DISTRACTOR_WIDE, line_advance: 40, when: DX_ACN}
+      - *invoice_seller_abn
+    - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
+      - {type: text, content: "Purchase order: {DX_PO_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_PO_NUMBER}
+      - {type: text, content: "Customer No: {DX_CUSTOMER_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CUSTOMER_NUMBER}
+      - {type: text, content: "{DX_ACCREDITATION}", align: right, color: gray,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_ACCREDITATION}
+
+# --- buyer -------------------------------------------------------------------
+# Legacy drew this whole group under one `if payer:` guard, so the address line
+# is guarded on PAYER_NAME as well as its own field there. Every one of the 55
+# corpus invoices carries both, so guarding the address on PAYER_ADDRESS alone
+# is equivalent for anything that passes `pipeline validate`.
+_invoice_bill_to: &invoice_bill_to
+  {type: text, content: "Bill To:", color: gray, line_advance: 40, when: PAYER_NAME}
+_invoice_payer_name: &invoice_payer_name
+  {type: text, content: "{PAYER_NAME}", role: body, budget: PAYER_NAME,
+   field: PAYER_NAME, line_advance: 44, when: PAYER_NAME}
+_invoice_payer_address: &invoice_payer_address
+  {type: text, content: "{PAYER_ADDRESS}", budget: PAYER_ADDRESS,
+   field: PAYER_ADDRESS, line_advance: 44, when: PAYER_ADDRESS}
+_invoice_buyer_gap: &invoice_buyer_gap {type: spacer, height: 28, when: PAYER_NAME}
+
+# Bill To on the left. A layout that ships goods puts the delivery address opposite
+# (_invoice_ship_to_column below), as real invoices print the two.
+_invoice_parties: &invoice_parties
+  type: split
+  widths: [850, 850]
+  children:
+    - - *invoice_bill_to
+      - *invoice_payer_name
+      - *invoice_payer_address
+    # The delivery column (_invoice_ship_to_column) is empty here: a ship-to address
+    # is printed only by layouts whose categories deliver goods.
+    - []
+
+# The delivery address (the near-miss for PAYER_ADDRESS) under its own "Ship To:"
+# heading, for the right column of the parties row on a layout that ships goods.
+_invoice_ship_to_column: &invoice_ship_to_column
+  - {type: text, content: "Ship To:", color: gray, budget: DISTRACTOR_HALF, line_advance: 40,
+     when: DX_SHIP_TO}
+  - {type: text, content: "{DX_SHIP_TO}", budget: DISTRACTOR_HALF, line_advance: 44,
+     when: DX_SHIP_TO}
+
+# A pair, not a text: legacy recorded only the value's own box, offset past the
+# "Date: " label it drew in the same string.
+_invoice_date: &invoice_date
+  {type: pair, label: "Date", value: "{INVOICE_DATE}", field: INVOICE_DATE, line_advance: 52}
+
+# The invoice date, with the due date and the date of supply (both near-misses
+# for INVOICE_DATE, each under its own label) beside it.
+_invoice_dates: &invoice_dates
+  type: split
+  widths: [566, 567, 567]
+  children:
+    - - *invoice_date
+    - - {type: text, content: "Due date: {DX_DUE_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_DUE_DATE}
+    - - {type: text, content: "Date of supply: {DX_SUPPLY_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_SUPPLY_DATE}
+
+# The job reference, and the supplier's contact person (a near-miss for
+# PAYER_NAME under its own label).
+_invoice_notes: &invoice_notes
+  type: split
+  widths: [850, 850]
+  children:
+    - - {type: text, content: "Job reference: {DX_JOB_REFERENCE}", budget: DISTRACTOR_HALF,
+         line_advance: 52, when: DX_JOB_REFERENCE}
+    - - {type: text, content: "Contact person: {DX_CONTACT_PERSON}", budget: DISTRACTOR_HALF,
+         line_advance: 52, when: DX_CONTACT_PERSON}
+
+# --- line items --------------------------------------------------------------
+# The header labels and the cell text both sit 12px inside the 52px band they
+# share (label_inset_y / row_inset_y). The two amount columns' headings are
+# left-aligned 200px to the left of the amounts beneath them, which is why they
+# carry their own label_x/label_align.
+_invoice_line_items: &invoice_line_items
+  type: table
+  rows: pipe_fields
+  frame: filled
+  fill_color: "#F0F0F0"
+  grouping: none
+  row_height: 52
+  header_height: 52
+  label_inset_y: 12
+  row_inset_y: 12
+  params:
+    fields: {description: LINE_ITEM_DESCRIPTIONS, quantity: LINE_ITEM_QUANTITIES,
+             price: LINE_ITEM_PRICES, total: LINE_ITEM_TOTAL_PRICES}
+    decimal_keys: [price, total]
+  columns:
+    - {key: description, label: "Description", align: left, x: 0,
+       budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS}
+    - {key: quantity, label: "Qty", align: left, x: 900, field: LINE_ITEM_QUANTITIES}
+    - {key: price, label: "Unit Price", align: right, x: 1250,
+       label_x: 1050, label_align: left, field: LINE_ITEM_PRICES}
+    # Anchored to the content region's right edge (x_right: 0), not to an x past it:
+    # the old `x: 1750` right-aligned the amounts at 100 + 1750 = 1850 px, 50 px
+    # beyond the 1800 px right margin the table fill and rules stop at.
+    - {key: total, label: "Total", align: right, x_right: 0,
+       label_x: 1550, label_align: left, field: LINE_ITEM_TOTAL_PRICES}
+# Deliberately bare: a plain spacer means "this layout's standard gap", which
+# is `defaults.spacer_height` (20px, legacy's gap after each line-item table).
+# Pinning the 20 inline would put a second copy of that number in the file and
+# leave `defaults.spacer_height` declared but read by nothing -- `_invoice_
+# buyer_gap` states `height:` precisely because its 28px *differs*.
+_invoice_table_gap: &invoice_table_gap {type: spacer}
+
+# `tax_invoice_mixed` used to draw two labelled tables, "GST-Applicable Items"
+# and "GST-Free Items", over the *same* LINE_ITEM_* list -- the legacy renderer
+# never split the items, it drew the identical list twice under two headings, so
+# every item appeared in both. The second table suppressed geometry capture to
+# stop its duplicate boxes colliding with the first's.
+#
+# Removed: the corpus carries no per-item GST flag, and `IS_GST_INCLUDED` is
+# `true` on all 55 invoices, so a GST-free table contradicted the scored ground
+# truth. All items are GST-inclusive; the layout now draws one table like the
+# others.
+
+# --- payment details (distractor render only) --------------------------------
+# The left column beside the totals, where a real invoice prints how to pay. Its
+# lines fit an 820px budget, leaving a clear gap before the totals column.
+_invoice_payment_details: &invoice_payment_details
+  - {type: text, content: "Direct deposit BSB: {DX_BSB}", budget: DISTRACTOR_HALF,
+     line_advance: 40, when: DX_BSB}
+  - {type: text, content: "Account number: {DX_ACCOUNT_NUMBER}", budget: DISTRACTOR_HALF,
+     line_advance: 40, when: DX_ACCOUNT_NUMBER}
+  - {type: text, content: "BPAY Biller Code: {DX_BPAY_BILLER}", budget: DISTRACTOR_HALF,
+     line_advance: 40, when: DX_BPAY_BILLER}
+  - {type: text, content: "BPAY Reference: {DX_BPAY_REFERENCE}", budget: DISTRACTOR_HALF,
+     line_advance: 40, when: DX_BPAY_REFERENCE}
+  - {type: text, content: "PayID: {DX_PAYID}", budget: DISTRACTOR_HALF, line_advance: 40,
+     when: DX_PAYID}
+  - {type: text, content: "{DX_SURCHARGE_NOTE}", color: gray, budget: DISTRACTOR_HALF,
+     line_advance: 40, when: DX_SURCHARGE_NOTE}
+
+# --- totals ------------------------------------------------------------------
+# A fixed 400px column at the page's right edge (legacy: right_edge - 400),
+# which equal division cannot express; on a plain render the left column draws
+# nothing. A paid invoice's account lines in the same column are near-misses for
+# TOTAL_AMOUNT, each under its own label: the amount paid and the nil balance due
+# below the invoice's own figures.
+_invoice_amount_paid: &invoice_amount_paid
+  {type: pair, label: "Amount paid", value: "{DX_AMOUNT_PAID}", value_align: right,
+   separator: ":", currency: symbol, budget: DISTRACTOR_AMOUNT, line_advance: 44,
+   when: DX_AMOUNT_PAID}
+_invoice_balance_due: &invoice_balance_due
+  {type: pair, label: "Balance due", value: "{DX_BALANCE_DUE}", value_align: right,
+   separator: ":", currency: symbol, bold: true, budget: DISTRACTOR_AMOUNT, line_advance: 44,
+   when: DX_BALANCE_DUE}
+
+# The right-hand column is the page's one totals region (a stack draws exactly
+# what its children would draw in its place); GST and Total label their values
+# through label sites, their ":" separators folded into the sites' wordings.
+_invoice_totals_separate: &invoice_totals_separate
+  type: split
+  widths: [1300, 400]
+  children:
+    - *invoice_payment_details
+    - - type: stack
+        region: totals
+        children:
+          - {type: pair, label: "Subtotal", value: "{SUBTOTAL_AMOUNT}", value_align: right,
+             separator: ":", currency: symbol, min_gap: 24, line_advance: 44}
+          - {type: pair, label: "{LABEL_GST_AMOUNT}", value: "{GST_AMOUNT}", value_align: right,
+             separator: "", currency: symbol, field: GST_AMOUNT, min_gap: 24, line_advance: 44}
+          - {type: pair, label: "{LABEL_TOTAL_AMOUNT}", value: "{TOTAL_AMOUNT}", value_align: right,
+             separator: "", currency: symbol, field: TOTAL_AMOUNT, role: header, bold: true, min_gap: 24,
+             line_advance: 64}
+          - *invoice_amount_paid
+          - *invoice_balance_due
+
+# GST-inclusive presentation: no subtotal, and GST is a component of the total
+# rather than an addition to it, so it is drawn *after* the total.
+_invoice_totals_inclusive: &invoice_totals_inclusive
+  type: split
+  widths: [1300, 400]
+  children:
+    - *invoice_payment_details
+    - - type: stack
+        region: totals
+        children:
+          - {type: pair, label: "{LABEL_TOTAL_AMOUNT}", value: "{TOTAL_AMOUNT}", value_align: right,
+             separator: "", currency: symbol, field: TOTAL_AMOUNT, role: header, bold: true, min_gap: 24,
+             line_advance: 64}
+          # This label ("GST included (10%):", its label site's labelled wording)
+          # is far longer than the separate branch's "GST (10%):" and overruns
+          # the fixed 400px totals column, so it declares a 24px min_gap: without
+          # one it collides with the right-aligned amount and the two merge into a
+          # single OCR token. It must still carry `field:`, since GST_AMOUNT is a KILE
+          # column, and the DocILE exporter raises on a present field with no
+          # captured bounding box.
+          - {type: pair, label: "{LABEL_GST_AMOUNT}", value: "{GST_AMOUNT}", value_align: right,
+             separator: "", currency: symbol, field: GST_AMOUNT, min_gap: 24, line_advance: 40}
+          - *invoice_amount_paid
+          - *invoice_balance_due
+
+# --- account summary (distractor render only) --------------------------------
+# An unpaid invoice's account summary, in a bordered panel of its own under the
+# totals, never in the totals column, and adding up: the previous balance and the
+# payment that cleared it (the same figure, labelled as received), then this
+# invoice and the amount due (both the invoice total). The panel is anchored on the
+# summary's own item; the previous balance requires it, so the two balance lines
+# print only inside it, and a summary drawn without them reads this invoice and the
+# amount due alone.
+_invoice_account_summary: &invoice_account_summary
+  type: split
+  widths: [850, 850]
+  children:
+    - - {type: spacer, height: 16, when: DX_ACCOUNT_TOTAL}
+      - type: panel
+        padding: 16
+        border_color: "#999999"
+        when: DX_ACCOUNT_TOTAL
+        children:
+          - {type: text, content: "Account summary", bold: true, line_advance: 40, when: DX_ACCOUNT_TOTAL}
+          - {type: pair, label: "Previous balance", value: "{DX_PREVIOUS_BALANCE}", value_align: right,
+             separator: ":", currency: symbol, budget: DISTRACTOR_AMOUNT, line_advance: 40,
+             when: DX_PREVIOUS_BALANCE}
+          - {type: pair, label: "Payment received, thank you", value: "{DX_PREVIOUS_BALANCE}",
+             value_align: right, separator: ":", currency: symbol, budget: DISTRACTOR_AMOUNT,
+             line_advance: 40, when: DX_PREVIOUS_BALANCE}
+          - {type: pair, label: "This invoice", value: "{DX_ACCOUNT_TOTAL}", value_align: right,
+             separator: ":", currency: symbol, budget: DISTRACTOR_AMOUNT, line_advance: 40,
+             when: DX_ACCOUNT_TOTAL}
+          - {type: pair, label: "Amount due", value: "{DX_ACCOUNT_TOTAL}", value_align: right,
+             separator: ":", currency: symbol, bold: true, budget: DISTRACTOR_AMOUNT, line_advance: 40,
+             when: DX_ACCOUNT_TOTAL}
+      - {type: spacer, height: 16, when: DX_ACCOUNT_TOTAL}
+    - []
+
+# --- services and offer (distractor render only) -----------------------------
+# A bordered panel listing the business's services, and a special offer whose
+# price is a near-miss for LINE_ITEM_PRICES under its own "Special offer" label.
+_invoice_services: &invoice_services
+  type: split
+  widths: [1100, 580]
+  gap: 20
+  children:
+    - - {type: spacer, height: 16, when: DX_SERVICES}
+      - type: panel
+        padding: 16
+        border_color: "#999999"
+        when: DX_SERVICES
+        children:
+          - {type: text, content: "Our services: {DX_SERVICES}", budget: DISTRACTOR_WIDE,
+             line_advance: 39, when: DX_SERVICES}
+      - {type: spacer, height: 24, when: DX_SERVICES}
+    - - {type: spacer, height: 32, when: DX_PROMO_PRICE}
+      - {type: text, content: "Special offer: services from ${DX_PROMO_PRICE}", bold: true,
+         color: "#1F3A5F", budget: DISTRACTOR_META, line_advance: 39, when: DX_PROMO_PRICE}
+      - {type: spacer, height: 24, when: DX_PROMO_PRICE}
+
+# The heading prints with the terms it announces, so no page carries a heading
+# with nothing under it (a plain render prints neither).
+_invoice_payment_terms: &invoice_payment_terms
+  {type: text, content: "Payment Terms:", color: gray, line_advance: 40, when: DX_TERMS}
+# The terms under the heading above, with the late fee: fine print, wrapped
+# across the content width.
+_invoice_terms_text: &invoice_terms_text
+  {type: text, content: "{DX_TERMS}", budget: DISTRACTOR_PARAGRAPH, line_advance: 39, when: DX_TERMS}
+_invoice_late_fee: &invoice_late_fee
+  {type: text, content: "{DX_LATE_FEE}", budget: DISTRACTOR_PARAGRAPH, line_advance: 39,
+   when: DX_LATE_FEE}
+
+# tax_invoice_high_value only: how a high-value account is delivered, a fixed
+# line of the page's own wording (legacy printed a bare "Delivery:" heading
+# with nothing under it).
+_invoice_delivery: &invoice_delivery
+  {type: text, content: "Delivery: issued by email; no paper copy will follow.", color: gray,
+   line_advance: 40}
+
+# --- footer and remittance slip (distractor render only) ---------------------
+_invoice_thank_you_gap: &invoice_thank_you_gap {type: spacer, height: 40, when: DX_THANK_YOU}
+_invoice_thank_you: &invoice_thank_you
+  {type: text, content: "{DX_THANK_YOU}", align: center, bold: true, budget: DISTRACTOR_LINE,
+   line_advance: 44, when: DX_THANK_YOU}
+# The website and social handle, each on its own line centred across the full
+# width under the thank-you line, so either prints centred alone or with the other.
+_invoice_contact_band: &invoice_contact_band
+  type: stack
+  children:
+    - {type: spacer, height: 24, when: DX_WEBSITE}
+    - {type: text, content: "{DX_WEBSITE}", align: center, color: gray, budget: DISTRACTOR_HALF,
+       line_advance: 40, when: DX_WEBSITE}
+    - {type: spacer, height: 12, when: DX_SOCIAL}
+    - {type: text, content: "Follow us {DX_SOCIAL}", align: center, color: gray,
+       budget: DISTRACTOR_HALF, line_advance: 40, when: DX_SOCIAL}
+
+# The remittance slip, printed only on an unpaid invoice: it is anchored on the
+# amount due (a repeat of TOTAL_AMOUNT under its own label), an item of the unpaid
+# payment state (config/distractors.yml -> states), which requires the invoice
+# number. A dashed tear line, its heading, the invoice number, the amount due, a
+# blank for the amount enclosed, and the payment barcode (Code 128 set C: 16
+# digits at 3px per module span 429px with their 10-module quiet zones). The
+# barcode's item requires the amount due, so it is always on a slip.
+_invoice_remittance_gap: &invoice_remittance_gap {type: spacer, height: 48, when: DX_REMITTANCE_TOTAL}
+_invoice_detach_note: &invoice_detach_note
+  {type: text, content: "Please detach this portion and return it with your payment",
+   role: body, align: center, color: gray, budget: DISTRACTOR_LINE, line_advance: 28,
+   when: DX_REMITTANCE_TOTAL}
+_invoice_tear_line: &invoice_tear_line
+  {type: rule, fill_char: "-", color: gray, pad_above: 0, pad_below: 0, when: DX_REMITTANCE_TOTAL}
+_invoice_remittance_heading: &invoice_remittance_heading
+  {type: text, content: "REMITTANCE ADVICE", bold: true, budget: DISTRACTOR_LINE, line_advance: 52,
+   when: DX_REMITTANCE_TOTAL}
+_invoice_remittance_slip: &invoice_remittance_slip
+  type: split
+  widths: [850, 850]
+  children:
+    - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", budget: DISTRACTOR_HALF,
+         line_advance: 44, when: DX_REMITTANCE_TOTAL}
+      - {type: pair, label: "Amount due", value: "{DX_REMITTANCE_TOTAL}", currency: symbol,
+         budget: DISTRACTOR_AMOUNT, line_advance: 44, when: DX_REMITTANCE_TOTAL}
+      - {type: text, content: "Amount enclosed: $ ____________", budget: DISTRACTOR_HALF,
+         line_advance: 44, when: DX_REMITTANCE_TOTAL}
+    - - {type: barcode, content: "{DX_REMIT_BARCODE}", symbology: code128, height: 90,
+         module_px: 3, quiet_zone: 10, human_readable: true, caption_gap: 6, align: right,
+         when: DX_REMIT_BARCODE}
+_invoice_page_number: &invoice_page_number
+  {type: text, content: "{DX_PAGE_NUMBER}", role: body, align: right, color: gray,
+   budget: DISTRACTOR_LINE, line_advance: 28, when: DX_PAGE_NUMBER}
+_invoice_page_number_gap: &invoice_page_number_gap {type: spacer, height: 24, when: DX_PAGE_NUMBER}
+
+# The footer band, drawn upward from the bottom margin (anchor: foot) so it sits at
+# the foot of the page however long the body is: the thank-you line, the website and
+# social contact band, the remittance slip of an unpaid invoice and the page number.
+# Every block in it is gated on a DX_ key, so a plain render draws none of it and is
+# unchanged. A footer that would reach up into the body fails fast.
+_invoice_footer: &invoice_footer
+  type: stack
+  anchor: foot
+  children:
+    - *invoice_thank_you_gap
+    - *invoice_thank_you
+    - *invoice_contact_band
+    - *invoice_remittance_gap
+    - *invoice_detach_note
+    - *invoice_tear_line
+    - *invoice_remittance_heading
+    - *invoice_remittance_slip
+    - *invoice_page_number_gap
+    - *invoice_page_number
+
+# --- the PAID stamp (overlay, distractor render only) --------------------------
+# A paid invoice may carry a clerk's PAID stamp, drawn over the finished page by
+# the overlay's stamp primitive (config/distractors.yml -> overlay.stamp) and
+# gated on its word, an item of the paid payment state only, so no stamp shares
+# a page with a remittance slip or an account summary. Its date line is the
+# paying transaction's date, printed when that item is drawn too. Candidates are
+# centres as page fractions where a clerk stamps: beside the title and the
+# invoice details, across the upper body, or over the totals panel left of the
+# figures, never relying on the blank band above the footer. They are tried in an
+# order drawn per document, and the first whose rotated stamp clears every scored
+# value and code mark is used; a page none clears fails fast. Each layout's own
+# candidates sit in the columns its body leaves to unscored text.
+_invoice_stamp: &invoice_stamp
+  {type: stamp, when: DX_PAID_STAMP, content: "{DX_PAID_STAMP}", date_key: DX_PAID_DATE,
+   candidates: [{x: 0.72, y: 0.15}, {x: 0.66, y: 0.10}, {x: 0.68, y: 0.19}, {x: 0.55, y: 0.40}]}
+
+# =============================================================================
+# The four industry layouts: trade, professional, wholesale and subscription.
+# Each has its own body, laid out around what that kind of business prints,
+# and declares the service categories its content may draw. They share the
+# page box, the type sizes, the defaults, the payment-detail lines and the
+# footer band above; their letterheads, identifier columns, notes, table
+# headings and terms are their own. As on the general four, every block gated
+# `when: DX_...` draws only in a distractor render, and every near-miss prints
+# under its own label.
+# =============================================================================
+
+# The industry layouts' budgets: the general four's, plus a one-line contact
+# budget for the 600px identifier column, where an email address would
+# otherwise wrap away from its label.
+_industry_field_budgets: &industry_field_budgets
+  <<: *invoice_field_budgets
+  DISTRACTOR_CONTACT: {width: 580, fit: shrink, min_font: 16, max_lines: 1}
+
+# Shared by the four: the GST-exclusive totals column, the page's one totals
+# region, labelling GST and Total through their label sites.
+_industry_totals_column: &industry_totals_column
+  - type: stack
+    region: totals
+    children:
+      - {type: pair, label: "Subtotal", value: "{SUBTOTAL_AMOUNT}", value_align: right,
+         separator: ":", currency: symbol, min_gap: 24, line_advance: 44}
+      - {type: pair, label: "{LABEL_GST_AMOUNT}", value: "{GST_AMOUNT}", value_align: right,
+         separator: "", currency: symbol, field: GST_AMOUNT, min_gap: 24, line_advance: 44}
+      - {type: pair, label: "{LABEL_TOTAL_AMOUNT}", value: "{TOTAL_AMOUNT}", value_align: right,
+         separator: "", currency: symbol, field: TOTAL_AMOUNT, role: header, bold: true, min_gap: 24,
+         line_advance: 64}
+      - *invoice_amount_paid
+      - *invoice_balance_due
+
+# --- tax_invoice_trade -------------------------------------------------------
+# A tradie's invoice: the business name large at the top left, its address, ABN
+# and licence number beneath (a licensed trade prints it), a square logo and the
+# phone numbers opposite, a heavy rule in the business colour, the site the work
+# was done at beside Bill To, the job number, order number and the technician
+# who attended, labour and materials lines, and the workmanship warranty with
+# the terms. Liberation Sans, burnt orange.
+_trade_header: &trade_header
+  type: split
+  widths: [1100, 600]
+  children:
+    - - {type: text, content: "{SUPPLIER_NAME}", role: header, bold: true, budget: SUPPLIER_NAME,
+         field: SUPPLIER_NAME, line_advance: 64}
+      - {type: text, content: "{DX_TAGLINE}", color: "#B5400B", bold: true, budget: DISTRACTOR_WIDE,
+         line_advance: 40, when: DX_TAGLINE}
+      - *invoice_seller_address
+      - {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", budget: ABN_LINE, field: BUSINESS_ABN,
+         line_advance: 40}
+      - {type: text, content: "{DX_LICENCE}", bold: true, budget: DISTRACTOR_WIDE, line_advance: 40,
+         when: DX_LICENCE}
+      - {type: text, content: "ACN: {DX_ACN}", budget: DISTRACTOR_WIDE, line_advance: 40, when: DX_ACN}
+    - - {type: logo, content: "{SUPPLIER_NAME}", style: square, size: 120, min_text_size: 24,
+         text_color: white, inset: 12, color: "#B5400B", align: right, when: DX_TAGLINE}
+      - {type: spacer, height: 16, when: DX_TAGLINE}
+      - {type: text, content: "Phone: {DX_PHONE}", align: right, budget: DISTRACTOR_META,
+         line_advance: 39, when: DX_PHONE}
+      - {type: text, content: "Mobile: {DX_MOBILE}", align: right, bold: true, budget: DISTRACTOR_META,
+         line_advance: 39, when: DX_MOBILE}
+      - {type: text, content: "Email: {DX_EMAIL}", align: right, budget: DISTRACTOR_CONTACT,
+         line_advance: 39, when: DX_EMAIL}
+
+_trade_rule: &trade_rule {type: rule, color: "#B5400B", thickness: 6, pad_above: 16, pad_below: 24}
+
+# The title, with the invoice's own identifiers right-aligned opposite.
+_trade_title: &trade_title
+  type: split
+  widths: [1100, 600]
+  children:
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#B5400B", line_advance: 80}
+    - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
+      - {type: text, content: "Customer No: {DX_CUSTOMER_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CUSTOMER_NUMBER}
+      - {type: text, content: "{DX_ACCREDITATION}", align: right, color: gray,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_ACCREDITATION}
+
+# Bill To on the left; the site attended (a near-miss for PAYER_ADDRESS) under
+# its own "Site address:" heading opposite.
+_trade_parties: &trade_parties
+  type: split
+  widths: [850, 850]
+  children:
+    - - *invoice_bill_to
+      - *invoice_payer_name
+      - *invoice_payer_address
+    - - {type: text, content: "Site address:", color: gray, budget: DISTRACTOR_HALF, line_advance: 40,
+         when: DX_SITE_ADDRESS}
+      - {type: text, content: "{DX_SITE_ADDRESS}", budget: DISTRACTOR_HALF, line_advance: 44,
+         when: DX_SITE_ADDRESS}
+
+_trade_dates: &trade_dates
+  type: split
+  widths: [566, 567, 567]
+  children:
+    - - *invoice_date
+    - - {type: text, content: "Due date: {DX_DUE_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_DUE_DATE}
+    - - {type: text, content: "Work completed: {DX_SUPPLY_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_SUPPLY_DATE}
+
+# The job notes: the job number, the customer's order number and the technician
+# who attended (a near-miss for PAYER_NAME under its own label).
+_trade_job: &trade_job
+  type: split
+  widths: [566, 567, 567]
+  children:
+    - - {type: text, content: "Job No: {DX_JOB_REFERENCE}", bold: true, budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_JOB_REFERENCE}
+    - - {type: text, content: "Order No: {DX_PO_NUMBER}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_PO_NUMBER}
+    - - {type: text, content: "Technician: {DX_CONTACT_PERSON}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_CONTACT_PERSON}
+
+_trade_line_items: &trade_line_items
+  <<: *invoice_line_items
+  columns:
+    - {key: description, label: "Labour and materials", align: left, x: 0,
+       budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS}
+    - {key: quantity, label: "Qty", align: left, x: 900, field: LINE_ITEM_QUANTITIES}
+    - {key: price, label: "Rate", align: right, x: 1250,
+       label_x: 1050, label_align: left, field: LINE_ITEM_PRICES}
+    - {key: total, label: "Amount", align: right, x_right: 0,
+       label_x: 1550, label_align: left, field: LINE_ITEM_TOTAL_PRICES}
+
+_trade_totals: &trade_totals
+  type: split
+  widths: [1300, 400]
+  children:
+    - *invoice_payment_details
+    - *industry_totals_column
+
+# The workmanship warranty and the terms, under a heading that prints with them.
+_trade_terms: &trade_terms
+  type: stack
+  children:
+    - {type: spacer, height: 24, when: DX_WARRANTY}
+    - {type: text, content: "Warranty: {DX_WARRANTY}", bold: true, budget: DISTRACTOR_PARAGRAPH,
+       line_advance: 39, when: DX_WARRANTY}
+    - {type: spacer, height: 16, when: DX_TERMS}
+    - {type: text, content: "Terms and conditions", color: gray, line_advance: 40, when: DX_TERMS}
+    - *invoice_terms_text
+    - *invoice_late_fee
+
+# The services panel and special offer in the business colour: an orange border
+# and offer line, where the general layouts print grey and navy.
+_trade_offers: &trade_offers
+  type: split
+  widths: [1100, 580]
+  gap: 20
+  children:
+    - - {type: spacer, height: 16, when: DX_SERVICES}
+      - type: panel
+        padding: 16
+        border_color: "#B5400B"
+        when: DX_SERVICES
+        children:
+          - {type: text, content: "Our services: {DX_SERVICES}", budget: DISTRACTOR_WIDE,
+             line_advance: 39, when: DX_SERVICES}
+      - {type: spacer, height: 24, when: DX_SERVICES}
+    - - {type: spacer, height: 32, when: DX_PROMO_PRICE}
+      - {type: text, content: "Special offer: services from ${DX_PROMO_PRICE}", bold: true,
+         color: "#B5400B", budget: DISTRACTOR_META, line_advance: 39, when: DX_PROMO_PRICE}
+      - {type: spacer, height: 24, when: DX_PROMO_PRICE}
+
+_trade_items: &trade_items
+  - in_invoice_number
+  - in_po_number
+  - in_customer_number
+  - in_acn
+  - in_licence
+  - in_accreditation
+  - in_tagline
+  - in_phone
+  - in_mobile
+  - in_email
+  - in_website
+  - in_social
+  - in_site_address
+  - in_due_date
+  - in_supply_date
+  - in_services
+  - in_promo_price
+  - in_contact_person
+  - in_job_reference
+  - in_amount_paid
+  - in_balance_due
+  - in_paid_stamp
+  - in_paid_date
+  - in_account_summary
+  - in_previous_balance
+  - in_bank_account
+  - in_bpay
+  - in_payid
+  - in_surcharge_note
+  - in_terms
+  - in_late_fee
+  - in_warranty
+  - in_remittance_total
+  - in_thank_you
+  - in_remit_barcode
+  - in_page_number
+
+# --- tax_invoice_professional --------------------------------------------------
+# A firm's invoice on formal letterhead: everything centred under a round logo,
+# the firm's name in navy, its accreditation, address, postal address and ABN; a
+# double rule; the matter number, client number, the client's own reference for
+# the matter ("Your ref:", not a purchase order) and
+# the principal responsible right-aligned opposite the title and Bill To; the
+# particulars of the work; and the terms of engagement in full, with the
+# limitation of liability and the remittance advice at the foot. Carlito, navy.
+_professional_letterhead: &professional_letterhead
+  type: stack
+  children:
+    - {type: logo, content: "{SUPPLIER_NAME}", style: circle, size: 110, min_text_size: 22,
+       text_color: white, inset: 16, color: "#14213D", align: center, when: DX_TAGLINE}
+    - {type: spacer, height: 12, when: DX_TAGLINE}
+    - {type: text, content: "{SUPPLIER_NAME}", role: header, bold: true, color: "#14213D", align: center,
+       budget: SUPPLIER_NAME, field: SUPPLIER_NAME, line_advance: 64}
+    - {type: text, content: "{DX_TAGLINE}", color: gray, align: center, budget: DISTRACTOR_LINE,
+       line_advance: 39, when: DX_TAGLINE}
+    - {type: text, content: "{DX_ACCREDITATION}", color: "#14213D", align: center, budget: DISTRACTOR_LINE,
+       line_advance: 39, when: DX_ACCREDITATION}
+    - {type: text, content: "{BUSINESS_ADDRESS}", align: center, budget: BUSINESS_ADDRESS,
+       field: BUSINESS_ADDRESS, line_advance: 40}
+    - {type: text, content: "Postal address: {DX_REMIT_PO_BOX}", align: center, budget: DISTRACTOR_LINE,
+       line_advance: 40, when: DX_REMIT_PO_BOX}
+    - {type: text, content: "Also at: {DX_BRANCH_ADDRESS}", align: center, budget: DISTRACTOR_LINE,
+       line_advance: 40, when: DX_BRANCH_ADDRESS}
+    - {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", align: center, budget: ABN_LINE,
+       field: BUSINESS_ABN, line_advance: 40}
+    - {type: text, content: "ACN: {DX_ACN}", align: center, budget: DISTRACTOR_LINE, line_advance: 40,
+       when: DX_ACN}
+    - type: split
+      widths: [566, 567, 567]
+      children:
+        - - {type: text, content: "Telephone: {DX_PHONE}", align: center, budget: DISTRACTOR_THIRD,
+             line_advance: 40, when: DX_PHONE}
+        - - {type: text, content: "Freecall: {DX_FREECALL}", align: center, budget: DISTRACTOR_THIRD,
+             line_advance: 40, when: DX_FREECALL}
+        - - {type: text, content: "Email: {DX_EMAIL}", align: center, budget: DISTRACTOR_THIRD,
+             line_advance: 40, when: DX_EMAIL}
+
+_professional_rule_heavy: &professional_rule_heavy
+  {type: rule, color: "#14213D", thickness: 3, pad_above: 16, pad_below: 6}
+_professional_rule_light: &professional_rule_light
+  {type: rule, color: "#14213D", thickness: 1, pad_above: 0, pad_below: 28}
+
+# The title and the client on the left; the firm's references for the matter
+# right-aligned opposite, the principal responsible (a near-miss for PAYER_NAME)
+# under his or her own label.
+_professional_parties: &professional_parties
+  type: split
+  widths: [1100, 600]
+  children:
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#14213D", line_advance: 72}
+      - *invoice_bill_to
+      - *invoice_payer_name
+      - *invoice_payer_address
+    - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
+      - {type: text, content: "Matter No: {DX_MATTER_REFERENCE}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_MATTER_REFERENCE}
+      - {type: text, content: "Client No: {DX_CUSTOMER_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CUSTOMER_NUMBER}
+      - {type: text, content: "Your ref: {DX_CLIENT_REFERENCE}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CLIENT_REFERENCE}
+      - {type: text, content: "Principal: {DX_CONTACT_PERSON}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CONTACT_PERSON}
+
+_professional_dates: &professional_dates
+  type: split
+  widths: [566, 567, 567]
+  children:
+    - - *invoice_date
+    - - {type: text, content: "Due date: {DX_DUE_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_DUE_DATE}
+    - - {type: text, content: "Services to: {DX_SUPPLY_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_SUPPLY_DATE}
+
+_professional_heading: &professional_heading
+  {type: text, content: "For professional services rendered", bold: true, line_advance: 52}
+
+_professional_line_items: &professional_line_items
+  <<: *invoice_line_items
+  columns:
+    - {key: description, label: "Particulars", align: left, x: 0,
+       budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS}
+    - {key: quantity, label: "Qty", align: left, x: 900, field: LINE_ITEM_QUANTITIES}
+    - {key: price, label: "Rate", align: right, x: 1250,
+       label_x: 1050, label_align: left, field: LINE_ITEM_PRICES}
+    - {key: total, label: "Amount", align: right, x_right: 0,
+       label_x: 1550, label_align: left, field: LINE_ITEM_TOTAL_PRICES}
+
+_professional_totals: &professional_totals
+  type: split
+  widths: [1300, 400]
+  children:
+    - *invoice_payment_details
+    - *industry_totals_column
+
+# The practice areas, then the terms of engagement in full: the terms, the late
+# fee and the limitation of liability, under a heading that prints with them.
+_professional_terms: &professional_terms
+  type: stack
+  children:
+    - {type: spacer, height: 24, when: DX_SERVICES}
+    - {type: text, content: "Practice areas: {DX_SERVICES}", color: "#14213D", budget: DISTRACTOR_PARAGRAPH,
+       line_advance: 39, when: DX_SERVICES}
+    - {type: spacer, height: 24, when: DX_ENGAGEMENT_TERMS}
+    - {type: text, content: "Terms of engagement", bold: true, color: "#14213D", line_advance: 40,
+       when: DX_ENGAGEMENT_TERMS}
+    - {type: text, content: "{DX_ENGAGEMENT_TERMS}", budget: DISTRACTOR_PARAGRAPH, line_advance: 39,
+       when: DX_ENGAGEMENT_TERMS}
+    - *invoice_late_fee
+    - {type: text, content: "{DX_WARRANTY}", color: gray, budget: DISTRACTOR_PARAGRAPH, line_advance: 39,
+       when: DX_WARRANTY}
+
+_professional_items: &professional_items
+  - in_invoice_number
+  - in_client_reference
+  - in_customer_number
+  - in_matter_reference
+  - in_acn
+  - in_accreditation
+  - in_tagline
+  - in_phone
+  - in_freecall
+  - in_email
+  - in_website
+  - in_social
+  - in_remit_po_box
+  - in_branch_address
+  - in_due_date
+  - in_supply_date
+  - in_services
+  - in_contact_person
+  - in_amount_paid
+  - in_balance_due
+  - in_paid_stamp
+  - in_paid_date
+  - in_account_summary
+  - in_previous_balance
+  - in_bank_account
+  - in_bpay
+  - in_payid
+  - in_surcharge_note
+  - in_engagement_terms
+  - in_late_fee
+  - in_warranty
+  - in_remittance_total
+  - in_thank_you
+  - in_remit_barcode
+  - in_page_number
+
+# --- tax_invoice_wholesale -----------------------------------------------------
+# A supplier's invoice for goods: a letterhead band with a chevron logo, the seller's
+# warehouse and remittance addresses under its own, the title with the invoice
+# number, customer account, purchase order and delivery docket number
+# right-aligned opposite, the delivery address under "Ship To:" beside Bill To,
+# the dispatch date, the sales representative, item-coded lines with their pack
+# sizes, and the conditions of sale. Liberation Sans, dark grey.
+
+# The letterhead band in the wholesaler's dark grey: logo and tagline left, the
+# phone numbers and email right.
+_wholesale_letterhead: &wholesale_letterhead
+  type: split
+  widths: [850, 850]
+  children:
+    - - {type: logo, content: "{SUPPLIER_NAME}", style: chevron, size: 120, min_text_size: 24,
+         text_color: white, inset: 18, color: "#333333", align: left, when: DX_TAGLINE}
+      - {type: spacer, height: 12, when: DX_TAGLINE}
+      - {type: text, content: "{DX_TAGLINE}", color: "#333333", bold: true, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_TAGLINE}
+      - {type: spacer, height: 24, when: DX_TAGLINE}
+    - - {type: text, content: "Phone: {DX_PHONE}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_PHONE}
+      - {type: text, content: "Mobile: {DX_MOBILE}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_MOBILE}
+      - {type: text, content: "Freecall: {DX_FREECALL}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_FREECALL}
+      - {type: text, content: "Email: {DX_EMAIL}", align: right, budget: DISTRACTOR_HALF,
+         line_advance: 39, when: DX_EMAIL}
+      - {type: spacer, height: 24, when: DX_EMAIL}
+
+_wholesale_seller: &wholesale_seller
+  type: split
+  widths: [1100, 600]
+  children:
+    - - {type: text, content: "{SUPPLIER_NAME}", bold: true, budget: SUPPLIER_NAME, field: SUPPLIER_NAME,
+         line_advance: 44}
+      - *invoice_seller_address
+      - {type: text, content: "Warehouse: {DX_BRANCH_ADDRESS}", budget: DISTRACTOR_WIDE,
+         line_advance: 40, when: DX_BRANCH_ADDRESS}
+      - {type: text, content: "Remittance address: {DX_REMIT_PO_BOX}", budget: DISTRACTOR_WIDE,
+         line_advance: 40, when: DX_REMIT_PO_BOX}
+      - {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", budget: ABN_LINE, field: BUSINESS_ABN,
+         line_advance: 40}
+      - {type: text, content: "ACN: {DX_ACN}", budget: DISTRACTOR_WIDE, line_advance: 40, when: DX_ACN}
+      - {type: text, content: "{DX_ACCREDITATION}", color: gray, budget: DISTRACTOR_WIDE, line_advance: 40,
+         when: DX_ACCREDITATION}
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, align: right, color: "#333333",
+         line_advance: 72}
+      - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
+      - {type: text, content: "Customer account: {DX_CUSTOMER_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CUSTOMER_NUMBER}
+      - {type: text, content: "Purchase order: {DX_PO_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_PO_NUMBER}
+      - {type: text, content: "Delivery docket: {DX_DELIVERY_DOCKET}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_DELIVERY_DOCKET}
+
+_wholesale_rule: &wholesale_rule {type: rule, color: "#333333", thickness: 3, pad_above: 12, pad_below: 20}
+
+# Bill To with the delivery address (a near-miss for PAYER_ADDRESS) under its
+# own "Ship To:" heading opposite.
+_wholesale_parties: &wholesale_parties
+  type: split
+  widths: [850, 850]
+  children:
+    - - *invoice_bill_to
+      - *invoice_payer_name
+      - *invoice_payer_address
+    - *invoice_ship_to_column
+
+_wholesale_dates: &wholesale_dates
+  type: split
+  widths: [566, 567, 567]
+  children:
+    - - *invoice_date
+    - - {type: text, content: "Due date: {DX_DUE_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_DUE_DATE}
+    - - {type: text, content: "Dispatched: {DX_SUPPLY_DATE}", budget: DISTRACTOR_THIRD,
+         line_advance: 52, when: DX_SUPPLY_DATE}
+
+_wholesale_rep: &wholesale_rep
+  {type: text, content: "Sales representative: {DX_CONTACT_PERSON}", budget: DISTRACTOR_HALF,
+   line_advance: 52, when: DX_CONTACT_PERSON}
+
+_wholesale_line_items: &wholesale_line_items
+  <<: *invoice_line_items
+  columns:
+    - {key: description, label: "Item and description", align: left, x: 0,
+       budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS}
+    - {key: quantity, label: "Qty", align: left, x: 900, field: LINE_ITEM_QUANTITIES}
+    - {key: price, label: "Unit Price", align: right, x: 1250,
+       label_x: 1050, label_align: left, field: LINE_ITEM_PRICES}
+    - {key: total, label: "Amount", align: right, x_right: 0,
+       label_x: 1550, label_align: left, field: LINE_ITEM_TOTAL_PRICES}
+
+_wholesale_totals: &wholesale_totals
+  type: split
+  widths: [1300, 400]
+  children:
+    - *invoice_payment_details
+    - *industry_totals_column
+
+# The range carried and this month's special (its price a near-miss for
+# LINE_ITEM_PRICES under its own label), then the conditions of sale.
+_wholesale_offers: &wholesale_offers
+  type: split
+  widths: [1100, 580]
+  gap: 20
+  children:
+    - - {type: spacer, height: 24, when: DX_SERVICES}
+      - {type: text, content: "We supply: {DX_SERVICES}", budget: DISTRACTOR_WIDE, line_advance: 39,
+         when: DX_SERVICES}
+    - - {type: spacer, height: 24, when: DX_PROMO_PRICE}
+      - {type: text, content: "This month's specials from ${DX_PROMO_PRICE}", bold: true,
+         color: "#333333", budget: DISTRACTOR_META, line_advance: 39, when: DX_PROMO_PRICE}
+
+_wholesale_terms: &wholesale_terms
+  type: stack
+  children:
+    - {type: spacer, height: 24, when: DX_TERMS}
+    - {type: text, content: "Conditions of sale", bold: true, line_advance: 40, when: DX_TERMS}
+    - *invoice_terms_text
+    - *invoice_late_fee
+
+_wholesale_items: &wholesale_items
+  - in_invoice_number
+  - in_po_number
+  - in_customer_number
+  - in_delivery_docket
+  - in_acn
+  - in_accreditation
+  - in_tagline
+  - in_phone
+  - in_mobile
+  - in_freecall
+  - in_email
+  - in_website
+  - in_social
+  - in_ship_to
+  - in_remit_po_box
+  - in_branch_address
+  - in_due_date
+  - in_supply_date
+  - in_services
+  - in_promo_price
+  - in_contact_person
+  - in_amount_paid
+  - in_balance_due
+  - in_paid_stamp
+  - in_paid_date
+  - in_account_summary
+  - in_previous_balance
+  - in_bank_account
+  - in_bpay
+  - in_payid
+  - in_surcharge_note
+  - in_terms
+  - in_late_fee
+  - in_remittance_total
+  - in_thank_you
+  - in_remit_barcode
+  - in_page_number
+
+# --- tax_invoice_subscription --------------------------------------------------
+# A recurring bill: a round logo, the name, tagline, address and ABN at the top
+# left with the support line and email beneath, the title, invoice number and
+# account number opposite; a teal rule; Bill To beside the invoice date, the
+# billing period and the due date (both near-misses for INVOICE_DATE, each under
+# its own label); the plan lines charged this period;
+# the totals beside the direct-debit notice and the other ways to pay; an
+# upgrade offer; and the account terms. Carlito, teal.
+_subscription_header: &subscription_header
+  type: split
+  widths: [1100, 600]
+  children:
+    - - {type: logo, content: "{SUPPLIER_NAME}", style: circle, size: 100, min_text_size: 20,
+         text_color: white, inset: 14, color: "#0F766E", align: left, when: DX_TAGLINE}
+      - {type: spacer, height: 12, when: DX_TAGLINE}
+      - {type: text, content: "{SUPPLIER_NAME}", role: header, bold: true, color: "#0F766E",
+         budget: SUPPLIER_NAME, field: SUPPLIER_NAME, line_advance: 64}
+      - {type: text, content: "{DX_TAGLINE}", color: gray, budget: DISTRACTOR_WIDE, line_advance: 40,
+         when: DX_TAGLINE}
+      - *invoice_seller_address
+      - {type: text, content: "{LABEL_BUSINESS_ABN}{BUSINESS_ABN}", budget: ABN_LINE, field: BUSINESS_ABN,
+         line_advance: 40}
+      - {type: text, content: "ACN: {DX_ACN}", budget: DISTRACTOR_WIDE, line_advance: 40, when: DX_ACN}
+      - {type: text, content: "Support: {DX_FREECALL}", budget: DISTRACTOR_WIDE, line_advance: 40,
+         when: DX_FREECALL}
+      - {type: text, content: "Email: {DX_EMAIL}", budget: DISTRACTOR_WIDE, line_advance: 40,
+         when: DX_EMAIL}
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, align: right, line_advance: 72}
+      - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
+      - {type: text, content: "Account No: {DX_CUSTOMER_NUMBER}", align: right,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_CUSTOMER_NUMBER}
+      - {type: text, content: "{DX_ACCREDITATION}", align: right, color: gray,
+         budget: DISTRACTOR_META, line_advance: 40, when: DX_ACCREDITATION}
+
+_subscription_rule: &subscription_rule
+  {type: rule, color: "#0F766E", thickness: 4, pad_above: 16, pad_below: 24}
+
+_subscription_parties: &subscription_parties
+  type: split
+  widths: [850, 850]
+  children:
+    - - *invoice_bill_to
+      - *invoice_payer_name
+      - *invoice_payer_address
+    - - {type: pair, label: "Date", value: "{INVOICE_DATE}", field: INVOICE_DATE, line_advance: 44}
+      - {type: text, content: "Billing period: {DX_BILLING_PERIOD}", budget: DISTRACTOR_HALF,
+         line_advance: 44, when: DX_BILLING_PERIOD}
+      - {type: text, content: "Due date: {DX_DUE_DATE}", bold: true, budget: DISTRACTOR_HALF,
+         line_advance: 44, when: DX_DUE_DATE}
+
+_subscription_heading: &subscription_heading
+  {type: text, content: "Charges this period", bold: true, color: "#0F766E", line_advance: 52}
+
+_subscription_line_items: &subscription_line_items
+  <<: *invoice_line_items
+  columns:
+    - {key: description, label: "Plan or item", align: left, x: 0,
+       budget: LINE_ITEM_DESC, field: LINE_ITEM_DESCRIPTIONS}
+    - {key: quantity, label: "Qty", align: left, x: 900, field: LINE_ITEM_QUANTITIES}
+    - {key: price, label: "Price", align: right, x: 1250,
+       label_x: 1050, label_align: left, field: LINE_ITEM_PRICES}
+    - {key: total, label: "Amount", align: right, x_right: 0,
+       label_x: 1550, label_align: left, field: LINE_ITEM_TOTAL_PRICES}
+
+# The direct-debit notice (worded for the payment state) heads the ways to pay,
+# beside the totals; the supplier's bank line says "Bank account", apart from the
+# customer's "Account No" in the header.
+_subscription_totals: &subscription_totals
+  type: split
+  widths: [1300, 400]
+  children:
+    - - {type: text, content: "Payment: {DX_DIRECT_DEBIT}", bold: true, color: "#0F766E",
+         budget: DISTRACTOR_HALF, line_advance: 40, when: DX_DIRECT_DEBIT}
+      - {type: spacer, height: 12, when: DX_DIRECT_DEBIT}
+      - {type: text, content: "Direct deposit BSB: {DX_BSB}", budget: DISTRACTOR_HALF,
+         line_advance: 40, when: DX_BSB}
+      - {type: text, content: "Bank account: {DX_ACCOUNT_NUMBER}", budget: DISTRACTOR_HALF,
+         line_advance: 40, when: DX_ACCOUNT_NUMBER}
+      - {type: text, content: "BPAY Biller Code: {DX_BPAY_BILLER}", budget: DISTRACTOR_HALF,
+         line_advance: 40, when: DX_BPAY_BILLER}
+      - {type: text, content: "BPAY Reference: {DX_BPAY_REFERENCE}", budget: DISTRACTOR_HALF,
+         line_advance: 40, when: DX_BPAY_REFERENCE}
+      - {type: text, content: "PayID: {DX_PAYID}", budget: DISTRACTOR_HALF, line_advance: 40,
+         when: DX_PAYID}
+      - {type: text, content: "{DX_SURCHARGE_NOTE}", color: gray, budget: DISTRACTOR_HALF,
+         line_advance: 40, when: DX_SURCHARGE_NOTE}
+    - *industry_totals_column
+
+# The upgrade offer (its price a near-miss for LINE_ITEM_PRICES under its own
+# label, priced above every unit price billed), what else the business sells, and the account terms.
+_subscription_extras: &subscription_extras
+  type: stack
+  children:
+    - {type: spacer, height: 24, when: DX_UPGRADE_PRICE}
+    - type: panel
+      padding: 16
+      border_color: "#0F766E"
+      when: DX_UPGRADE_PRICE
+      children:
+        - {type: text, content: "Upgrade offer: move to our premium plan from ${DX_UPGRADE_PRICE} a month",
+           bold: true, color: "#0F766E", budget: DISTRACTOR_WIDE, line_advance: 39, when: DX_UPGRADE_PRICE}
+    - {type: spacer, height: 16, when: DX_SERVICES}
+    - {type: text, content: "Also available: {DX_SERVICES}", budget: DISTRACTOR_PARAGRAPH, line_advance: 39,
+       when: DX_SERVICES}
+    - {type: spacer, height: 16, when: DX_TERMS}
+    - {type: text, content: "Account terms", bold: true, line_advance: 40, when: DX_TERMS}
+    - *invoice_terms_text
+    - *invoice_late_fee
+
+_subscription_items: &subscription_items
+  - in_invoice_number
+  - in_customer_number
+  - in_billing_period
+  - in_direct_debit
+  - in_acn
+  - in_accreditation
+  - in_tagline
+  - in_freecall
+  - in_email
+  - in_website
+  - in_social
+  - in_due_date
+  - in_services
+  - in_upgrade_price
+  - in_amount_paid
+  - in_balance_due
+  - in_paid_stamp
+  - in_paid_date
+  - in_account_summary
+  - in_previous_balance
+  - in_bank_account
+  - in_bpay
+  - in_payid
+  - in_surcharge_note
+  - in_terms
+  - in_late_fee
+  - in_remittance_total
+  - in_thank_you
+  - in_remit_barcode
+  - in_page_number
+
+layouts:
+  tax_invoice_standard:
+    <<: *invoice_page
+    field_budgets: *invoice_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *invoice_distractor_items
+    overlay: [*invoice_stamp]
+    service_categories: *invoice_general_categories
+    defaults:
+      <<: *invoice_defaults_values
+    body:
+      - *invoice_letterhead
+      - *invoice_title
+      - *invoice_rule
+      - *invoice_seller
+      - *invoice_parties
+      - *invoice_buyer_gap
+      - *invoice_dates
+      - *invoice_notes
+      - *invoice_rule
+      - *invoice_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *invoice_totals_separate
+      - *invoice_account_summary
+      - *invoice_services
+      - *invoice_payment_terms
+      - *invoice_terms_text
+      - *invoice_late_fee
+      - *invoice_footer
+
+  tax_invoice_gst_inclusive:
+    <<: *invoice_page
+    field_budgets: *invoice_field_budgets
+    field_providers: *invoice_inclusive_field_providers
+    distractor_items: *invoice_distractor_items
+    overlay: [*invoice_stamp]
+    service_categories: *invoice_general_categories
+    defaults:
+      <<: *invoice_defaults_values
+      family: liberation_sans     # Arial register, against carlito elsewhere
+    # Identical to tax_invoice_standard but for its totals block.
+    body:
+      - *invoice_letterhead
+      - *invoice_title
+      - *invoice_rule
+      - *invoice_seller
+      - *invoice_parties
+      - *invoice_buyer_gap
+      - *invoice_dates
+      - *invoice_notes
+      - *invoice_rule
+      - *invoice_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *invoice_totals_inclusive
+      - *invoice_account_summary
+      - *invoice_services
+      - *invoice_payment_terms
+      - *invoice_terms_text
+      - *invoice_late_fee
+      - *invoice_footer
+  tax_invoice_high_value:
+    <<: *invoice_page
+    field_budgets: *invoice_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *invoice_distractor_items
+    overlay: [*invoice_stamp]
+    service_categories: *invoice_general_categories
+    defaults:
+      <<: *invoice_defaults_values
+    # Identical to tax_invoice_standard but for the delivery line after the terms.
+    body:
+      - *invoice_letterhead
+      - *invoice_title
+      - *invoice_rule
+      - *invoice_seller
+      - *invoice_parties
+      - *invoice_buyer_gap
+      - *invoice_dates
+      - *invoice_notes
+      - *invoice_rule
+      - *invoice_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *invoice_totals_separate
+      - *invoice_account_summary
+      - *invoice_services
+      - *invoice_payment_terms
+      - *invoice_terms_text
+      - *invoice_late_fee
+      - *invoice_delivery
+      - *invoice_footer
+  tax_invoice_mixed:
+    <<: *invoice_page
+    field_budgets: *invoice_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *invoice_distractor_items
+    overlay: [*invoice_stamp]
+    service_categories: *invoice_general_categories
+    defaults:
+      <<: *invoice_defaults_values
+      family: liberation_sans     # Arial register, against carlito elsewhere
+    # tax_invoice_standard's sequence in the Arial register.
+    body:
+      - *invoice_letterhead
+      - *invoice_title
+      - *invoice_rule
+      - *invoice_seller
+      - *invoice_parties
+      - *invoice_buyer_gap
+      - *invoice_dates
+      - *invoice_notes
+      - *invoice_rule
+      - *invoice_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *invoice_totals_separate
+      - *invoice_account_summary
+      - *invoice_services
+      - *invoice_payment_terms
+      - *invoice_terms_text
+      - *invoice_late_fee
+      - *invoice_footer
+
+  tax_invoice_trade:
+    <<: *invoice_page
+    field_budgets: *industry_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *trade_items
+    overlay:
+      - {<<: *invoice_stamp, candidates: [{x: 0.66, y: 0.135}, {x: 0.70, y: 0.19}, {x: 0.55, y: 0.38}]}
+    service_categories: [plumbing, electrical]
+    defaults:
+      <<: *invoice_defaults_values
+      family: liberation_sans     # Arial register
+    body:
+      - *trade_header
+      - *trade_rule
+      - *trade_title
+      - *trade_parties
+      - *invoice_buyer_gap
+      - *trade_dates
+      - *trade_job
+      - *invoice_rule
+      - *trade_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *trade_totals
+      - *invoice_account_summary
+      - *trade_offers
+      - *trade_terms
+      - *invoice_footer
+
+  tax_invoice_professional:
+    <<: *invoice_page
+    field_budgets: *industry_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *professional_items
+    overlay:
+      - {<<: *invoice_stamp, candidates: [{x: 0.70, y: 0.19}, {x: 0.72, y: 0.24}, {x: 0.55, y: 0.42}]}
+    service_categories: [conveyancing, patent_attorneys]
+    defaults:
+      <<: *invoice_defaults_values
+    body:
+      - *professional_letterhead
+      - *professional_rule_heavy
+      - *professional_rule_light
+      - *professional_parties
+      - *invoice_buyer_gap
+      - *professional_dates
+      - *invoice_rule
+      - *professional_heading
+      - *professional_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *professional_totals
+      - *invoice_account_summary
+      - *professional_terms
+      - *invoice_footer
+
+  tax_invoice_wholesale:
+    <<: *invoice_page
+    field_budgets: *industry_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *wholesale_items
+    overlay:
+      - {<<: *invoice_stamp, candidates: [{x: 0.68, y: 0.12}, {x: 0.70, y: 0.17}, {x: 0.55, y: 0.38}]}
+    service_categories: [food_wholesale, cleaning_wholesale]
+    defaults:
+      <<: *invoice_defaults_values
+      family: liberation_sans     # Arial register
+    body:
+      - *wholesale_letterhead
+      - *wholesale_seller
+      - *wholesale_rule
+      - *wholesale_parties
+      - *invoice_buyer_gap
+      - *wholesale_dates
+      - *wholesale_rep
+      - *invoice_rule
+      - *wholesale_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *wholesale_totals
+      - *invoice_account_summary
+      - *wholesale_offers
+      - *wholesale_terms
+      - *invoice_footer
+
+  tax_invoice_subscription:
+    <<: *invoice_page
+    field_budgets: *industry_field_budgets
+    field_providers: *invoice_field_providers
+    distractor_items: *subscription_items
+    overlay:
+      - {<<: *invoice_stamp, candidates: [{x: 0.75, y: 0.10}, {x: 0.76, y: 0.15}, {x: 0.55, y: 0.36}]}
+    service_categories: [cloud_software, security_monitoring]
+    defaults:
+      <<: *invoice_defaults_values
+    body:
+      - *subscription_header
+      - *subscription_rule
+      - *subscription_parties
+      - *invoice_buyer_gap
+      - *invoice_rule
+      - *subscription_heading
+      - *subscription_line_items
+      - *invoice_table_gap
+      - *invoice_rule
+      - *subscription_totals
+      - *invoice_account_summary
+      - *subscription_extras
+      - *invoice_footer

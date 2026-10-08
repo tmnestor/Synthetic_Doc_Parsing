@@ -1,0 +1,888 @@
+_bank_base: &bank_base
+  page_dimensions: {width: 1800, height: 3508}
+  content_width: 1600
+
+# Every primitive parameter a bank layout must supply a default for (Task 3's
+# conversion from Python literals in generators/layout_dsl/primitives_*.py to
+# `resolve_param`). Shared across all 8 bank layouts via this one anchor +
+# merge key, so `validate_layout`'s coverage check (schema.py) still sees
+# every key explicitly on each layout once PyYAML expands `<<:` -- "every
+# config key is required" stays literally true per layout. Values below are
+# today's Python literals, transcribed verbatim: this task must not move a
+# single bank pixel.
+_dsl_defaults_values: &dsl_defaults_values
+  role: body
+  color: "black"
+  align: left
+  bold: false
+  rule_thickness: 1
+  rule_pad_above: 0
+  rule_pad_below: 0
+  rule_fill_char: none
+  spacer_height: 0
+  pair_value_align: left
+  pair_min_gap: 0
+  pair_separator: ": "            # legacy drew every bank pair as "Label: value".
+  table_header: true
+  table_header_bold: true
+  table_header_rule_top: true
+  table_header_rule_gap: 16
+  table_row_inset_y: 0
+  table_cell_line_spacing: row_height
+  table_group_gap: 10
+  table_fill_inset: 0
+  table_dividers: []
+  table_offset_y: 0
+  table_capture: true
+  table_sub_line_height: 0
+  banner_text_color: "white"
+  banner_text_y: 0
+  banner_role: header
+  panel_padding: 0
+  panel_border_color: "black"
+  split_gap: 0
+  split_divider_color: "black"
+
+# --- inline distractors (distractor render only) --------------------------------
+# `bank_distractors` draws nothing on a plain render; with distractors on it selects
+# two to four of a statement's seven items (config/distractors.yml), so a statement
+# draws none to three of the three items below, the rest being annotations. Every block
+# drawing one is gated on its own DX_ key, so a plain render skips it and is
+# unchanged, and each sits where a real statement prints it, beside a line the
+# statement already prints or at the foot, so no scored value moves and the page
+# does not grow (the renderer refuses a body that runs past the bottom margin):
+#   - the issue date, right-aligned on the statement-period row (NAB, whose
+#     labelled period sits on its account box's third row, on the box's heading
+#     row) under its own "Statement issued" label: one date, never a range, and
+#     never under the period's label;
+#   - the mail-sort barcode a mail house prints in the address area, beside the
+#     account-holder lines: Code 128 with no digits under it, 48px tall, so it fits
+#     within the two rows it stands beside;
+#   - a promotional message in a bordered panel, drawn up from the bottom margin
+#     (anchor: foot), below everything the statement prints.
+# Distractor text fits through the DISTRACTOR_* budgets: ISSUED is the issue
+# date's column, PROMO the panel's width inside its 16px padding.
+_bank_field_providers: &bank_field_providers
+  - {name: bank_distractors, params: {}}
+
+_bank_distractor_items: &bank_distractor_items
+  - bk_issued_date
+  - bk_mail_barcode
+  - bk_promo_message
+  - bk_annotated_rows
+  - bk_row_marks
+  - bk_annotation_total
+  - bk_margin_note
+
+# --- the taxpayer's annotations (overlay; distractor render only) -----------------
+# The owner marks the expenses they claim: the rows linked to their receipts and
+# invoices (ground_truth/transaction_links.yml) and one to three more, drawn by
+# bk_annotated_rows as ground-truth row positions. Drawn over the finished page in
+# this order, so ink lies over the tint (generators/overlay/annotation.py and
+# handwriting.py; settings under overlay: in config/distractors.yml):
+#   - highlighter over each annotated row, from its description and paid boxes
+#     widened to the whole printed row;
+#   - one pen mark per row (DX_ROW_MARKS): a tick in the left margin, a loop round
+#     the paid amount, or an underline beneath it;
+#   - a margin note beside one of the rows: after its description, or in a margin;
+#   - the handwritten sum of the rows, under the paid column below the table.
+# Every mark clears every printed line (overlay.protect.bank_statement: all_ink).
+# A highlight block's exclude_colours names the highlighter colours (overlay.highlighter.colours) a
+# layout's own print already uses, so a band never reads as one more of its row stripes: NAB tints its
+# date-group rows pale blue (#E8F0FE), so its statements are never highlighted blue. Every other
+# layout excludes none ([]).
+_bank_ink_marks: &bank_ink_marks
+  {type: ink_marks, when: DX_ROW_MARKS, rows: DX_ANNOTATED_ROWS, marks: DX_ROW_MARKS,
+   target_field: TRANSACTION_AMOUNTS_PAID, kinds: [tick, circle, underline], tick_lane: left_margin}
+_bank_note: &bank_note
+  {type: handwriting, when: DX_MARGIN_NOTE, content: "{DX_MARGIN_NOTE}", rows: DX_ANNOTATED_ROWS,
+   description_field: TRANSACTION_DESCRIPTIONS, column_field: TRANSACTION_AMOUNTS_PAID,
+   lanes: [after_description, left_margin, right_margin, below_column]}
+_bank_sum: &bank_sum
+  {type: handwriting, when: DX_ANNOTATION_TOTAL, content: "= {DX_ANNOTATION_TOTAL}",
+   rows: DX_ANNOTATED_ROWS, description_field: TRANSACTION_DESCRIPTIONS,
+   column_field: TRANSACTION_AMOUNTS_PAID, lanes: [below_column]}
+_bank_overlay: &bank_overlay
+  - {type: highlight, when: DX_ANNOTATED_ROWS, rows: DX_ANNOTATED_ROWS,
+     row_fields: [TRANSACTION_DESCRIPTIONS, TRANSACTION_AMOUNTS_PAID], exclude_colours: []}
+  - *bank_ink_marks
+  - *bank_note
+  - *bank_sum
+_nab_overlay: &nab_overlay
+  - {type: highlight, when: DX_ANNOTATED_ROWS, rows: DX_ANNOTATED_ROWS,
+     row_fields: [TRANSACTION_DESCRIPTIONS, TRANSACTION_AMOUNTS_PAID], exclude_colours: [blue]}
+  - *bank_ink_marks
+  - *bank_note
+  - *bank_sum
+
+_bank_mail_barcode: &bank_mail_barcode
+  {type: barcode, content: "{DX_MAIL_BARCODE}", symbology: code128, height: 48, module_px: 2,
+   quiet_zone: 10, human_readable: false, caption_gap: 0, align: left, when: DX_MAIL_BARCODE}
+
+_bank_promo: &bank_promo
+  type: stack
+  anchor: foot
+  children:
+    - {type: spacer, height: 24, when: DX_PROMO_MESSAGE}
+    - type: panel
+      padding: 16
+      border_color: "#999999"
+      when: DX_PROMO_MESSAGE
+      children:
+        - {type: text, content: "{DX_PROMO_MESSAGE}", role: body, budget: DISTRACTOR_PROMO,
+           when: DX_PROMO_MESSAGE}
+
+_cba: &cba
+  <<: *bank_base
+  bank: Commonwealth Bank of Australia
+  logo_text: Commonwealth Bank
+  margin: 100
+  field_budgets:
+    TRANSACTION_DESC: {width: 760, fit: wrap, min_font: 10, max_lines: 2}
+    SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+    DISTRACTOR_ISSUED: {width: 500, fit: shrink, min_font: 16, max_lines: 1}
+    DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+
+# The account-holder and statement-period rows, with the mail-sort barcode beside
+# them and the issue date on the period row's right. The barcode column and the issue
+# date column draw only in a distractor render; the left column is the plain page's
+# two rows, unmoved. The spacer sets the issue date on the period row: it is the
+# account-holder row's advance (line_advance.body).
+_cba_holder_rows: &cba_holder_rows
+  type: split
+  widths: [760, 300, 500]
+  gap: 20
+  children:
+    - - {type: pair, label: "Account Holder", value: "{PAYER_NAME}", role: body,
+         field: PAYER_NAME}
+      - {type: pair, label: "Statement Period", value: "{STATEMENT_DATE_RANGE}", role: body,
+         when: STATEMENT_DATE_RANGE, field: STATEMENT_DATE_RANGE}
+    - - *bank_mail_barcode
+    - - {type: spacer, height: 44, when: DX_ISSUED_DATE}
+      - {type: text, content: "Statement issued: {DX_ISSUED_DATE}", role: body, align: right,
+         budget: DISTRACTOR_ISSUED, when: DX_ISSUED_DATE}
+
+_westpac: &westpac
+  <<: *bank_base
+  bank: Westpac Banking Corporation
+  logo_text: Westpac
+  margin: 80
+  field_budgets:
+    TRANSACTION_DESC: {width: 944, fit: wrap, min_font: 10, max_lines: 2}
+    SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+    DISTRACTOR_ISSUED: {width: 500, fit: shrink, min_font: 16, max_lines: 1}
+    DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+
+# See _cba_holder_rows. Westpac prints the period in its grey sub-description size,
+# and so the issue date beside it; the spacer is the account-holder row's advance.
+_westpac_holder_rows: &westpac_holder_rows
+  type: split
+  widths: [760, 300, 500]
+  gap: 20
+  children:
+    - - {type: pair, label: "Account Holder", value: "{PAYER_NAME}", role: body,
+         field: PAYER_NAME}
+      - {type: pair, label: "Statement Period", value: "{STATEMENT_DATE_RANGE}", role: sub_description,
+         color: "#666666", when: STATEMENT_DATE_RANGE, field: STATEMENT_DATE_RANGE}
+    - - *bank_mail_barcode
+    - - {type: spacer, height: 39, when: DX_ISSUED_DATE}
+      - {type: text, content: "Statement issued: {DX_ISSUED_DATE}", role: sub_description,
+         color: "#666666", align: right, budget: DISTRACTOR_ISSUED, when: DX_ISSUED_DATE}
+
+# Every column's content sits 8px inside its dividers, as the legacy Westpac
+# renderer drew it. The Balance column prints each row's running balance in the
+# statement's plain amount format (`1,234.56`, like its Debits and Credits), and
+# its last row is the closing balance, recorded as ACCOUNT_BALANCE: the scored
+# value is the ground-truth amount, printed. Widths were re-planned for it
+# (7 October 2026) from the widest cell each column renders across the 14
+# Westpac statements in Liberation Sans 28: date 144 (bold header
+# "Transaction" 160), description 956, debit 128, credit 112 (bold header
+# "Credits (-)" 132), balance 137. Each amount column is 152 or 160 wide, 136
+# or 144 inside its insets; the description budget (TRANSACTION_DESC) gives
+# up the rest and wraps the few longest descriptions to a second line, which
+# the page fits.
+_westpac_txn_columns: &westpac_txn_columns
+  - {key: date, label: "Date of\nTransaction", align: left, x: 8}
+  - {key: description, label: Description, align: left, x: 184,
+     budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS}
+  - {key: debit, label: Debits, align: right, x_right: -320,
+     field: TRANSACTION_AMOUNTS_PAID, currency: plain}
+  - {key: credit, label: "Credits (-)", align: right, x_right: -168,
+     field: TRANSACTION_AMOUNTS_RECEIVED, currency: plain}
+  - {key: balance, label: Balance, align: right, x_right: -8,
+     currency: plain, last_row_field: ACCOUNT_BALANCE}
+
+# The four interior column-divider lines, independent of the content anchors
+# above: content is inset 8px from each divider, so the dividers themselves
+# sit at different x than any column's own text.
+_westpac_txn_dividers: &westpac_txn_dividers
+  - {x: 176}
+  - {x_right: -464}
+  - {x_right: -312}
+  - {x_right: -160}
+
+# NAB's transaction columns (see bank_statement.py:674-684, render_nab). Row
+# content anchors, not the header's: the description column sits at
+# col_desc_x+20 (legacy indents row text but not the "Particulars" header
+# label by the same 20px) because TRANSACTION_DESCRIPTIONS geometry is what
+# the equivalence harness checks — the header label itself is never recorded,
+# so it is the one place these two layouts accept a small, deliberate, purely
+# cosmetic 20px rightward shift from legacy rather than adding a primitive
+# concept (a column's label anchor independent of its content anchor) that
+# nothing else in this file needs. The `reference` sub_line (nab_classic
+# only) reads a row key the `references: true` provider param computes —
+# NAB's sha256-derived dotted-leader reference number.
+_nab_txn_columns_with_reference: &nab_txn_columns_with_reference
+  - {key: date, label: Date, align: left, x: 10}
+  - {key: description, label: Particulars, align: left, x: 180,
+     budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS,
+     sub_line: {key: reference, role: sub_description, color: "#999999", offset_y: 34, height: 32}}
+  # Widest actual cell per column (debit 162, credit 144, balance 213 at
+  # nab_classic's body size) plus 45px of margin; the room comes from
+  # TRANSACTION_DESC, which wraps. Legacy's -380/-190/-10 gave balance 180px for
+  # 213px of text, colliding on 222 cells.
+  - {key: debit, label: Debits, align: right, x_right: -457, field: TRANSACTION_AMOUNTS_PAID}
+  - {key: credit, label: Credits, align: right, x_right: -268, field: TRANSACTION_AMOUNTS_RECEIVED}
+  - {key: balance, label: Balance, align: right, x_right: -10,
+     currency_suffix: "Cr", last_row_field: ACCOUNT_BALANCE}
+
+_nab_txn_columns: &nab_txn_columns
+  - {key: date, label: Date, align: left, x: 10}
+  - {key: description, label: Particulars, align: left, x: 180,
+     budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS}
+  # Widest actual cell per column (debit 162, credit 144, balance 213 at
+  # nab_classic's body size) plus 45px of margin; the room comes from
+  # TRANSACTION_DESC, which wraps. Legacy's -380/-190/-10 gave balance 180px for
+  # 213px of text, colliding on 222 cells.
+  - {key: debit, label: Debits, align: right, x_right: -457, field: TRANSACTION_AMOUNTS_PAID}
+  - {key: credit, label: Credits, align: right, x_right: -268, field: TRANSACTION_AMOUNTS_RECEIVED}
+  - {key: balance, label: Balance, align: right, x_right: -10,
+     currency_suffix: "Cr", last_row_field: ACCOUNT_BALANCE}
+
+# The "Account Details" box's own interior (heading/payer/BSB/account number)
+# records no ground-truth field in the legacy renderer (bank_statement.py:650-665
+# — none of those draw calls pass a recorder), so its content below is a
+# faithful-but-not-pixel-exact stand-in: legacy right-aligns BSB/Account Number
+# as label+value pairs at a fixed offset from the right edge, drawn on the same
+# line as the account holder; this uses `pair` (a colon-joined single string)
+# in a `split` instead, which is the closest existing primitive vocabulary
+# gets. It costs nothing on the equivalence harness either way.
+#
+# Shared between nab_classic and nab_dense like every other NAB anchor:
+# `line_advance` resolves per-role from each consuming layout's own
+# `defaults.line_advance` mapping (see primitives_text.py's line_advance()),
+# so the same `role: sub_description` pair below correctly picks up 30
+# (nab_classic, int(22 * 1.4)) or 28 (nab_dense, int(20 * 1.4)) depending on
+# which layout is rendering it -- no per-block override or anchor split
+# needed.
+#
+# The box's heading and account-holder rows carry the mail-sort barcode beside them
+# and the issue date on the heading row's right, both drawn only in a distractor
+# render (see the inline distractors above); the left column is the plain box's
+# rows, unmoved. The statement period sits on the third row, after the account
+# number, so it is clear of the issue date by row and by label. The box's inner
+# width is 1564 (1600 less its 18px padding each side).
+_nab_account_box_children: &nab_account_box_children
+  - type: split
+    widths: [764, 300, 460]
+    gap: 20
+    children:
+      - - {type: text, content: "Account Details", role: body, bold: true}
+        - {type: pair, label: "Account Holder", value: "{PAYER_NAME}", role: body,
+           field: PAYER_NAME}
+      - - *bank_mail_barcode
+      - - {type: text, content: "Statement issued: {DX_ISSUED_DATE}", role: sub_description,
+           color: "#666666", align: right, budget: DISTRACTOR_ISSUED, when: DX_ISSUED_DATE}
+  - type: split
+    gap: 20
+    children:
+      - - {type: pair, label: "BSB Number", value: "082-456", role: sub_description,
+            color: "#666666"}
+      - - {type: pair, label: "Account Number", value: "98-765-4321", role: sub_description,
+            color: "#666666"}
+      - - {type: pair, label: "Statement Period", value: "{STATEMENT_DATE_RANGE}",
+            role: sub_description, color: "#666666", when: STATEMENT_DATE_RANGE,
+            field: STATEMENT_DATE_RANGE}
+
+# ANZ's transaction columns (see bank_statement.py:808-980, render_anz). Shared
+# by both the transaction table and the totals table below it — the totals
+# row only ever populates description/debit/credit, so reusing this list
+# costs nothing (a synthetic row with no `date`/`balance` key just draws
+# neither cell). The balance column carries no `currency_suffix`: unlike
+# NAB's fixed "Cr", ANZ's DR/CR suffix depends on the balance's own sign, so
+# `params.balance_suffix` on the transactions table below has the provider
+# pre-format the whole "$137.73 CR" string; the column just draws it as text.
+_anz_txn_columns: &anz_txn_columns
+  - {key: date, label: Date, align: left, x: 0}
+  - {key: description, label: Transaction Description, align: left, x: 200,
+     budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS}
+  # Each amount column gets the widest cell it actually renders across the corpus
+  # (debit 180, credit 160, balance 234 at anz_standard's body size) plus 45px of
+  # margin. The room comes from TRANSACTION_DESC, which wraps to two lines and so
+  # loses nothing by being narrower — unlike an amount, which simply overruns its
+  # neighbour. Legacy's -400/-200/0 gave balance 200px for 234px of text, colliding
+  # on 318 cells across both variants.
+  - {key: debit, label: Debits, align: right, x_right: -484, field: TRANSACTION_AMOUNTS_PAID}
+  - {key: credit, label: Credits, align: right, x_right: -279, field: TRANSACTION_AMOUNTS_RECEIVED}
+  - {key: balance, label: Balance, align: right, x_right: 0, last_row_field: ACCOUNT_BALANCE}
+
+# Every spacer below corrects a `text` block's own computed `line_height`
+# advance up to the legacy renderer's real, unconditional pixel jump (72,
+# 150, 170, 40, 52 — see bank_statement.py:645-669), which does not scale
+# with font_sizes. Both variants share the same box height (150), the same
+# 170px jump to the supplier line, the same 40px supplier-line advance, and
+# the same 52px gap before the header bar; only the correction each spacer
+# needs to reach that target differs, because nab_classic and nab_dense use
+# different font_sizes and therefore different natural line_height() advances.
+_nab_classic_body: &nab_classic_body
+  # Letterhead reads logo_text dynamically (legacy: draw.text(..., layout["logo_text"], ...)).
+  - {type: text, from_layout: logo_text, role: header, color: "#003366", bold: true}
+  - {type: spacer, height: 11}  # line_height(44)=61 -> legacy's real 72px jump.
+  - type: panel
+    height: 150
+    padding: 18
+    border_color: "#003366"
+    children: *nab_account_box_children
+  - {type: spacer, height: 20}  # legacy jumps to box_top+170, 20px past the box's own bottom.
+  # SUPPLIER_NAME (National Australia Bank) never equals logo_text (NAB
+  # Classic Banking) anywhere in the corpus, so suppress_if_equals never
+  # fires today — kept for the same reason CBA/Westpac/ANZ carry it: a
+  # future reseed that ever makes them equal must not duplicate the line. The line is a scored value,
+  # so it prints in #666666 (contrast 5.74, as the other grey scored lines), not gray (3.95, below
+  # overlay.contrast.min_ratio in config/distractors.yml).
+  - {type: text, content: "{SUPPLIER_NAME}", role: body, color: "#666666", field: SUPPLIER_NAME,
+     suppress_if_equals: logo_text}
+  - {type: spacer, height: 1}  # line_height(28)=39 -> legacy's real 40px (_draw_supplier_line's line_spacing).
+  - {type: text, content: "Transaction Details (continued)", role: body, bold: true}
+  - {type: spacer, height: 13}  # line_height(28)=39 -> legacy's real 52px gap before the header bar.
+  - type: table
+    rows: bank_transactions
+    frame: filled
+    grouping: dedicated_row
+    fill_color: "#E8F0FE"
+    fill_inset: 2
+    header_height: 50
+    fill_height: 44
+    label_inset_y: 10
+    group_gap: 0
+    synthetic_row_placement: after_first_group_header
+    params: {brought_forward: true, brought_forward_label: "Balance Brought Forward",
+             carried_forward: true, carried_forward_label: "Carried forward",
+             references: true, reference_prefix: "Ref: ",
+             reference_pad_char: ".", reference_pad_width: 40}
+    columns: *nab_txn_columns_with_reference
+  - *bank_promo
+
+_nab_dense_body: &nab_dense_body
+  # See nab_classic_body's identical comments.
+  - {type: text, from_layout: logo_text, role: header, color: "#003366", bold: true}
+  - {type: spacer, height: 16}  # line_height(40)=56 -> legacy's real 72px jump.
+  - type: panel
+    height: 150
+    padding: 18
+    border_color: "#003366"
+    children: *nab_account_box_children
+  - {type: spacer, height: 20}  # legacy jumps to box_top+170, 20px past the box's own bottom.
+  - {type: text, content: "{SUPPLIER_NAME}", role: body, color: "#666666", field: SUPPLIER_NAME,
+     suppress_if_equals: logo_text}
+  - {type: spacer, height: 7}  # line_height(24)=33 -> legacy's real 40px (_draw_supplier_line's line_spacing).
+  - {type: text, content: "Transaction Details (continued)", role: body, bold: true}
+  - {type: spacer, height: 19}  # line_height(24)=33 -> legacy's real 52px gap before the header bar.
+  - type: table
+    rows: bank_transactions
+    frame: filled
+    grouping: dedicated_row
+    fill_color: "#E8F0FE"
+    fill_inset: 2
+    header_height: 50
+    fill_height: 44
+    label_inset_y: 10
+    group_gap: 0
+    synthetic_row_placement: after_first_group_header
+    params: {brought_forward: true, brought_forward_label: "Balance Brought Forward",
+             carried_forward: true, carried_forward_label: "Carried forward"}
+    columns: *nab_txn_columns
+  - *bank_promo
+
+# The account holder shares the account-number line: legacy left that half of the row
+# empty, so this costs no vertical space on a layout where 3 entries already overflow.
+# The holder and period rows sit in one split's left column, the account number at the
+# right of the holder row, and between them the mail-sort barcode; the issue date sits
+# under the account number, on the period row's right (see the inline distractors
+# above). Both distractor columns draw only in a distractor render, and the plain
+# page's rows keep their places: the left column's x and the right column's right
+# edge are the content box's, as in the two-column split this replaced.
+_anz_holder_rows: &anz_holder_rows
+  type: split
+  widths: [700, 300, 560]
+  gap: 20
+  children:
+    - - {type: pair, label: "Account Holder", value: "{PAYER_NAME}", role: sub_description,
+         color: "#666666", field: PAYER_NAME}
+      - {type: pair, label: "Statement Period", value: "{STATEMENT_DATE_RANGE}",
+         role: sub_description, color: "#666666", when: STATEMENT_DATE_RANGE,
+         field: STATEMENT_DATE_RANGE}
+    - - *bank_mail_barcode
+    - - {type: text, content: "Account number    0000-00000", role: sub_description,
+         align: right, color: "#666666"}
+      - {type: text, content: "Statement issued: {DX_ISSUED_DATE}", role: sub_description,
+         color: "#666666", align: right, budget: DISTRACTOR_ISSUED, when: DX_ISSUED_DATE}
+
+# ANZ draws its logo on a full-width blue bar at the very page top (:849) —
+# outside the margin every other primitive respects — so it is the one layout
+# using `banner`, the DSL's one primitive allowed to paint outside `ctx.region`.
+# The bar's own height and the "ANZ" logo text underneath it never advance the
+# y-cursor (matching legacy, which draws the bar, then hard-jumps to y=140
+# rather than flowing from the bar's own height); the spacer immediately after
+# it makes up that jump explicitly. The banner's `content` reads `logo_text`
+# via `from_layout` (rather than a literal "ANZ" string) so the letterhead
+# genuinely comes from the layout, matching legacy's
+# `draw.text((margin, 30), layout["logo_text"], ...)`. The supplier line
+# below the account-number line is suppressed via `suppress_if_equals:
+# logo_text` — it equals `logo_text` ("ANZ") for every ANZ ground-truth
+# entry today, so the block never actually draws, matching legacy's
+# `_draw_supplier_line`, but it is a real block (not omitted) so a future
+# reseed that ever makes SUPPLIER_NAME differ from "ANZ" still renders it.
+#
+# The transaction table uses `frame: ruled` with `header_rule_top: false` and
+# `header_rule_gap: 14`: legacy ANZ rules only *below* its column headers (one
+# line, not CBA's rule-above-and-below), at a 14px gap CBA's 16px doesn't
+# match. `header_height: 44` is a flat legacy constant (`y += 44`), not
+# derived from either variant's body font size, so both variants set it
+# explicitly rather than relying on the computed default (which is only
+# right for anz_standard's own body size by coincidence). The leading
+# `brought_forward` row uses `brought_forward_label` to reproduce legacy's
+# all-caps "BALANCE BROUGHT FORWARD" (NAB spells the same row mixed-case), and
+# `brought_forward_bold: [description]` because legacy draws that row with
+# mixed weight — the label bold, the balance value not — unlike NAB's
+# leading row (entirely regular) or its own trailing "Carried forward" row
+# (entirely bold). `balance_suffix` has the provider pre-format every
+# balance as "$X CR"/"$X DR" by sign, matching `_format_balance` — a fixed
+# `currency_suffix` (NAB's "Cr") cannot express a suffix that depends on the
+# value itself.
+#
+# The totals row is a *second* table, not a trailing row on the first: legacy
+# draws "Totals at end of period" after its own fresh rule, entirely outside
+# the transaction loop, and never touches ACCOUNT_BALANCE — folding it into
+# `bank_transactions`'s own row list would move `last_row_field`'s "last row"
+# off the real closing balance and onto this one, which has no balance of its
+# own. `bank_transaction_totals` (a second provider) returns exactly that one
+# row, and `rule_above` (set on the row, not the table) reproduces the fresh
+# rule + 12px gap between the two tables. Every element of both tables below
+# is unrecorded (no `field:` on the account bar, the account-number line, or
+# either table's `description`/`balance` decoration except what the columns
+# list already declares) because legacy passes no recorder to any of them.
+_anz_standard_body: &anz_standard_body
+  - {type: banner, from_layout: logo_text, height: 120, color: "#0061B5", text_y: 30,
+     role: header, bold: true}
+  - {type: spacer, height: 40}  # Legacy hard-jumps to y=140 after the bar; margin(100) + 40 = 140.
+  - *anz_holder_rows
+  - {type: spacer, height: 5}  # line_height(24)=33 -> legacy's real 38px (y += 38).
+  - {type: text, content: "{SUPPLIER_NAME}", role: body, color: "#666666", field: SUPPLIER_NAME,
+     suppress_if_equals: logo_text}
+  - {type: text, content: "Transaction Details", role: body, bold: true}
+  - {type: spacer, height: 8}  # line_height(32)=44 -> legacy's real 52px gap before the header.
+  - type: table
+    rows: bank_transactions
+    frame: ruled
+    grouping: none
+    header_height: 44
+    header_rule_top: false
+    header_rule_gap: 14
+    params: {brought_forward: true, brought_forward_label: "BALANCE BROUGHT FORWARD",
+             brought_forward_bold: [description], balance_suffix: {debit: DR, credit: CR}}
+    columns: *anz_txn_columns
+  - type: table
+    rows: bank_transaction_totals
+    frame: plain
+    grouping: none
+    header: false
+    params: {label: "Totals at end of period"}
+    columns: *anz_txn_columns
+  - *bank_promo
+
+_anz_modern_body: &anz_modern_body
+  # See anz_standard_body's identical comments.
+  - {type: banner, from_layout: logo_text, height: 120, color: "#0061B5", text_y: 30,
+     role: header, bold: true}
+  - {type: spacer, height: 40}  # Legacy hard-jumps to y=140 after the bar; margin(100) + 40 = 140.
+  - *anz_holder_rows  # See anz_standard_body.
+  - {type: spacer, height: 8}  # line_height(22)=30 -> legacy's real 38px (y += 38).
+  - {type: text, content: "{SUPPLIER_NAME}", role: body, color: "#666666", field: SUPPLIER_NAME,
+     suppress_if_equals: logo_text}
+  - {type: text, content: "Transaction Details", role: body, bold: true}
+  - {type: spacer, height: 13}  # line_height(28)=39 -> legacy's real 52px gap before the header.
+  - type: table
+    rows: bank_transactions
+    frame: ruled
+    grouping: none
+    header_height: 44
+    header_rule_top: false
+    header_rule_gap: 14
+    params: {brought_forward: true, brought_forward_label: "BALANCE BROUGHT FORWARD",
+             brought_forward_bold: [description], balance_suffix: {debit: DR, credit: CR}}
+    columns: *anz_txn_columns
+  - type: table
+    rows: bank_transaction_totals
+    frame: plain
+    grouping: none
+    header: false
+    params: {label: "Totals at end of period"}
+    columns: *anz_txn_columns
+  - *bank_promo
+
+layouts:
+  cba_standard:
+    <<: *cba
+    # Per-field pixel budget: transaction description column (= content_width-840).
+    # Wrap (not shrink) to keep row font uniform; replaces the old silent char-truncation.
+    font_sizes:
+      header: 48
+      body: 32
+      footer: 18
+    row_height: 72
+    defaults:
+      <<: *dsl_defaults_values
+      family: carlito   # CBA's house face across its layouts
+      # Per-role advance (int(font_sizes.<role> * 1.4), the ratio the old
+      # line_height() hardcoded, now looked up by the drawing block's own
+      # role -- see primitives_text.py's line_advance()).
+      line_advance: {header: 67, body: 44, footer: 25}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 23, max: 27}
+    # No derived fields on a bank statement: every scored value it draws is
+    # recorded ground truth. The one provider draws the inline distractors
+    # (see the inline distractors at the top of this file); it draws nothing on a
+    # plain render. Required key: see validate_layout in
+    # generators/layout_dsl/schema.py.
+    field_providers: *bank_field_providers
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body:
+      # The letterhead reads layout['logo_text'] at render time (from_layout),
+      # matching legacy's `draw.text((margin, y), layout["logo_text"], ...)`.
+      # The content supplier is a separate, subordinate line further down,
+      # suppressed whenever it already equals the letterhead (see
+      # suppress_if_equals below) — mirrors legacy's `_draw_supplier_line`.
+      - {type: text, from_layout: logo_text, role: header, color: "#12107D"}
+      - type: block
+        role: footer
+        color: "#666666"
+        lines:
+          - Commonwealth Bank of Australia
+          - ABN 48 123 456 789 AFSL and
+          - Australian credit licence 234567
+      - {type: spacer, height: 40}
+      - *cba_holder_rows
+      - {type: text, content: "{SUPPLIER_NAME}", role: body, color: gray,
+         field: SUPPLIER_NAME, suppress_if_equals: logo_text}
+      - {type: spacer, height: 28}
+      - type: table
+        rows: bank_transactions
+        frame: ruled
+        grouping: none
+        params: {opening_balance: true, opening_balance_label: "Opening Balance"}
+        columns:
+          - {key: date, label: Date, align: left, x: 0}
+          - {key: description, label: Description, align: left, x: 200,
+             budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS}
+          - {key: debit, label: Withdrawal, align: right, x_right: -420,
+             field: TRANSACTION_AMOUNTS_PAID}
+          - {key: credit, label: Deposit, align: right, x_right: -210,
+             field: TRANSACTION_AMOUNTS_RECEIVED}
+          - {key: balance, label: Balance, align: right, x_right: 0,
+             last_row_field: ACCOUNT_BALANCE}
+      - {type: spacer, height: 40}
+      - {type: text, role: footer, color: "#666666",
+         content: "Transaction types: EFTPOS, ATM, Direct Debit, Direct Credit, Transfer"}
+      - *bank_promo
+
+  cba_date_grouped:
+    <<: *cba
+    font_sizes:
+      header: 48
+      body: 32
+      footer: 18
+    row_height: 72
+    defaults:
+      <<: *dsl_defaults_values
+      family: carlito   # CBA's house face across its layouts
+      line_advance: {header: 67, body: 44, footer: 25}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 11, max: 15}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body:
+      # See cba_standard's identical comment: letterhead reads logo_text
+      # dynamically; the supplier line is suppressed when it matches.
+      - {type: text, from_layout: logo_text, role: header, color: "#12107D"}
+      - type: block
+        role: footer
+        color: "#666666"
+        lines:
+          - Commonwealth Bank of Australia
+          - ABN 48 123 456 789 AFSL and
+          - Australian credit licence 234567
+      - {type: spacer, height: 40}
+      - *cba_holder_rows
+      - {type: text, content: "{SUPPLIER_NAME}", role: body, color: gray,
+         field: SUPPLIER_NAME, suppress_if_equals: logo_text}
+      - {type: spacer, height: 28}
+      - type: table
+        rows: bank_transactions
+        frame: plain
+        grouping: dedicated_row
+        # plain rows draw no ruled header lines, but legacy CBA always ruled-lines
+        # its header (12px rule + 44px labels + 16px rule = 72px) regardless of
+        # date_grouping. Override the computed default (line_advance.body=44) to match.
+        header_height: 72
+        params: {opening_balance: true, opening_balance_label: "Opening Balance"}
+        columns:
+          - {key: date, label: Date, align: left, x: 0}
+          - {key: description, label: Description, align: left, x: 200,
+             budget: TRANSACTION_DESC, field: TRANSACTION_DESCRIPTIONS}
+          - {key: debit, label: Withdrawal, align: right, x_right: -420,
+             field: TRANSACTION_AMOUNTS_PAID}
+          - {key: credit, label: Deposit, align: right, x_right: -210,
+             field: TRANSACTION_AMOUNTS_RECEIVED}
+          - {key: balance, label: Balance, align: right, x_right: 0,
+             last_row_field: ACCOUNT_BALANCE}
+      - {type: spacer, height: 40}
+      - {type: text, role: footer, color: "#666666",
+         content: "Transaction types: EFTPOS, ATM, Direct Debit, Direct Credit, Transfer"}
+      - *bank_promo
+
+  westpac_standard:
+    <<: *westpac
+    font_sizes: {header: 44, body: 28, sub_description: 22, footer: 16}
+    row_height: 62
+    defaults:
+      <<: *dsl_defaults_values
+      family: liberation_sans   # Westpac's house face across its layouts
+      line_advance: {header: 61, body: 39, sub_description: 30, footer: 22}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 42, max: 46}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body:
+      # Letterhead reads logo_text dynamically; the supplier line (further
+      # down) is suppressed when it matches — mirrors legacy's
+      # `_draw_supplier_line`, called right before the column header row.
+      - type: split
+        children:
+          - - {type: text, from_layout: logo_text, role: header, color: "#C41E3A",
+                bold: true}
+          - - {type: text, content: "Page 1 of 1", role: footer, align: right, color: "#666666"}
+      - {type: text, content: "Transaction Details", role: body, bold: true}
+      - {type: spacer, height: 14}
+      - *westpac_holder_rows
+      - {type: text, content: "{SUPPLIER_NAME}", role: body, color: gray,
+         field: SUPPLIER_NAME, suppress_if_equals: logo_text}
+      - {type: spacer, height: 41}
+      - type: table
+        rows: bank_transactions
+        frame: bordered
+        grouping: none
+        header_height: 72
+        dividers: *westpac_txn_dividers
+        columns: *westpac_txn_columns
+      - *bank_promo
+
+  westpac_premium:
+    <<: *westpac
+    font_sizes: {header: 44, body: 28, sub_description: 22, footer: 16}
+    row_height: 62
+    defaults:
+      <<: *dsl_defaults_values
+      family: liberation_sans   # Westpac's house face across its layouts
+      line_advance: {header: 61, body: 39, sub_description: 30, footer: 22}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 37, max: 41}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body:
+      # See westpac_standard's identical comment.
+      - type: split
+        children:
+          - - {type: text, from_layout: logo_text, role: header, color: "#C41E3A",
+                bold: true}
+          - - {type: text, content: "Page 1 of 1", role: footer, align: right, color: "#666666"}
+      - {type: spacer, height: 37}
+      - type: panel
+        height: 260
+        padding: 10
+        children:
+          - type: split
+            gap: 30
+            divider: true
+            children:
+              - - type: block
+                  role: sub_description
+                  heading: "Rewards Points Balance Summary"
+                  lines:
+                    - "Opening Balance          345,678"
+                    - "Points Earned             12,456"
+                    - "Bonus Points Earned            0"
+                    - "Points Redeemed                0"
+                    - "Closing Balance          358,134"
+                    - "Points Status          Available"
+              - - type: block
+                  role: sub_description
+                  heading: "A message from Rewards"
+                  lines: []
+      - {type: text, role: sub_description, color: "#666666",
+         content: "To find out more about how Rewards Points are earned, go to the Rewards website."}
+      - {type: spacer, height: 24}
+      - {type: text, content: "Westpac Premium Card® transactions", role: body, bold: true}
+      - {type: spacer, height: 14}
+      - *westpac_holder_rows
+      - {type: text, content: "{SUPPLIER_NAME}", role: body, color: gray,
+         field: SUPPLIER_NAME, suppress_if_equals: logo_text}
+      - {type: spacer, height: 10}
+      - type: table
+        rows: bank_transactions
+        frame: bordered
+        grouping: inline
+        header_height: 72
+        dividers: *westpac_txn_dividers
+        columns: *westpac_txn_columns
+      - *bank_promo
+
+  nab_classic:
+    field_budgets:
+      TRANSACTION_DESC: {width: 756, fit: wrap, min_font: 10, max_lines: 2}
+      SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+      DISTRACTOR_ISSUED: {width: 460, fit: shrink, min_font: 16, max_lines: 1}
+      DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+    bank: National Australia Bank
+    logo_text: NAB Classic Banking
+    page_dimensions:
+      width: 1800
+      height: 3508
+    font_sizes:
+      header: 44
+      body: 28
+      sub_description: 22
+      footer: 16
+    margin: 80
+    content_width: 1600
+    row_height: 66
+    defaults:
+      <<: *dsl_defaults_values
+      family: carlito   # NAB's house face across its layouts
+      line_advance: {header: 61, body: 39, sub_description: 30, footer: 22}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 11, max: 15}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *nab_overlay
+    body: *nab_classic_body
+
+  nab_dense:
+    field_budgets:
+      TRANSACTION_DESC: {width: 756, fit: wrap, min_font: 10, max_lines: 2}
+      SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+      DISTRACTOR_ISSUED: {width: 460, fit: shrink, min_font: 16, max_lines: 1}
+      DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+    bank: National Australia Bank
+    logo_text: NAB Classic Banking
+    page_dimensions:
+      width: 1800
+      height: 3508
+    font_sizes:
+      header: 40
+      body: 24
+      sub_description: 20
+      footer: 14
+    margin: 80
+    content_width: 1600
+    row_height: 52
+    defaults:
+      <<: *dsl_defaults_values
+      family: carlito   # NAB's house face across its layouts
+      line_advance: {header: 56, body: 33, sub_description: 28, footer: 19}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 24, max: 28}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *nab_overlay
+    body: *nab_dense_body
+
+  anz_standard:
+    field_budgets:
+      TRANSACTION_DESC: {width: 691, fit: wrap, min_font: 10, max_lines: 2}
+      SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+      DISTRACTOR_ISSUED: {width: 560, fit: shrink, min_font: 16, max_lines: 1}
+      DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+    bank: Australia and New Zealand Banking Group
+    logo_text: ANZ
+    page_dimensions:
+      width: 1800
+      height: 3508
+    font_sizes:
+      header: 48
+      body: 32
+      sub_description: 24
+      footer: 18
+    margin: 100
+    content_width: 1600
+    row_height: 72
+    defaults:
+      <<: *dsl_defaults_values
+      family: liberation_sans   # ANZ's house face across its layouts
+      line_advance: {header: 67, body: 44, sub_description: 33, footer: 25}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 24, max: 28}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body: *anz_standard_body
+
+  anz_modern:
+    field_budgets:
+      TRANSACTION_DESC: {width: 691, fit: wrap, min_font: 10, max_lines: 2}
+      SUPPLIER_NAME: {width: 1600, fit: shrink, min_font: 12, max_lines: 1}
+      DISTRACTOR_ISSUED: {width: 560, fit: shrink, min_font: 16, max_lines: 1}
+      DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
+    bank: Australia and New Zealand Banking Group
+    logo_text: ANZ
+    page_dimensions:
+      width: 1800
+      height: 3508
+    font_sizes:
+      header: 44
+      body: 28
+      sub_description: 22
+      footer: 16
+    margin: 100
+    content_width: 1600
+    row_height: 62
+    defaults:
+      <<: *dsl_defaults_values
+      family: liberation_sans   # ANZ's house face across its layouts
+      line_advance: {header: 61, body: 39, sub_description: 30, footer: 22}
+    # Transactions this layout fits on one page, measured against the rendered
+    # corpus with two rows of headroom. The seeder reads this: a statement
+    # longer than its page is content the benchmark hides from the model.
+    transaction_count: {min: 29, max: 33}
+    field_providers: *bank_field_providers  # See cba_standard's comment.
+    distractor_items: *bank_distractor_items
+    overlay: *bank_overlay
+    body: *anz_modern_body

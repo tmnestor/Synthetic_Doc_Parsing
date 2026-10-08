@@ -1,0 +1,477 @@
+# Distractor catalogue and selection. Read by generators/distractors/config.py.
+# Every key is required; there are no Python defaults.
+selection:
+  receipt: {count: [3, 6]}
+  invoice: {count: [14, 22]}
+  # Two to four of a statement's seven items (three inline, four annotation), so most statements carry a
+  # taxpayer's annotations: any annotation item brings bk_annotated_rows with it. Measured 7 October
+  # 2026: 51 of the 55 corpus statements (93%) are annotated. Never fewer than two, so a page never
+  # carries the highlighter alone, which records no ink.
+  bank_statement: {count: [2, 4]}
+# Redraws allowed when a drawn value collides with a scored value.
+max_redraws: 25
+validator:
+  # Scored fields whose values are too short or generic to screen for (quantities,
+  # booleans, the document type).
+  ignore_fields: [DOCUMENT_TYPE, IS_GST_INCLUDED, LINE_ITEM_QUANTITIES]
+  # Scored values shorter than this are not used in the contains-check.
+  min_scored_length: 4
+# Density bounds per document type (generators/distractors/density.py). Every type carries all three
+# keys. scored_ink_ratio is scored ink area over all text ink area; distractor_share is distractor text
+# area over all text ink area (both leave code marks out); page_fill is the lowest ink y over the page
+# height. page_fill_min may be an explicit null, meaning unbounded, for a page cropped to its content;
+# a missing key is refused. `validate` enforces the bounds on the distractor render of a layout that
+# carries a distractor provider; plain renders are the control and are measured, never enforced.
+density:
+  # Measured 6 October 2026 on all 55 receipts' distractor renders, each on its own layout (every
+  # layout draws its 3 to 6 selected items; savings 3% to 25% of the total, barcode digits 4px below
+  # the bars, survey code on its own spaced line): scored_ink_ratio 0.1819 to 0.3863, distractor_share
+  # 0.0736 to 0.3305, page_fill 0.9768 to 0.9878. Plain renders, the control: scored_ink_ratio 0.2537
+  # to 0.4428, distractor_share 0 (no distractor text). The ratio ceiling sits about 10% above the
+  # measured maximum. The share floor sits below the measured minimum with headroom, and as no plain
+  # render has any distractor text, a render meeting it is known to carry distractors.
+  # page_fill_min is null: a receipt is cropped to its content plus the bottom margin, so its fill is
+  # near 1 by construction and cannot tell a sparse receipt from a dense one.
+  # Re-measured 7 October 2026, after every line of more than one unit gained its scored unit line
+  # ("2 @ $3.50", LINE_ITEM_QUANTITIES and LINE_ITEM_PRICES), all 55 receipts' distractor renders on their
+  # own layouts: scored_ink_ratio 0.1789 to 0.4344 (median 0.3141), distractor_share 0.0664 to 0.3150,
+  # page_fill 0.9770 to 0.9894. Plain renders, the control: scored_ink_ratio 0.2430 to 0.4995, share 0.
+  # The rule is the invoices' and the statements': each bound sits at least 10% (relative) outside the
+  # extreme value measured, and is re-set only from a new measurement, never moved to make a corpus pass.
+  # The ratio ceiling 0.48 is 10.5% above the highest ratio (0.4344); the share floor 0.05 is 25% below the
+  # lowest share (0.0664) and above every plain render's 0. As before, the ceiling sits below the densest
+  # plain render, so it cannot separate distractor renders from plain ones; the share floor does.
+  # Labelled varied renders (the distractor render with its ABN, GST and total labels varied) are held to
+  # the same bounds. Measured 8 October 2026, all 55 receipts' accepted labelled varied renders on their own
+  # layouts: scored_ink_ratio 0.1856 to 0.4361, distractor_share 0.0675 to 0.3138, page_fill 0.9770 to
+  # 0.9894. Every render meets the bounds (the ratio ceiling 0.48 is 10% above 0.4361), so they stay.
+  receipt: {scored_ink_ratio_max: 0.48, distractor_share_min: 0.05, page_fill_min: null}
+  # The spec's starting bounds (section 9) are scored_ink_ratio_max 0.25 and page_fill_min 0.75, with a
+  # distractor_share_min of 0.30, and its density target a scored-ink ratio of 0.25 to 0.30. Invoices draw
+  # 14 to 22 items (selection above), so the median page is near that target: an invoice whose header,
+  # table and totals sit above 1,000 px of blank paper is a layout prior a model can learn. The rule: each
+  # bound sits at least 10% (relative) outside the extreme value measured over the corpus and the industry
+  # layouts' synthetic entries, and is re-set only from a new measurement, never moved to make a corpus
+  # pass. Re-measured 7 October 2026 on the composited page (PAID stamp included; adding the stamp's two
+  # items reshuffled the paid invoices' selections), the corpus as committed, 55 invoices over all eight
+  # layouts, each in its drawn payment state: scored_ink_ratio 0.1666 to 0.3974 (median 0.2549; layout
+  # medians 0.2163 to 0.3110), distractor_share 0.4814 to 0.7362, page_fill 0.3723 to 0.9701. The
+  # synthetic entries, in the seed's one to four lines: ratio 0.1733 to 0.4180 (median 0.2813), share from
+  # 0.4630, fill from 0.5231; in one, three and six lines: ratio 0.1815 to 0.4363 (median 0.3078), share
+  # from 0.4716, fill from 0.9678. Every item of a state forced on, all 55: paid ratio 0.1278 to 0.2785,
+  # share 0.6377 to 0.7968; unpaid ratio 0.1194 to 0.2710, share 0.6492 to 0.8091; fill 0.9701. Plain
+  # renders, the control: ratio 0.5327 to 0.7830, fill 0.2189 to 0.3110, share 0. Every render meets the
+  # shipped bounds with the rule's headroom, so they stay: the ratio ceiling 0.48 is 10% above the highest
+  # ratio (0.4363) and below every plain render; the share floor 0.40 is 14% below the lowest share
+  # (0.4630) and above every plain render's 0, so a render meeting it carries distractors; the fill floor
+  # 0.33 is 11% below the lowest fill (0.3723). The footer band is drawn up from the bottom margin, so any
+  # render printing a footer item fills the page to 0.97 whatever its density: page fill does not separate
+  # dense from sparse (spec section 9, revised 6 October 2026).
+  # Labelled varied renders, held to the same bounds. Measured 8 October 2026, all 55 invoices' accepted
+  # labelled varied renders on their own layouts: scored_ink_ratio 0.1719 to 0.4152, distractor_share
+  # 0.4825 to 0.7532, page_fill 0.3723 to 0.9701; the synthetic entries in the seed's one to four lines:
+  # ratio 0.1863 to 0.4335, share from 0.4579, fill from 0.5231; in one, three and six lines: ratio 0.1803
+  # to 0.4372, share from 0.4765, fill from 0.9678. Every render meets the bounds, so they stay; the ratio
+  # ceiling 0.48 is 9.8% above the highest labelled varied ratio (0.4372, a six-line synthetic entry whose
+  # labels were dropped), a little short of the 10% headroom the distractor renders keep. The bounds are
+  # re-set only when a render fails them, so they stay, and the next re-measure should watch this margin.
+  invoice: {scored_ink_ratio_max: 0.48, distractor_share_min: 0.40, page_fill_min: 0.33}
+  # A bank statement is a fixed-height page, so its fill is a real bound. The rule is the invoices': each
+  # bound sits at least 10% (relative) outside the extreme value measured, and is re-set only from a new
+  # measurement, never moved to make a corpus pass. Measured 7 October 2026 on the inline distractors
+  # (issue date, mail-sort barcode, promotional panel; one to three per statement), all 55 statements each
+  # on its own layout: the corpus selections, scored_ink_ratio 0.3759 to 0.7828 (median 0.5863),
+  # distractor_share 0 to 0.0800, page_fill 0.6491 to 0.9709; every item forced on, ratio 0.3716 to 0.7767,
+  # share 0.0256 to 0.0992, fill 0.9647 to 0.9709 (the promotional panel is drawn up from the bottom
+  # margin, so a page printing it is filled to its foot). Plain renders, the control: ratio 0.4000 to
+  # 0.7980, fill 0.6269 to 0.9099, share 0. The ratio ceiling 0.87 is 11% above the highest ratio
+  # (0.7828); the fill floor 0.58 is 11% below the lowest fill (0.6491). Three inline items are too few
+  # to bring the ratio near the invoices' (a long table of scored amounts dominates the page), so the
+  # ceiling cannot separate distractor renders from plain ones; Task 4's annotations re-measure all three.
+  # The share floor is 0.0, explicitly: a statement whose one item is the mail-sort barcode carries no
+  # distractor text, only a code mark, so its share is 0 (Decision 14). A local test carries the
+  # separation instead: every distractor render records distractor ink or a mark, and no plain render does.
+  # Re-measured 7 October 2026 after both Westpac layouts gained their Balance column (its running
+  # balances are unscored text, so the scored ratio falls on those 14 pages), the corpus selections:
+  # ratio 0.3864 to 0.6826 (median 0.5863), share 0 to 0.0800, fill 0.6491 to 0.9709; plain renders ratio
+  # 0.4148 to 0.6913, fill 0.6269 to 0.9111. Every bound keeps at least the rule's headroom, so none moves.
+  # Re-measured 7 October 2026 on the composited page after the taxpayer's annotations landed (the four
+  # annotation items join the three inline ones, selection two to four of the seven; highlighter records
+  # no ink, ticks, loops and underlines record marks, notes and sums record distractor text). Corpus
+  # selections, 55 statements on their own layouts (51 of 55 annotated): scored_ink_ratio 0.3828 to 0.6879
+  # (median 0.5970), distractor_share 0 to 0.0917, page_fill 0.6269 to 0.9709. Every item forced on, 55 on
+  # their own layouts and 106 on every layout whose transaction_count carries them: ratio 0.3770 to
+  # 0.6681, share 0.0336 to 0.1253, fill 0.9647 to 0.9709. Plain renders, the control: ratio 0.4148 to
+  # 0.6913, fill 0.6269 to 0.9111, share 0. The same rule re-sets the bounds: the ratio ceiling 0.76 is
+  # 10.5% above the highest ratio (0.6879); the fill floor 0.56 is 10.7% below the lowest fill (0.6269,
+  # an annotated statement without the foot-anchored panel, whose fill is its plain page's); the share
+  # floor stays 0.0 (a page of barcode, highlighter and ticks has no distractor text). `validate` itself
+  # now refuses a distractor render that records no distractor ink or mark, so the separation holds on
+  # any corpus, and a page carrying highlighter alone (which records nothing) cannot pass.
+  bank_statement: {scored_ink_ratio_max: 0.76, distractor_share_min: 0.0, page_fill_min: 0.56}
+# Per-document states, per document type; a type with none says {} explicitly. A state's value is drawn
+# per document from its own seed, sha256("{case}:distractor:{doc_type}:state:{name}"), and the items
+# grouped under every other value are never selected on that document, nor any item requiring one of
+# them. Each listed item belongs to at most one group, and every layout drawing distractors for the type
+# lists every grouped item. An invoice is either paid (it prints the amount paid and a nil balance) or
+# unpaid (it prints the remittance slip, anchored on the amount due, and the account summary), never
+# both: a page that is both settled and owing is resolved by its labels alone, which defeats the
+# near-misses. The PAID stamp and its date belong to the paid group, so a stamp never shares a page with
+# the remittance slip or the account summary.
+states:
+  receipt: {}
+  invoice:
+    payment:
+      choices: [paid, unpaid]
+      items:
+        paid: [in_amount_paid, in_balance_due, in_paid_stamp, in_paid_date]
+        unpaid: [in_remittance_total, in_remit_barcode, in_account_summary, in_previous_balance]
+  bank_statement: {}
+# Items no page prints together, per document type; a type with none says [] explicitly. Of a set's members
+# a document's layout lists and its states leave, one is kept, drawn on its own seed,
+# sha256("{case}:distractor:{doc_type}:exclusive:{a+b}"); the others, and every item requiring one, are
+# never selected on it. A customer paying by direct debit posts no remittance slip, so a page carrying the
+# direct-debit notice carries no slip (its amount due, and with it the barcode), and the reverse. A layout
+# listing only one member of a set is unaffected.
+exclusive:
+  receipt: []
+  invoice:
+    - [in_direct_debit, in_remittance_total]
+  bank_statement: []
+# The overlay layer (generators/overlay/): marks drawn over a finished distractor page, such as a PAID
+# stamp or a taxpayer's highlighter, ink and handwriting, each layout listing its blocks under overlay:.
+# Only distractor renders draw one. These settings are shared by every block; each primitive adds its own
+# sub-block here when it lands.
+overlay:
+  # Pixels every protected ink box is padded by before overlay ink is checked against it. Stage 0 measured
+  # descender ink 3px below recorded line-item boxes, and the geometry tests allow 4px (their
+  # DESCENDER_ALLOWANCE); a local test holds this value at or above that allowance.
+  clearance_px: 6
+  # No overlay mark nearer a page edge than this, so nothing reads as cut off by the page.
+  page_inset_px: 30
+  # What opaque overlay ink (alpha above zero) may not touch, per document type: scored_and_marks
+  # (scored ink boxes and every code mark) or all_ink (every recorded ink box of every role, and every
+  # code mark); no_overlay says the type carries no overlay at all, so its layouts must declare
+  # overlay: [] and validation and the renderer refuse any block. This is the one place that says so:
+  # receipts carry no overlay, as a receipt is cropped to its content after drawing and its distractors
+  # are inline only. Invoices let a stamp cover labels and unscored text but never a scored value or a
+  # barcode. Bank statements protect all ink: TRANSACTION_DATES is scored but its date cells record no
+  # box, so protecting scored boxes alone would let a tick land on a scored date.
+  protect: {receipt: no_overlay, invoice: scored_and_marks, bank_statement: all_ink}
+  # Legibility under a translucent tint (highlighter): the WCAG contrast ratio between the dark and light
+  # relative-luminance percentiles inside an ink box. A scored box under a band must meet min_ratio after
+  # compositing; any other box must too if it met it before (text already fainter is exempt). 4.5 is the
+  # WCAG AA ratio for body text; the percentiles read a glyph's core strokes and the paper around them.
+  # The paper is the box's light_percentile; the ink is the dark_percentile of the box's ink pixels only
+  # (those at or below the midpoint between its darkest pixel and its paper), so a one-glyph value in a
+  # wide box reads its glyph rather than its paper. Measured 7 October 2026 under real bands, every bank
+  # item forced on all 55 statements, each highlighter colour at the strongest opacity (0.8): 447 scored
+  # and 336 other highlighted boxes; the smallest scored ratio after compositing is 14.73 (pink), 16.03
+  # to 18.43 for the other colours, from 21.00 before; dark percentiles 1, 5 and 10 read the same ratios
+  # to two places. The threshold is a legibility requirement, not fitted to the bands: it stays at WCAG AA,
+  # far below every pale band and above a dark one (a fixture at #464678, 0.9, fails it).
+  contrast: {min_ratio: 4.5, dark_percentile: 5, light_percentile: 95}
+  # The PAID stamp (generators/overlay/stamp.py): a bordered word, with the paying transaction's date on
+  # a line beneath it when the block's date_key is drawn, set in a vendored face on its own layer. Each
+  # document draws its colour, opacity, rotation and speckle on its overlay seed from these: red or blue
+  # rubber-stamp ink, never fully opaque, turned up to 15 degrees either way, with a few per cent of its
+  # ink knocked out as a rubber stamp leaves it. The knock-out is blotchy and one-sided, as an unevenly
+  # inked stamp pressed at a slight tilt leaves it: a smooth noise field whose blobs are about
+  # speckle_blob_px across, plus a ramp across the stamp in a drawn direction weighted by
+  # inking_gradient, and the speckle fraction of ink where that sum is highest is knocked out. The
+  # centre is the block's candidate moved by up to jitter_px each way, so stamps do not sit at the
+  # same few spots; a jittered footprint that meets a protected box falls back to the candidate itself,
+  # which is proven legal. The word itself is the catalogue's (in_paid_stamp).
+  stamp:
+    colours: ["#B3261E", "#C0392B", "#1F3F8F"]
+    opacity: [0.72, 0.9]
+    rotation_deg: [-15, 15]
+    font: {family: liberation_sans, bold: true, size: 60}
+    date_size: 30
+    border_px: 6
+    padding_px: 16
+    speckle: [0.04, 0.12]
+    speckle_blob_px: 9
+    inking_gradient: [0.3, 0.9]
+    jitter_px: 40
+  # A taxpayer's highlighter over the rows they claim (generators/overlay/annotation.py, `highlight`):
+  # one translucent band per annotated row, padded past the row's ink by pad_px, each end leaning or
+  # running short or long by up to end_jitter_px, all bands of a statement unioned into one mask and
+  # multiplied over the page once, so text stays dark and overlapping bands never darken twice. One
+  # colour and one opacity per statement, drawn on the block's overlay seed (a layout's highlight block
+  # may exclude colours its own print already uses, e.g. NAB's blue row striping). Pale colours only:
+  # every highlighted scored value must keep overlay.contrast.min_ratio. A felt tip is not a ruler: each
+  # band's top and bottom edges wander by up to edge_jitter_px along its length, and its ink is uneven,
+  # its density varying by up to density_wobble (a fraction) along the band and rising to end_density
+  # times the band's own within end_length_px of each end, where the pen starts and stops (capped at
+  # full strength). The mask is drawn supersampled, so its edges are antialiased.
+  highlighter:
+    colours: {yellow: "#FFF06A", green: "#BDF28F", pink: "#FFBCDD", orange: "#FFD38F", blue: "#AEE2FF"}
+    opacity: [0.55, 0.8]
+    pad_px: 6
+    end_jitter_px: 12
+    edge_jitter_px: 3
+    density_wobble: 0.1
+    end_density: 1.3
+    end_length_px: 40
+  # The pen (generators/overlay/annotation.py, `ink_marks`; and generators/overlay/handwriting.py): one
+  # colour per statement, drawn on the statement's pen seed, so its ticks, loops, underlines, notes and
+  # sum share a pen. Strokes are polylines whose points stray up to jitter_px from the ideal path, at a
+  # width drawn per mark from stroke_px (a biro line is about 4px at this page's 218 dpi). Each shape's
+  # path is sampled every spacing_px and its width tapers from taper.start of the pen's width where it
+  # lands to full in the middle and taper.end where it lifts. A tick is tick.size_px square in its lane,
+  # level with its row: the pen starts at tick.start, drops to tick.knee and rises to tick.tip (each
+  # {x, y} a [min, max] fraction of the square, x rightward and y downward from its top-left), the rising
+  # stroke bowing outward by a tick.bow fraction. A loop rings the amount with at least circle.gap_px
+  # between its stroke and the amount's padded box, running a circle.overrun fraction of a turn past its
+  # start. An underline runs underline.gap_px below the amount's padded box, starting and ending up to
+  # underline.lead_jitters times jitter_px before and past the amount.
+  ink:
+    colours: ["#1F3A93", "#26338C", "#222222", "#C0282D"]
+    stroke_px: [3, 5]
+    jitter_px: 2
+    tick:
+      size_px: 34
+      start: {x: [0.0, 0.1], y: [0.45, 0.65]}
+      knee: {x: [0.3, 0.45], y: [0.85, 1.0]}
+      tip: {x: [0.9, 1.0], y: [0.0, 0.1]}
+      bow: [0.02, 0.08]
+      taper: {start: 0.7, end: 0.35}
+      spacing_px: 3.0
+    circle:
+      gap_px: 8
+      overrun: [0.08, 0.22]
+      taper: {start: 0.6, end: 0.5}
+      spacing_px: 3.0
+    underline:
+      gap_px: 6
+      lead_jitters: [0, 3]
+      taper: {start: 0.6, end: 0.4}
+      spacing_px: 4.0
+  # The taxpayer's hand (generators/overlay/handwriting.py): one face and weight per statement, drawn on
+  # the statement's hand seed, so every note and sum on a page is one person's writing. Every vendored
+  # handwriting face is listed, in every weight it ships (Kalam and Caveat regular and bold; Indie Flower
+  # and Patrick Hand ship one weight). A line is set at a size drawn from size_px; each glyph then varies
+  # by up to glyph_jitter.size_px in size, slant_deg either way in slant and baseline_px off the baseline.
+  # A placed note then moves away from the print it was placed against by a step_away fraction of its
+  # own height, where that stays clear, as a person leaves a varying gap. Under a column (below_column) a
+  # note or sum is written roughly under it, not typeset flush: its right edge sits below_column_dx_px
+  # from the column's right edge (negative is to the left), drawn per note.
+  handwriting:
+    hands:
+      - {family: kalam, bold: false}
+      - {family: kalam, bold: true}
+      - {family: caveat, bold: false}
+      - {family: caveat, bold: true}
+      - {family: indie_flower, bold: false}
+      - {family: patrick_hand, bold: false}
+    size_px: [17, 21]
+    glyph_jitter: {size_px: 2, slant_deg: 6, baseline_px: 2}
+    step_away: [0.0, 0.5]
+    below_column_dx_px: [-48, 16]
+items:
+  # --- receipts -------------------------------------------------------------
+  rc_store_number:    {doc_types: [receipt], kind: clutter, emits: [DX_STORE_NUMBER], requires: [], rule: {type: digits, length: 4, prefix: "Store "}}
+  rc_merchant_id:     {doc_types: [receipt], kind: clutter, emits: [DX_MERCHANT_ID], requires: [], rule: {type: digits, length: 15, prefix: "MID "}}
+  rc_acn:             {doc_types: [receipt], kind: near_miss, target: BUSINESS_ABN, emits: [DX_ACN], requires: [], rule: {type: acn}}
+  rc_phone:           {doc_types: [receipt], kind: clutter, emits: [DX_PHONE], requires: [], rule: {type: phone, kind: landline}}
+  rc_website:         {doc_types: [receipt], kind: clutter, emits: [DX_WEBSITE], requires: [], rule: {type: website}}
+  rc_transaction_id:  {doc_types: [receipt], kind: clutter, emits: [DX_TRANSACTION_ID], requires: [], rule: {type: digits, length: 16, prefix: ""}}
+  rc_member_number:   {doc_types: [receipt], kind: clutter, emits: [DX_MEMBER_NUMBER], requires: [], rule: {type: digits, length: 10, prefix: ""}}
+  rc_points_balance:  {doc_types: [receipt], kind: clutter, emits: [DX_POINTS_BALANCE], requires: [rc_member_number], rule: {type: digits, length: 4, prefix: ""}}
+  # A saving is a money figure printed in the totals region, under TOTAL_AMOUNT: 3% to 25% of the
+  # total, so it is always strictly less than the total it was saved against.
+  rc_you_saved:       {doc_types: [receipt], kind: near_miss, target: TOTAL_AMOUNT, emits: [DX_YOU_SAVED], requires: [], rule: {type: amount_fraction, of: TOTAL_AMOUNT, min_fraction: "0.03", max_fraction: "0.25"}}
+  rc_item_count:      {doc_types: [receipt], kind: clutter, emits: [DX_ITEM_COUNT], requires: [], rule: {type: item_count}}
+  rc_returns_by:      {doc_types: [receipt], kind: near_miss, target: INVOICE_DATE, emits: [DX_RETURNS_BY], requires: [], rule: {type: date_offset, from: INVOICE_DATE, days: [14, 30, 60]}}
+  rc_survey_code:     {doc_types: [receipt], kind: clutter, emits: [DX_SURVEY_CODE], requires: [], rule: {type: digits, length: 8, prefix: ""}}
+  rc_survey_url:      {doc_types: [receipt], kind: clutter, emits: [DX_SURVEY_URL], requires: [rc_survey_code], rule: {type: survey_url}}
+  rc_returns_policy:  {doc_types: [receipt], kind: clutter, emits: [DX_RETURNS_POLICY], requires: [], rule: {type: pool_text, pool: returns_policy}}
+  # --- invoices -------------------------------------------------------------
+  in_invoice_number:  {doc_types: [invoice], kind: clutter, emits: [DX_INVOICE_NUMBER], requires: [], rule: {type: digits, length: 6, prefix: "INV-"}}
+  in_po_number:       {doc_types: [invoice], kind: clutter, emits: [DX_PO_NUMBER], requires: [], rule: {type: digits, length: 6, prefix: "PO-"}}
+  in_customer_number: {doc_types: [invoice], kind: clutter, emits: [DX_CUSTOMER_NUMBER], requires: [], rule: {type: digits, length: 6, prefix: ""}}
+  in_acn:             {doc_types: [invoice], kind: near_miss, target: BUSINESS_ABN, emits: [DX_ACN], requires: [], rule: {type: acn}}
+  in_licence:         {doc_types: [invoice], kind: clutter, emits: [DX_LICENCE], requires: [], rule: {type: digits, length: 6, prefix: "Lic. No. "}}
+  in_accreditation:   {doc_types: [invoice], kind: clutter, emits: [DX_ACCREDITATION], requires: [], rule: {type: pool_text, pool: accreditation}}
+  in_tagline:         {doc_types: [invoice], kind: clutter, emits: [DX_TAGLINE], requires: [], rule: {type: pool_text, pool: tagline}}
+  in_phone:           {doc_types: [invoice], kind: clutter, emits: [DX_PHONE], requires: [], rule: {type: phone, kind: landline}}
+  in_mobile:          {doc_types: [invoice], kind: clutter, emits: [DX_MOBILE], requires: [], rule: {type: phone, kind: mobile}}
+  in_freecall:        {doc_types: [invoice], kind: clutter, emits: [DX_FREECALL], requires: [], rule: {type: phone, kind: freecall}}
+  in_email:           {doc_types: [invoice], kind: clutter, emits: [DX_EMAIL], requires: [], rule: {type: email, pool: email_local}}
+  in_website:         {doc_types: [invoice], kind: clutter, emits: [DX_WEBSITE], requires: [], rule: {type: website}}
+  in_social:          {doc_types: [invoice], kind: clutter, emits: [DX_SOCIAL], requires: [], rule: {type: social}}
+  # A delivery address printed beside the Bill To block, in the payer's state: goods go near the customer.
+  in_ship_to:         {doc_types: [invoice], kind: near_miss, target: PAYER_ADDRESS, emits: [DX_SHIP_TO], requires: [], rule: {type: address, state_of: PAYER_ADDRESS}}
+  # A remittance PO Box and a branch address, both printed in the letterhead region. The PO Box is the
+  # supplier's own postal address, so it is in the state of BUSINESS_ADDRESS; a national firm's branch may
+  # be in any state.
+  in_remit_po_box:    {doc_types: [invoice], kind: near_miss, target: BUSINESS_ADDRESS, emits: [DX_REMIT_PO_BOX], requires: [], rule: {type: po_box, state_of: BUSINESS_ADDRESS}}
+  in_branch_address:  {doc_types: [invoice], kind: near_miss, target: BUSINESS_ADDRESS, emits: [DX_BRANCH_ADDRESS], requires: [], rule: {type: address, state_of: any}}
+  in_due_date:        {doc_types: [invoice], kind: near_miss, target: INVOICE_DATE, emits: [DX_DUE_DATE], requires: [], rule: {type: date_offset, from: INVOICE_DATE, days: [7, 14, 30]}}
+  in_supply_date:     {doc_types: [invoice], kind: near_miss, target: INVOICE_DATE, emits: [DX_SUPPLY_DATE], requires: [], rule: {type: date_offset, from: INVOICE_DATE, days: [-7, -3, -1]}}
+  in_services:        {doc_types: [invoice], kind: clutter, emits: [DX_SERVICES], requires: [], rule: {type: pool_text, pool: services}}
+  # The money near-misses are scaled to what they print beside (the validator redraws a value equal to a
+  # scored one). An offer runs from a tenth to two thirds of the invoice total; it prints inside a sentence
+  # with no thousands separator, so once that range passes 999.00 the figure is drawn between 400.00 and
+  # 999.00 instead (never the cap itself every time). A previous balance runs from a third of the total to
+  # half as much again, with no cap, as the account summary formats it. A subscription's upgrade offer
+  # is priced on the dearest unit price the invoice bills, at 1.2 to 2 times it, so the premium plan always
+  # costs more than any plan or add-on on the page.
+  in_promo_price:     {doc_types: [invoice], kind: near_miss, target: LINE_ITEM_PRICES, emits: [DX_PROMO_PRICE], requires: [], rule: {type: amount_ratio, of: TOTAL_AMOUNT, element: whole, min_ratio: "0.10", max_ratio: "0.65", cap: {min: "400.00", max: "999.00"}}}
+  in_upgrade_price:   {doc_types: [invoice], kind: near_miss, target: LINE_ITEM_PRICES, emits: [DX_UPGRADE_PRICE], requires: [], rule: {type: amount_ratio, of: LINE_ITEM_PRICES, element: max, min_ratio: "1.20", max_ratio: "2.00", cap: none}}
+  in_contact_person:  {doc_types: [invoice], kind: near_miss, target: PAYER_NAME, emits: [DX_CONTACT_PERSON], requires: [], rule: {type: person}}
+  in_job_reference:   {doc_types: [invoice], kind: clutter, emits: [DX_JOB_REFERENCE], requires: [], rule: {type: digits, length: 5, prefix: "JOB-"}}
+  in_amount_paid:     {doc_types: [invoice], kind: repeat, field: TOTAL_AMOUNT, emits: [DX_AMOUNT_PAID], requires: [], rule: {type: repeat}}
+  in_balance_due:     {doc_types: [invoice], kind: near_miss, target: TOTAL_AMOUNT, emits: [DX_BALANCE_DUE], requires: [in_amount_paid], rule: {type: fixed, value: "0.00"}}
+  # An unpaid invoice's account summary, a panel apart from the totals column that adds up: this invoice
+  # and the amount due (both repeats of TOTAL_AMOUNT, under their own labels), and, when the previous
+  # balance is drawn, that balance and the payment that cleared it (the same figure, labelled as received)
+  # above them. The previous balance requires the summary, so it never prints outside it.
+  in_account_summary: {doc_types: [invoice], kind: repeat, field: TOTAL_AMOUNT, emits: [DX_ACCOUNT_TOTAL], requires: [], rule: {type: repeat}}
+  in_previous_balance: {doc_types: [invoice], kind: near_miss, target: TOTAL_AMOUNT, emits: [DX_PREVIOUS_BALANCE], requires: [in_account_summary], rule: {type: amount_ratio, of: TOTAL_AMOUNT, element: whole, min_ratio: "0.30", max_ratio: "1.50", cap: none}}
+  # One bank account and one BPAY biller, each drawn as a pair of values printed on two labelled lines:
+  # a BSB never prints without its account number, nor a biller code without its reference.
+  in_bank_account:    {doc_types: [invoice], kind: clutter, emits: [DX_BSB, DX_ACCOUNT_NUMBER], requires: [], rule: {type: bank_account, account_length: 8}}
+  in_bpay:            {doc_types: [invoice], kind: clutter, emits: [DX_BPAY_BILLER, DX_BPAY_REFERENCE], requires: [], rule: {type: bpay, biller_length: 5, reference_length: 10}}
+  in_payid:           {doc_types: [invoice], kind: clutter, emits: [DX_PAYID], requires: [], rule: {type: email, pool: payid_local}}
+  in_surcharge_note:  {doc_types: [invoice], kind: clutter, emits: [DX_SURCHARGE_NOTE], requires: [], rule: {type: pool_text, pool: surcharge_note}}
+  in_terms:           {doc_types: [invoice], kind: clutter, emits: [DX_TERMS], requires: [], rule: {type: pool_text, pool: terms}}
+  in_late_fee:        {doc_types: [invoice], kind: clutter, emits: [DX_LATE_FEE], requires: [], rule: {type: pool_text, pool: late_fee}}
+  in_warranty:        {doc_types: [invoice], kind: clutter, emits: [DX_WARRANTY], requires: [], rule: {type: pool_text, pool: warranty}}
+  # The remittance slip's amount due, the unpaid item the whole slip is anchored on; the slip quotes the
+  # invoice number, so it requires it.
+  in_remittance_total: {doc_types: [invoice], kind: repeat, field: TOTAL_AMOUNT, emits: [DX_REMITTANCE_TOTAL], requires: [in_invoice_number], rule: {type: repeat}}
+  in_thank_you:       {doc_types: [invoice], kind: clutter, emits: [DX_THANK_YOU], requires: [], rule: {type: pool_text, pool: thank_you}}
+  # The remittance slip's scannable payment reference: Code 128 set C, so the digits are unprefixed and
+  # even in number. The slip is anchored on the amount due, so the barcode requires it and never prints
+  # without a slip.
+  in_remit_barcode:   {doc_types: [invoice], kind: clutter, emits: [DX_REMIT_BARCODE], requires: [in_remittance_total], rule: {type: digits, length: 16, prefix: ""}}
+  in_page_number:     {doc_types: [invoice], kind: clutter, emits: [DX_PAGE_NUMBER], requires: [], rule: {type: fixed, value: "Page 1 of 1"}}
+  # Layout-specific items, each listed only on the layout whose trade prints it. A trade invoice names the
+  # site the work was done at (a near-miss for the payer's address, under its own "Site address" heading),
+  # in the payer's state.
+  in_site_address:    {doc_types: [invoice], kind: near_miss, target: PAYER_ADDRESS, emits: [DX_SITE_ADDRESS], requires: [], rule: {type: address, state_of: PAYER_ADDRESS}}
+  # A professional firm's terms of engagement, several sentences long, in place of the one-line terms.
+  in_engagement_terms: {doc_types: [invoice], kind: clutter, emits: [DX_ENGAGEMENT_TERMS], requires: [], rule: {type: pool_text, pool: engagement_terms}}
+  # A professional firm's matter number, a wholesaler's delivery docket number.
+  in_matter_reference: {doc_types: [invoice], kind: clutter, emits: [DX_MATTER_REFERENCE], requires: [], rule: {type: digits, length: 5, prefix: ""}}
+  # The client's own reference for the matter, quoted back on a professional firm's invoice in place of a
+  # purchase order number (a law or advisory client raises no purchase order).
+  in_client_reference: {doc_types: [invoice], kind: clutter, emits: [DX_CLIENT_REFERENCE], requires: [], rule: {type: digits, length: 4, prefix: "CL/"}}
+  in_delivery_docket: {doc_types: [invoice], kind: clutter, emits: [DX_DELIVERY_DOCKET], requires: [], rule: {type: digits, length: 7, prefix: ""}}
+  # A subscription's billing period: the calendar month before (billed in arrears) or after (in advance)
+  # the invoice date's month, so neither of its dates is the invoice date.
+  in_billing_period:  {doc_types: [invoice], kind: near_miss, target: INVOICE_DATE, emits: [DX_BILLING_PERIOD], requires: [], rule: {type: month_period, from: INVOICE_DATE, months: [-1, 1]}}
+  # The direct-debit notice is worded for the payment state: settled in the past tense on a paid invoice,
+  # still to be collected on an unpaid one.
+  in_direct_debit:    {doc_types: [invoice], kind: clutter, emits: [DX_DIRECT_DEBIT], requires: [], rule: {type: state_text, state: payment, pools: {paid: direct_debit_paid, unpaid: direct_debit_notice}}}
+  # The PAID stamp a clerk puts on a settled invoice (drawn by the overlay's stamp block), its word drawn
+  # from these; the value screen checks the words like any clutter, and a collision redraws.
+  in_paid_stamp:      {doc_types: [invoice], kind: clutter, emits: [DX_PAID_STAMP], requires: [], rule: {type: pick, values: [PAID, PAID IN FULL, RECEIVED]}}
+  # The date stamped under the word: the bank date of the transaction that paid the invoice, read from
+  # ground_truth/transaction_links.yml. Every invoice link's bank date equals its invoice date, so this is
+  # a repeat of INVOICE_DATE, and the repeat check pins that coherence: a reseed that pays invoices later
+  # fails it, prompting a change of kind.
+  in_paid_date:       {doc_types: [invoice], kind: repeat, field: INVOICE_DATE, emits: [DX_PAID_DATE], requires: [in_paid_stamp], rule: {type: link_date}}
+  # --- bank statements ------------------------------------------------------
+  bk_issued_date:     {doc_types: [bank_statement], kind: near_miss, target: STATEMENT_DATE_RANGE, emits: [DX_ISSUED_DATE], requires: [], rule: {type: range_end_offset, days: [1, 2, 3]}}
+  bk_mail_barcode:    {doc_types: [bank_statement], kind: clutter, emits: [DX_MAIL_BARCODE], requires: [], rule: {type: digits, length: 16, prefix: ""}}
+  bk_promo_message:   {doc_types: [bank_statement], kind: clutter, emits: [DX_PROMO_MESSAGE], requires: [], rule: {type: pool_text, pool: bank_promo}}
+  bk_annotated_rows:  {doc_types: [bank_statement], kind: clutter, emits: [DX_ANNOTATED_ROWS], requires: [], rule: {type: annotated_rows, extra: [1, 3]}}
+  # A taxpayer's handwritten sum of the claimed rows: a correct total, so a near-miss
+  # for every individual transaction amount.
+  bk_annotation_total: {doc_types: [bank_statement], kind: near_miss, target: TRANSACTION_AMOUNTS_PAID, emits: [DX_ANNOTATION_TOTAL], requires: [bk_annotated_rows], rule: {type: annotation_total}}
+  bk_margin_note:     {doc_types: [bank_statement], kind: clutter, emits: [DX_MARGIN_NOTE], requires: [bk_annotated_rows], rule: {type: pool_text, pool: margin_note}}
+  # The pen mark on each annotated row (a tick in the margin, a loop round the amount, or an underline
+  # beneath it), one kind per row, aligned with DX_ANNOTATED_ROWS; the ink_marks block draws exactly it.
+  bk_row_marks:       {doc_types: [bank_statement], kind: clutter, emits: [DX_ROW_MARKS], requires: [bk_annotated_rows], rule: {type: row_marks, marks: [tick, circle, underline]}}
+
+# Label variation (read by generators/labels/config.py). The labelled_varied render draws the labels of
+# the fields below as `labelled` (the wording the layout prints today, declared per site in each
+# layout's label_styles provider), `variant` (a wording from the site's pool here) or `unlabelled`. A
+# plain or distractor render always draws `labelled`. Every key is required.
+label_variation:
+  # Which scored fields vary their label, per document type, in the order their choices are drawn. Bank
+  # statements print none of the three, so none varies there.
+  doc_types:
+    receipt: [BUSINESS_ABN, GST_AMOUNT, TOTAL_AMOUNT]
+    invoice: [BUSINESS_ABN, GST_AMOUNT, TOTAL_AMOUNT]
+    bank_statement: []
+  # Relative weight of each style per field; every weight stays above zero, and they stay equal.
+  # Measured 8 October 2026, the realised styles after refusals and redraws, all 55 cases of each type on
+  # their own layouts, per field as labelled/variant/unlabelled, the refusals met per rule, and how often
+  # each pool's wordings printed (re-measured the same day once a paid invoice withheld 'Balance:', one
+  # refused field moved per pass, 11-digit windows were read inside longer runs, an unlabelled value was
+  # checked for overlap and the receipt GST pool dropped its two 'includes' wordings):
+  #   receipt: BUSINESS_ABN 20/17/18, GST_AMOUNT 20/18/17, TOTAL_AMOUNT 21/20/14;
+  #     refused: collision 1, total_near_miss_twin 9, total_not_last 9
+  #     abn_receipt: ABN NO. 10, ABN NUMBER: 7
+  #     gst_receipt: TAX 13, GST 10% 5
+  #     total_receipt: AMOUNT 4, TOTAL (INC GST) 5, AMOUNT DUE 7, BALANCE 4
+  #   invoice: BUSINESS_ABN 22/20/13, GST_AMOUNT 19/21/15, TOTAL_AMOUNT 23/18/14;
+  #     refused: collision 54, gst_below_total 3, total_not_last 2
+  #     abn_invoice: ABN No. 10, Australian Business Number: 10
+  #     gst_invoice_added: Tax: 6, GST: 11, GST amount: 1
+  #     gst_invoice_included: Includes GST of 1, GST incl.: 1, Tax included: 1
+  #     total_invoice: Amount: 1, Total (inc GST): 10, Amount due: 0, Balance: 0, Total payable: 7
+  # Every style occurs for every field in both types, so no weight moves (they are never tuned towards a
+  # score). A receipt's unlabelled total is refused wherever 'You saved' prints below it, at its size and
+  # weight. An invoice variant is refused mostly by collision: 'Amount due:' and 'Amount:' against the
+  # account summary or 'Amount paid', 'Balance:' against 'Previous balance' or 'Balance due', 'GST amount:'
+  # against either. So 'Amount due:' and 'Balance:' print on no invoice, and 'Amount:' on one, and they
+  # stay in the pool as wordings the validator would accept on a page without those lines. Collision
+  # already keeps 'Balance:' off every invoice here, so `withheld_by_state` below changes no page in this
+  # corpus; it guards a page that collision would let through. The receipt GST pool offers no 'includes'
+  # wording: a receipt's SUBTOTAL is its total less GST, so GST is an added line there. The GST-inclusive
+  # layout prints GST after its total, so it never prints GST unlabelled (gst_below_total) nor its total
+  # unlabelled (total_not_last): none of its 6 cases shows either.
+  fields:
+    BUSINESS_ABN: {weights: {labelled: 1, variant: 1, unlabelled: 1}}
+    GST_AMOUNT: {weights: {labelled: 1, variant: 1, unlabelled: 1}}
+    TOTAL_AMOUNT: {weights: {labelled: 1, variant: 1, unlabelled: 1}}
+  # Variant wordings, one pool per kind of site. Each wording carries its own punctuation, since a label
+  # site's separator is empty: an ABN line's wording ends in the space before the number; a totals
+  # label ends as the layout's own label does (receipts upper case and bare, invoices title case with a
+  # colon). No wording may read as its site's own labelled wording once case and punctuation are set
+  # aside (the layout schema checks this), so `GST 10%:` is not a variant of `GST (10%):`.
+  # "Australian Business Number" is not offered on receipts: with a number after it, it does not fit
+  # the 57mm and 80mm rolls' ABN line at the body size. "A.B.N." is offered nowhere: set aside its
+  # punctuation, it reads as the sites' own "ABN:", so a page printing it would be recorded as a
+  # variant while showing today's label.
+  pools:
+    abn_receipt: ["ABN NO. ", "ABN NUMBER: "]
+    abn_invoice: ["ABN No. ", "Australian Business Number: "]
+    gst_receipt: ["TAX", "GST 10%"]
+    gst_invoice_added: ["Tax:", "GST:", "GST amount:"]
+    gst_invoice_included: ["Includes GST of", "GST incl.:", "Tax included:"]
+    total_receipt: ["AMOUNT", "TOTAL (INC GST)", "AMOUNT DUE", "BALANCE"]
+    total_invoice: ["Amount:", "Total (inc GST):", "Amount due:", "Balance:", "Total payable:"]
+  # Pool wordings a page may not print in one state of its document type (the `states:` above), per
+  # document type: {state: {choice: [wording, ...]}}, {} for a type with none. Such a wording is set
+  # aside from the case's shuffled pool, so no other draw moves. "Balance:" over a paid invoice's total
+  # reads as an amount still owing, when the balance of a paid invoice is nil.
+  withheld_by_state:
+    receipt: {}
+    invoice: {payment: {paid: ["Balance:"]}}
+    bank_statement: {}
+  # Words a variant may share with a distractor line on the page without the two being confused, per
+  # varied field, so a word ignored beside one field's wordings never lets another field's wording
+  # collide unseen. Beside the connectives, "no" and "number" are the generic nouns of every identifier
+  # line: "ABN No." is not misread for "Invoice No: INV-581233" or "Account number: 46351775", whose
+  # values are not 11 digits (an 11-digit rival is abn_rival's to refuse). Measured 8 October 2026:
+  # without them, "ABN No." was refused on 48 of 55 invoices, nearly always against such a line. They
+  # are ignored for BUSINESS_ABN only: a GST or total wording naming a number would be confusable.
+  collision:
+    ignore_words:
+      BUSINESS_ABN: [of, the, inc, incl, "no", number]
+      GST_AMOUNT: [of, the, inc, incl]
+      TOTAL_AMOUNT: [of, the, inc, incl]
+  # What a refused label choice does: redraw (try the field's next candidate, recording the refusal) or
+  # fail (stop the render with the refusal's diagnostic).
+  refusal_policy: redraw
+  # The varied fields whose label sites must lie inside the layout's one `region: totals` stack (the
+  # layout schema checks this): the unambiguity rules read the totals block's amount lines around them.
+  # It governs the layout schema only; the rules themselves read the GST and the total against the
+  # page's recorded totals region whatever this lists.
+  totals_region_fields: [GST_AMOUNT, TOTAL_AMOUNT]

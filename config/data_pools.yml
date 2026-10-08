@@ -1,0 +1,972 @@
+# Australian business content pools for synthetic document generation.
+#
+# `retailers` and `professional_services` are REAL businesses. They are never
+# emitted into generated documents — content_engine.py reads only their
+# `name` fields to seed the real-name blocklist that fictional_business()
+# screens invented names against.
+
+faker_config:
+  locale: en_AU
+  seed_base: 42
+
+# The public ABN register: every ABN in the ABN Lookup Bulk Extract (data.gov.au,
+# CC BY 3.0 AU), current and cancelled, as a sorted uint64 array with no names.
+# generate_abn() redraws any checksum-valid ABN found in it, so an invented
+# business never prints a real one. Too large to commit; build it on each
+# machine that seeds ground truth with
+#   python scripts/build_abn_register.py public_split_1_10.zip public_split_11_20.zip
+# `~` is expanded.
+abn_register:
+  path: ~/data/abr/abn_registered.npy
+
+locations:
+  - {suburb: Alexandria, postcode: "2015", state: NSW}
+  - {suburb: Hawthorn East, postcode: "3123", state: VIC}
+  - {suburb: Fortitude Valley, postcode: "4006", state: QLD}
+  - {suburb: Norwood, postcode: "5067", state: SA}
+  - {suburb: Subiaco, postcode: "6008", state: WA}
+  - {suburb: Hobart, postcode: "7000", state: TAS}
+  - {suburb: Parramatta, postcode: "2150", state: NSW}
+  - {suburb: South Yarra, postcode: "3141", state: VIC}
+  - {suburb: Toowoomba, postcode: "4350", state: QLD}
+  - {suburb: Glenelg, postcode: "5045", state: SA}
+  - {suburb: Newtown, postcode: "2042", state: NSW}
+  - {suburb: Richmond, postcode: "3121", state: VIC}
+  - {suburb: New Farm, postcode: "4005", state: QLD}
+  - {suburb: Unley, postcode: "5061", state: SA}
+  - {suburb: Fremantle, postcode: "6160", state: WA}
+  - {suburb: Battery Point, postcode: "7004", state: TAS}
+  - {suburb: Chatswood, postcode: "2067", state: NSW}
+  - {suburb: St Kilda, postcode: "3182", state: VIC}
+  - {suburb: Paddington, postcode: "4064", state: QLD}
+  - {suburb: Prospect, postcode: "5082", state: SA}
+  - {suburb: Leederville, postcode: "6007", state: WA}
+  - {suburb: Manuka, postcode: "2603", state: ACT}
+  - {suburb: Cronulla, postcode: "2230", state: NSW}
+  - {suburb: Brunswick, postcode: "3056", state: VIC}
+
+street_types: [St, Ave, Rd, Dr, Pl, Cres, Ct, Tce, Way, Ln, Gr, Blvd, Cl, Pde]
+
+business_name_parts:
+  surnames:
+    [Ashcroft, Bramwell, Calloway, Denholm, Eastwick, Fenwick, Goswell, Harrowgate,
+     Ibbotson, Kirriemuir, Lonsdale, Marchbank, Norcott, Ockendon, Penhallow, Quennell,
+     Ravensdale, Southcott, Tremayne, Underhill, Verrall, Wakeling, Yarrow, Ashby,
+     Blackwood, Carrington, Dunmore, Ellery, Farrant, Greenhalgh]
+  suburb_prefixes:
+    [Metro, National, Central, Coastal, Northern, Southern, Western, Eastern, Greater,
+     Prime, Capital, Regional, Statewide, Riverside, Harbourside]
+  category_nouns:
+    hardware: ["Hardware", "Trade Supplies", "Building Centre", "Timber & Tools", "Home Improvement"]
+    grocery: ["Grocer", "Fresh Market", "Foodstore", "Provisions", "Corner Market"]
+    office: ["Office Supplies", "Stationery Co", "Business Supplies", "Print & Office"]
+    electronics: ["Electronics", "Tech Store", "Digital Supplies", "AV & Appliances"]
+    retail: ["Department Store", "General Store", "Retail Co", "Emporium"]
+    pharmacy: ["Pharmacy", "Chemist", "Health Store", "Discount Chemist"]
+    liquor: ["Cellars", "Liquor Merchants", "Bottle Shop", "Wine & Spirits"]
+    fuel: ["Fuel", "Service Station", "Petroleum", "Roadhouse"]
+    automotive: ["Auto Parts", "Automotive Supplies", "Motor Spares", "Tyre & Auto"]
+    cafe: ["Cafe", "Espresso Bar", "Coffee House", "Eatery"]
+    accounting: ["& Associates Accounting", "Chartered Accountants", "Tax & Advisory", "Accounting Group"]
+    legal: ["Legal", "& Partners Lawyers", "Solicitors", "Legal Group"]
+    it_services: ["IT Solutions", "Technology Group", "Digital Services", "IT Consulting"]
+    consulting: ["Business Consulting", "Strategy Group", "Advisory Partners", "Consulting Partners"]
+    marketing: ["Marketing Group", "Creative Agency", "Brand & Media", "Marketing Co"]
+    plumbing: ["Plumbing", "Plumbing & Gas", "Plumbing Services"]
+    electrical: ["Electrical", "Electrical Services", "Electrical Contracting"]
+    conveyancing: ["Conveyancing", "Conveyancers", "Property Law"]
+    patent_attorneys: ["Patent Attorneys", "Intellectual Property", "Patents & Trade Marks"]
+    food_wholesale: ["Food Wholesalers", "Catering Supplies", "Produce Distributors"]
+    cleaning_wholesale: ["Cleaning Supplies", "Hygiene Wholesale", "Janitorial Distributors"]
+    cloud_software: ["Cloud Software", "Software Systems", "Online Systems"]
+    security_monitoring: ["Security Monitoring", "Alarm Monitoring", "Security Systems"]
+
+# Receipt line items per merchant category (receipt_categories, below): a receipt's lines are drawn from
+# its merchant's own category, so a cellar never sells yoghurt. Each entry is printed verbatim as
+# LINE_ITEM_DESCRIPTIONS, in generic words: no brand or product name (real_brand_blocklist, below,
+# screens every description). `quantity` is the inclusive [min, max] a line may be bought in (1 for a
+# tank of fuel). Every key is required.
+product_catalog:
+  hardware:
+    - {description: "Paint Brush Set", unit: ea, price_low: 12.00, price_high: 35.00, quantity: [1, 2]}
+    - {description: "Drill Bit Set", unit: ea, price_low: 25.00, price_high: 80.00, quantity: [1, 2]}
+    - {description: "Garden Hose 20m", unit: ea, price_low: 35.00, price_high: 120.00, quantity: [1, 1]}
+    - {description: "Potting Mix 25L", unit: ea, price_low: 8.00, price_high: 20.00, quantity: [1, 4]}
+    - {description: "Screwdriver Set", unit: ea, price_low: 15.00, price_high: 40.00, quantity: [1, 2]}
+    - {description: "Extension Cord 10m", unit: ea, price_low: 18.00, price_high: 45.00, quantity: [1, 2]}
+    - {description: "Wood Screws 8g 200pk", unit: ea, price_low: 9.00, price_high: 18.00, quantity: [1, 3]}
+    - {description: "Masking Tape 24mm", unit: ea, price_low: 3.00, price_high: 7.00, quantity: [1, 4]}
+  grocery:
+    - {description: "Milk 2L", unit: ea, price_low: 2.50, price_high: 5.50, quantity: [1, 3]}
+    - {description: "Bread White 700g", unit: ea, price_low: 3.00, price_high: 5.00, quantity: [1, 2]}
+    - {description: "Chicken Breast 500g", unit: ea, price_low: 7.00, price_high: 14.00, quantity: [1, 3]}
+    - {description: "Pasta 500g", unit: ea, price_low: 1.50, price_high: 4.00, quantity: [1, 4]}
+    - {description: "Tomato Sauce 500ml", unit: ea, price_low: 2.50, price_high: 5.50, quantity: [1, 2]}
+    - {description: "Chips BBQ 175g", unit: ea, price_low: 3.00, price_high: 6.00, quantity: [1, 3]}
+    - {description: "Coffee Beans 1kg", unit: ea, price_low: 15.00, price_high: 35.00, quantity: [1, 2]}
+    - {description: "Olive Oil 500ml", unit: ea, price_low: 8.00, price_high: 20.00, quantity: [1, 2]}
+    - {description: "Cereal Box 500g", unit: ea, price_low: 4.00, price_high: 9.00, quantity: [1, 2]}
+    - {description: "Yoghurt Tub 1kg", unit: ea, price_low: 5.00, price_high: 10.00, quantity: [1, 3]}
+    - {description: "Frozen Pizza", unit: ea, price_low: 6.00, price_high: 12.00, quantity: [1, 3]}
+    - {description: "Dishwashing Liquid", unit: ea, price_low: 3.50, price_high: 7.00, quantity: [1, 2]}
+  office:
+    - {description: "Printer Paper A4 500pk", unit: ea, price_low: 8.00, price_high: 18.00,
+       quantity: [1, 5]}
+    - {description: "Pens Ballpoint 10pk", unit: ea, price_low: 4.00, price_high: 10.00, quantity: [1, 3]}
+    - {description: "Lever Arch File", unit: ea, price_low: 3.00, price_high: 8.00, quantity: [1, 6]}
+    - {description: "Sticky Notes 12pk", unit: ea, price_low: 6.00, price_high: 15.00, quantity: [1, 3]}
+    - {description: "Desk Stapler", unit: ea, price_low: 8.00, price_high: 25.00, quantity: [1, 2]}
+    - {description: "Whiteboard Markers 4pk", unit: ea, price_low: 5.00, price_high: 12.00,
+       quantity: [1, 3]}
+    - {description: "Toner Cartridge Black", unit: ea, price_low: 45.00, price_high: 120.00,
+       quantity: [1, 2]}
+  electronics:
+    - {description: "HDMI Cable 2m", unit: ea, price_low: 12.00, price_high: 35.00, quantity: [1, 3]}
+    - {description: "USB Hub 4-port", unit: ea, price_low: 15.00, price_high: 45.00, quantity: [1, 2]}
+    - {description: "Phone Case", unit: ea, price_low: 10.00, price_high: 40.00, quantity: [1, 2]}
+    - {description: "Batteries AA 8pk", unit: ea, price_low: 8.00, price_high: 18.00, quantity: [1, 3]}
+    - {description: "Wireless Mouse", unit: ea, price_low: 18.00, price_high: 60.00, quantity: [1, 2]}
+    - {description: "USB-C Charger 20W", unit: ea, price_low: 20.00, price_high: 45.00, quantity: [1, 2]}
+    - {description: "Bluetooth Headphones", unit: ea, price_low: 40.00, price_high: 180.00,
+       quantity: [1, 1]}
+  retail:
+    - {description: "Bath Towel", unit: ea, price_low: 10.00, price_high: 35.00, quantity: [1, 4]}
+    - {description: "Cotton T-Shirt", unit: ea, price_low: 8.00, price_high: 30.00, quantity: [1, 3]}
+    - {description: "Storage Container 10L", unit: ea, price_low: 6.00, price_high: 18.00, quantity: [1, 4]}
+    - {description: "Kitchen Sponge 6pk", unit: ea, price_low: 3.00, price_high: 7.00, quantity: [1, 3]}
+    - {description: "Coat Hangers 10pk", unit: ea, price_low: 4.00, price_high: 12.00, quantity: [1, 2]}
+    - {description: "Desk Lamp", unit: ea, price_low: 15.00, price_high: 45.00, quantity: [1, 1]}
+    - {description: "Cushion Cover", unit: ea, price_low: 8.00, price_high: 25.00, quantity: [1, 4]}
+  pharmacy:
+    - {description: "Paracetamol Tablets 24pk", unit: ea, price_low: 3.00, price_high: 9.00,
+       quantity: [1, 2]}
+    - {description: "Adhesive Bandages 40pk", unit: ea, price_low: 4.00, price_high: 10.00,
+       quantity: [1, 2]}
+    - {description: "Sunscreen SPF50 200ml", unit: ea, price_low: 10.00, price_high: 22.00,
+       quantity: [1, 2]}
+    - {description: "Shampoo 400ml", unit: ea, price_low: 5.00, price_high: 12.00, quantity: [1, 2]}
+    - {description: "Hand Soap Refill 1L", unit: ea, price_low: 6.00, price_high: 14.00, quantity: [1, 2]}
+    - {description: "Vitamin C 60 Tablets", unit: ea, price_low: 9.00, price_high: 22.00, quantity: [1, 2]}
+    - {description: "Cough Lozenges 16pk", unit: ea, price_low: 5.00, price_high: 11.00, quantity: [1, 2]}
+  liquor:
+    - {description: "Wine Red 750ml", unit: ea, price_low: 12.00, price_high: 35.00, quantity: [1, 6]}
+    - {description: "Wine White 750ml", unit: ea, price_low: 11.00, price_high: 32.00, quantity: [1, 6]}
+    - {description: "Beer Case 24", unit: ea, price_low: 45.00, price_high: 75.00, quantity: [1, 2]}
+    - {description: "Sparkling Wine 750ml", unit: ea, price_low: 14.00, price_high: 40.00, quantity: [1, 3]}
+    - {description: "Cider 6pk", unit: ea, price_low: 18.00, price_high: 28.00, quantity: [1, 2]}
+    - {description: "Gin 700ml", unit: ea, price_low: 45.00, price_high: 85.00, quantity: [1, 1]}
+    - {description: "Ice Bag 5kg", unit: ea, price_low: 4.00, price_high: 7.00, quantity: [1, 2]}
+  fuel:
+    - {description: "Unleaded 91", unit: ea, price_low: 35.00, price_high: 110.00, quantity: [1, 1]}
+    - {description: "Premium Unleaded 98", unit: ea, price_low: 45.00, price_high: 130.00, quantity: [1, 1]}
+    - {description: "Diesel", unit: ea, price_low: 50.00, price_high: 140.00, quantity: [1, 1]}
+    - {description: "Car Wash Premium", unit: ea, price_low: 12.00, price_high: 25.00, quantity: [1, 1]}
+    - {description: "Windscreen Washer 1L", unit: ea, price_low: 4.00, price_high: 9.00, quantity: [1, 2]}
+    - {description: "Bottled Water 600ml", unit: ea, price_low: 2.50, price_high: 4.50, quantity: [1, 3]}
+    - {description: "Coffee Regular", unit: ea, price_low: 3.50, price_high: 5.50, quantity: [1, 2]}
+  automotive:
+    - {description: "Motor Oil 5L", unit: ea, price_low: 28.00, price_high: 60.00, quantity: [1, 2]}
+    - {description: "Car Air Freshener", unit: ea, price_low: 5.00, price_high: 15.00, quantity: [1, 3]}
+    - {description: "Tyre Pressure Gauge", unit: ea, price_low: 8.00, price_high: 20.00, quantity: [1, 1]}
+    - {description: "Wiper Blades Pair", unit: ea, price_low: 20.00, price_high: 50.00, quantity: [1, 1]}
+    - {description: "Car Vacuum Cleaner", unit: ea, price_low: 30.00, price_high: 70.00, quantity: [1, 1]}
+    - {description: "Coolant 5L", unit: ea, price_low: 18.00, price_high: 40.00, quantity: [1, 2]}
+    - {description: "Microfibre Wash Mitt", unit: ea, price_low: 6.00, price_high: 15.00, quantity: [1, 2]}
+  cafe:
+    - {description: "Flat White", unit: ea, price_low: 4.00, price_high: 5.50, quantity: [1, 3]}
+    - {description: "Long Black", unit: ea, price_low: 3.80, price_high: 5.00, quantity: [1, 3]}
+    - {description: "Cappuccino Large", unit: ea, price_low: 4.80, price_high: 6.20, quantity: [1, 3]}
+    - {description: "Avocado on Toast", unit: ea, price_low: 14.00, price_high: 22.00, quantity: [1, 2]}
+    - {description: "Ham and Cheese Croissant", unit: ea, price_low: 7.00, price_high: 11.00,
+       quantity: [1, 2]}
+    - {description: "Banana Bread Slice", unit: ea, price_low: 5.00, price_high: 8.00, quantity: [1, 2]}
+    - {description: "Big Breakfast", unit: ea, price_low: 20.00, price_high: 28.00, quantity: [1, 2]}
+    - {description: "Orange Juice 300ml", unit: ea, price_low: 5.00, price_high: 8.00, quantity: [1, 2]}
+
+# Invoice line items per service category (service_categories, below): an invoice's lines are drawn only
+# from its own category's entry, and `pipeline validate` refuses an invoice layout whose categories lack
+# one. Each entry is printed verbatim as LINE_ITEM_DESCRIPTIONS, so its wording is what the layout's design
+# would print: a trade invoice splits labour from materials, a wholesale line carries its item code and
+# pack size, and a subscription line is one plan per billing period or a count of seats. The seed draws one
+# to four of a category's lines and prints them in the order drawn, every line equally likely to be billed
+# and to be printed first, so no line leads every invoice of its category; catalogue order means nothing. `quantity` is the inclusive [min, max] a line may be billed in (1 for a
+# plan or a one-off fee). Every key is required.
+category_catalog:
+  accounting:
+    - {description: "Accounting and bookkeeping", unit: hrs, price_low: 80, price_high: 180,
+       quantity: [1, 8]}
+    - {description: "Tax return preparation", unit: ea, price_low: 350, price_high: 800, quantity: [1, 1]}
+    - {description: "BAS preparation and lodgement", unit: ea, price_low: 180, price_high: 450,
+       quantity: [1, 4]}
+    - {description: "Payroll processing services", unit: hrs, price_low: 70, price_high: 150,
+       quantity: [1, 8]}
+    - {description: "Annual report preparation", unit: ea, price_low: 600, price_high: 1500,
+       quantity: [1, 1]}
+    - {description: "Audit services", unit: hrs, price_low: 220, price_high: 450, quantity: [1, 8]}
+  legal:
+    - {description: "Professional consultation services", unit: hrs, price_low: 150, price_high: 350,
+       quantity: [1, 4]}
+    - {description: "Legal document preparation", unit: hrs, price_low: 200, price_high: 500,
+       quantity: [1, 8]}
+    - {description: "Contract review and drafting", unit: hrs, price_low: 220, price_high: 480,
+       quantity: [1, 8]}
+    - {description: "Due diligence review", unit: hrs, price_low: 300, price_high: 650, quantity: [1, 8]}
+    - {description: "Lease review and advice", unit: ea, price_low: 450, price_high: 1100, quantity: [1, 1]}
+    - {description: "Statutory declaration witnessing", unit: ea, price_low: 40, price_high: 90,
+       quantity: [1, 3]}
+  it_services:
+    - {description: "IT support and maintenance", unit: hrs, price_low: 90, price_high: 220,
+       quantity: [1, 8]}
+    - {description: "Software development services", unit: hrs, price_low: 120, price_high: 280,
+       quantity: [1, 8]}
+    - {description: "Cloud infrastructure migration", unit: ea, price_low: 2000, price_high: 6000,
+       quantity: [1, 1]}
+    - {description: "Cybersecurity assessment", unit: ea, price_low: 1500, price_high: 4500,
+       quantity: [1, 1]}
+    - {description: "Network switch configuration", unit: ea, price_low: 250, price_high: 700,
+       quantity: [1, 3]}
+    - {description: "Managed backup service, monthly", unit: ea, price_low: 60, price_high: 180,
+       quantity: [1, 1]}
+  consulting:
+    - {description: "Business strategy consulting", unit: hrs, price_low: 250, price_high: 600,
+       quantity: [1, 8]}
+    - {description: "Risk assessment review", unit: ea, price_low: 900, price_high: 2500, quantity: [1, 1]}
+    - {description: "Corporate training workshop", unit: day, price_low: 1200, price_high: 3500,
+       quantity: [1, 3]}
+    - {description: "Employee mediation services", unit: hrs, price_low: 180, price_high: 350,
+       quantity: [1, 6]}
+    - {description: "Process improvement review", unit: hrs, price_low: 200, price_high: 450,
+       quantity: [1, 8]}
+  marketing:
+    - {description: "Marketing campaign management", unit: hrs, price_low: 100, price_high: 200,
+       quantity: [1, 8]}
+    - {description: "Brand identity design", unit: ea, price_low: 900, price_high: 2800, quantity: [1, 1]}
+    - {description: "Website design and development", unit: ea, price_low: 800, price_high: 3000,
+       quantity: [1, 1]}
+    - {description: "Social media content package", unit: ea, price_low: 400, price_high: 1200,
+       quantity: [1, 3]}
+    - {description: "Copywriting services", unit: hrs, price_low: 90, price_high: 180, quantity: [1, 8]}
+  plumbing:
+    - {description: "Labour: licensed plumber", unit: hrs, price_low: 95, price_high: 140, quantity: [1, 6]}
+    - {description: "Labour: apprentice plumber", unit: hrs, price_low: 55, price_high: 80,
+       quantity: [1, 6]}
+    - {description: "Call-out fee", unit: ea, price_low: 60, price_high: 120, quantity: [1, 1]}
+    - {description: "Materials: 15 mm copper pipe, 3 m length", unit: ea, price_low: 28, price_high: 45,
+       quantity: [1, 4]}
+    - {description: "Materials: mixer tap, chrome", unit: ea, price_low: 120, price_high: 260,
+       quantity: [1, 2]}
+    - {description: "Materials: 250 L electric hot water unit", unit: ea, price_low: 900, price_high: 1400,
+       quantity: [1, 1]}
+    - {description: "Materials: PVC fittings and solvent cement", unit: ea, price_low: 15, price_high: 40,
+       quantity: [1, 3]}
+  electrical:
+    - {description: "Labour: licensed electrician", unit: hrs, price_low: 90, price_high: 130,
+       quantity: [1, 6]}
+    - {description: "Labour: apprentice electrician", unit: hrs, price_low: 50, price_high: 75,
+       quantity: [1, 6]}
+    - {description: "Call-out fee", unit: ea, price_low: 60, price_high: 110, quantity: [1, 1]}
+    - {description: "Materials: double power point, white", unit: ea, price_low: 18, price_high: 35,
+       quantity: [1, 6]}
+    - {description: "Materials: LED downlight, 10 W", unit: ea, price_low: 22, price_high: 40,
+       quantity: [1, 10]}
+    - {description: "Materials: safety switch, 2-pole RCBO", unit: ea, price_low: 70, price_high: 120,
+       quantity: [1, 4]}
+    - {description: "Materials: 2.5 mm twin and earth cable, per metre", unit: m, price_low: 2.5,
+       price_high: 4.5, quantity: [10, 50]}
+  conveyancing:
+    - {description: "Professional fees: residential purchase conveyance", unit: ea, price_low: 900,
+       price_high: 1600, quantity: [1, 1]}
+    - {description: "Professional fees: contract review and advice", unit: hrs, price_low: 220,
+       price_high: 380, quantity: [1, 4]}
+    - {description: "Professional fees: settlement attendance", unit: ea, price_low: 250, price_high: 450,
+       quantity: [1, 1]}
+    - {description: "Disbursement: title search", unit: ea, price_low: 25, price_high: 45, quantity: [1, 2]}
+    - {description: "Disbursement: council and water certificates", unit: ea, price_low: 120,
+       price_high: 260, quantity: [1, 1]}
+    - {description: "Disbursement: settlement agent fee", unit: ea, price_low: 90, price_high: 160,
+       quantity: [1, 1]}
+  patent_attorneys:
+    - {description: "Professional fees: patentability search and opinion", unit: ea, price_low: 1500,
+       price_high: 3200, quantity: [1, 1]}
+    - {description: "Professional fees: provisional patent application", unit: ea, price_low: 2800,
+       price_high: 5500, quantity: [1, 1]}
+    - {description: "Professional fees: trade mark application, per class", unit: ea, price_low: 600,
+       price_high: 1100, quantity: [1, 3]}
+    - {description: "Official fee: trade mark filing, per class", unit: ea, price_low: 250, price_high: 330,
+       quantity: [1, 3]}
+    - {description: "Professional fees: attorney time", unit: hrs, price_low: 350, price_high: 600,
+       quantity: [1, 6]}
+    - {description: "Disbursement: document certification", unit: ea, price_low: 40, price_high: 120,
+       quantity: [1, 2]}
+  food_wholesale:
+    - {description: "FW-1042 Basmati rice, 10 kg bag", unit: ea, price_low: 28, price_high: 42,
+       quantity: [1, 10]}
+    - {description: "FW-2210 Canola oil, 20 L drum", unit: ea, price_low: 55, price_high: 85,
+       quantity: [1, 6]}
+    - {description: "FW-3105 Plain flour, 12.5 kg bag", unit: ea, price_low: 18, price_high: 30,
+       quantity: [1, 10]}
+    - {description: "FW-4418 Diced tomatoes, carton of 6 x 2.5 kg", unit: ea, price_low: 30, price_high: 48,
+       quantity: [1, 8]}
+    - {description: "FW-5120 Takeaway containers, carton of 500", unit: ea, price_low: 60, price_high: 95,
+       quantity: [1, 5]}
+    - {description: "FW-6033 Frozen chips, carton of 6 x 2 kg", unit: ea, price_low: 35, price_high: 55,
+       quantity: [1, 8]}
+    - {description: "FW-7301 Full cream milk, crate of 9 x 2 L", unit: ea, price_low: 25, price_high: 38,
+       quantity: [1, 6]}
+  cleaning_wholesale:
+    - {description: "CS-1150 Hand towel, carton of 16 rolls", unit: ea, price_low: 48, price_high: 75,
+       quantity: [1, 8]}
+    - {description: "CS-2204 Toilet tissue, carton of 48 rolls", unit: ea, price_low: 38, price_high: 60,
+       quantity: [1, 8]}
+    - {description: "CS-3310 Floor cleaner concentrate, 5 L", unit: ea, price_low: 22, price_high: 40,
+       quantity: [1, 6]}
+    - {description: "CS-4025 Hospital-grade disinfectant, 5 L", unit: ea, price_low: 30, price_high: 55,
+       quantity: [1, 6]}
+    - {description: "CS-5402 Bin liners 120 L, carton of 200", unit: ea, price_low: 45, price_high: 70,
+       quantity: [1, 5]}
+    - {description: "CS-6118 Nitrile gloves, box of 100", unit: ea, price_low: 9, price_high: 16,
+       quantity: [1, 20]}
+    - {description: "CS-7206 Microfibre cloths, pack of 10", unit: ea, price_low: 12, price_high: 22,
+       quantity: [1, 10]}
+  cloud_software:
+    - {description: "Business plan, monthly subscription", unit: ea, price_low: 49, price_high: 129,
+       quantity: [1, 1]}
+    - {description: "Additional user licence, monthly", unit: ea, price_low: 8, price_high: 18,
+       quantity: [1, 25]}
+    - {description: "Cloud storage add-on, 100 GB, monthly", unit: ea, price_low: 5, price_high: 15,
+       quantity: [1, 3]}
+    - {description: "Payroll module, monthly", unit: ea, price_low: 15, price_high: 40, quantity: [1, 1]}
+    - {description: "Premium support, monthly", unit: ea, price_low: 29, price_high: 79, quantity: [1, 1]}
+  security_monitoring:
+    - {description: "Monitored alarm plan, monthly", unit: ea, price_low: 39, price_high: 79,
+       quantity: [1, 1]}
+    - {description: "Mobile app access, monthly", unit: ea, price_low: 5, price_high: 12, quantity: [1, 1]}
+    - {description: "Additional sensor monitoring, per sensor", unit: ea, price_low: 3, price_high: 8,
+       quantity: [1, 6]}
+    - {description: "Patrol response call-out", unit: ea, price_low: 85, price_high: 160, quantity: [1, 2]}
+    - {description: "CCTV cloud recording, per camera, monthly", unit: ea, price_low: 9, price_high: 20,
+       quantity: [1, 8]}
+
+# EFTPOS terminal-slip constants for the receipt payment block. Every key is
+# required; generators/payment_block.py fails fast on any omission.
+payment_terminal:
+  # Weighted method pool for receipts. POS-plausible only — deliberately
+  # excludes BPAY / PayPal / Bank Transfer, which never print a terminal slip.
+  receipt_method_weights:
+    EFTPOS: 30
+    Visa: 25
+    Mastercard: 20
+    AMEX: 5
+    Cash: 0            # every receipt in this corpus is linked to a bank transaction
+    Apple Pay: 5
+    Google Pay: 3
+  acquirers:
+    - Tyro Payments EFTPOS
+    - Westpac EFTPOS
+    - CBA Smart EFTPOS
+    - ANZ Worldline EFTPOS
+    - Smartpay EFTPOS
+    - NAB EFTPOS
+  schemes:
+    EFTPOS:
+      display: eftpos
+      aid: A0000003841001
+      pan_digits: 16
+      account_types: [SAV, CHQ]
+    Visa:
+      display: VISA CREDIT
+      aid: A0000000031010
+      pan_digits: 16
+      account_types: [CR]
+    Mastercard:
+      display: MASTERCARD
+      aid: A0000000041010
+      pan_digits: 16
+      account_types: [CR]
+    AMEX:
+      display: AMERICAN EXPRESS
+      aid: A00000002501
+      pan_digits: 15
+      account_types: [CR]
+    Visa Debit:
+      display: VISA DEBIT
+      aid: A0000000031010
+      pan_digits: 16
+      account_types: [CHQ, SAV]
+    Mastercard Debit:
+      display: MASTERCARD DEBIT
+      aid: A0000000041010
+      pan_digits: 16
+      account_types: [CHQ, SAV]
+  # A linked receipt's scheme is fixed by its bank row, not by the weighted pool.
+  # Longest matching prefix wins. `validate` fails if a linked description matches none.
+  bank_description_methods:
+    MASTERCARD DEBIT: Mastercard Debit
+    VISA DEBIT: Visa Debit
+    EFTPOS: EFTPOS
+  # A linked receipt's scheme is fixed; this decides how often that payment is
+  # presented as a phone wallet over the same scheme. 'none' means plain card.
+  wallet_presentation_weights:
+    none: 90
+    Apple Pay: 6
+    Google Pay: 4
+  wallets:
+    Apple Pay: APPLE PAY
+    Google Pay: GOOGLE PAY
+  entry_modes:
+    card: (c)
+    wallet: (t)
+  # The slip's fixed wording -- CUSTOMER COPY, CONTACTLESS, APPROVED 00, the
+  # AID:/Card:/PSN:/Terminal ID:/Transaction Ref:/Purchase AUD labels, the
+  # cash tendered/change labels and the retain-copy footer -- is NOT config.
+  # It is page chrome, and it lives with the rest of the page's fixed text in
+  # the `body:` tree of config/layouts/receipts.yml. This file holds only the
+  # pools a receipt *samples* from; every value below varies document to
+  # document and reaches the page through the `receipt_payment` field
+  # provider (generators/layout_dsl/field_providers.py).
+  #
+  # Cash-tender arithmetic: tendered is the next note of this denomination
+  # above the total, plus 0..(cash_extra_notes - 1) extra notes of the same
+  # denomination -- see derive_payment's _cash_tender helper.
+  cash_tender_step: 5
+  cash_extra_notes: 3
+
+# Deterministic POS values for receipts, derived from
+# sha256("{case_id}:pos:{invoice_date}"). Hex slices 0-8 belong to this block;
+# payment_terminal (above) consumes 10-40 of the same digest. Every key is
+# required; generators/payment_block.py's load_pos_pools fails fast on any
+# omission.
+pos_terminal:
+  staff_names:
+    [Sarah, James, Emma, Liam, Olivia, Noah, Chloe, Jack,
+     Mia, Ethan, Ava, Will, Sophie, Ben, Isla, Tom]
+  hour_min: 8
+  hour_span: 12          # 08:00-19:59
+  register_min: 1
+  register_span: 8       # 01-08
+  receipt_number_prefix: "R-"
+  receipt_number_digest_length: 6
+
+banks:
+  - {code: cba, name: Commonwealth Bank, bsb_prefix: "06", header_color: "#FFD700", header_bg: "#000000"}
+  - {code: westpac, name: Westpac, bsb_prefix: "03", header_color: "#FFFFFF", header_bg: "#D5002B"}
+  - {code: nab, name: National Australia Bank, bsb_prefix: "08", header_color: "#FFFFFF", header_bg: "#C8102E"}
+  - {code: anz, name: ANZ, bsb_prefix: "01", header_color: "#FFFFFF", header_bg: "#003087"}
+
+# A bank statement row's description, drawn by the direction its money moves
+# (scripts/seed_ground_truth.py): a row is money out with probability debit_share,
+# and is then described only from `debit` (purchases, bills, withdrawals, a
+# transfer out), else only from `credit` (salary, a refund, a transfer in,
+# a direct credit). Each kind carries its own amount range, rounded to its step
+# (an ATM pays out in twenties). {merchant} and {biller} are an invented business
+# name, upper-cased and cut to 12 characters as statements print them, which also
+# keeps seed_transaction_links.py's _extract_suburb() (an ALL-CAPS merchant token
+# before a Title-Case suburb) parsing EFTPOS descriptions correctly; {location} is
+# the holder's suburb; {last4}, {crn}, {ref} and {mhf} are drawn reference numbers;
+# {savings} is the holder's own savings account, the same on every row of a statement.
+#
+# direction_prefixes is how a printed description's direction is told, for these
+# templates and for the descriptions scripts/seed_transaction_links.py writes on
+# linked rows (EFTPOS, VISA DEBIT PURCHASE, BPAY, DIRECT DEBIT, EFT PAYMENT): money
+# in when it starts with a credit prefix, money out when it starts with a debit
+# prefix. The seed refuses, and `pipeline validate` refuses on every row of every
+# statement, a row whose column contradicts its description (generators/bank_ledger.py).
+bank_descriptions:
+  debit_share: 0.80
+  debit:
+    eftpos: {template: "EFTPOS {merchant} {location} AUS", amount: [6.50, 240.00], step: 0.01}
+    visa_debit: {template: "VISA DEBIT PURCHASE CARD {last4} {merchant} {location} AU", amount: [8.00, 320.00],
+                 step: 0.01}
+    mastercard_debit: {template: "MASTERCARD DEBIT {merchant} {location} AU", amount: [8.00, 320.00],
+                       step: 0.01}
+    bpay: {template: "BPAY {biller} CRN {crn}", amount: [45.00, 600.00], step: 0.01}
+    direct_debit: {template: "DD {merchant} {ref} MHF {mhf}", amount: [15.00, 220.00], step: 0.01}
+    transfer_out: {template: "TRANSFER TO SAVINGS {savings}", amount: [50.00, 600.00], step: 10.00}
+    atm_withdrawal: {template: "ATM WITHDRAWAL {location}", amount: [20.00, 400.00], step: 20.00}
+    online_purchase: {template: "ONLINE PURCHASE {merchant}", amount: [5.00, 200.00], step: 0.01}
+  credit:
+    salary: {template: "SALARY {biller}", amount: [1800.00, 4200.00], step: 0.01}
+    refund: {template: "REFUND {merchant} {location} AU", amount: [6.00, 180.00], step: 0.01}
+    transfer_in: {template: "TRANSFER FROM SAVINGS {savings}", amount: [100.00, 1200.00], step: 10.00}
+    direct_credit: {template: "DIRECT CREDIT {biller} {ref}", amount: [30.00, 900.00], step: 0.01}
+  direction_prefixes:
+    debit: ["EFTPOS ", "VISA DEBIT ", "MASTERCARD DEBIT ", "BPAY ", "DD ", "DIRECT DEBIT ", "EFT PAYMENT ",
+            "TRANSFER TO ", "ATM WITHDRAWAL ", "ONLINE PURCHASE "]
+    credit: ["SALARY ", "REFUND ", "TRANSFER FROM ", "DIRECT CREDIT "]
+
+# The running balance a statement prints (generators/bank_ledger.py). Every corpus
+# statement is an everyday personal account, which does not run overdrawn: its
+# running balance stays at or above the floor of its kind. The seed draws how far
+# above the floor the statement's lowest balance sits from lowest_above_floor,
+# then the opening balance that puts it there given the rows as the link seeder
+# leaves them, so the floor holds by construction; it refuses a statement that
+# breaks it, as `pipeline validate` does.
+bank_balance:
+  account_kind: personal
+  floors: {personal: 0.00}
+  lowest_above_floor: [150.00, 2500.00]
+
+# Well-known product and service brands. No catalogue line, pool text or invented name may contain one
+# (whole word, case-insensitive, as the business-name screen matches), and distractor text drawn at render
+# time is screened against them with the business names.
+real_brand_blocklist:
+  [Panadol, Nurofen, Band-Aid, Bandaids, Vegemite, Weet-Bix, "Tim Tam", "Coca-Cola", Coke, Pepsi,
+   Cadbury, Nescafe, Kleenex, Sorbent, Huggies, Dettol, Duracell, Energizer, Samsung, Sony, Bose, Castrol,
+   Penrite, Heineken, Doritos, "Uncle Tobys", Kellogg's, Sanitarium, Colgate, "Oral-B", Rexona,
+   Lynx, Omo, Quilton, Cottonelle, Dulux, Taubmans, Selleys, "WD-40", Makita, Ryobi,
+   Sharpie, "Post-it", Stabilo, Bic, Epson, Logitech, Belkin, Xero, MYOB, QuickBooks, Dropbox,
+   Microsoft, Google, Apple, Lipton, Twinings, Bundaberg, Toyota, Mobil, Caltex, Vicks,
+   Betadine, Savlon, Voltaren, Telfast, Claratyne]
+
+# Brands that are also common names or words (a surname, a street, a first name), so they cannot join the
+# shared screen above, which also runs over invented people and addresses. They are screened against the
+# product and service descriptions only (product_catalog, category_catalog): a line such as "Holden wiper
+# blades" is refused when the pools load.
+catalogue_only_brands:
+  [Stanley, Ford, Holden, Milo, Bosch, Canon, Corona, Dove, Glad, Mars, Finish, Surf, Jif, Ajax,
+   "Arnott's", Mitre, Speedo, Target]
+
+# Which pools the brand screen covers. Every top-level key of this file is listed exactly once (the loader
+# refuses one in neither list or both). Screened pools may name no brand in real_brand_blocklist anywhere
+# in their text. The exempt ones are deliberate: the payment chrome a real terminal prints (card schemes,
+# the APPLE PAY and GOOGLE PAY wallets, the acquirers), the four banks a statement's layout is drawn for,
+# the blocklists themselves, and abn_register (a file path, never printed).
+brand_screen:
+  screened: [faker_config, locations, street_types, business_name_parts, product_catalog, category_catalog,
+             pos_terminal, bank_descriptions, bank_balance, phone_area_codes, distractor_text,
+             receipt_categories,
+             service_categories, category_industries]
+  exempt: [payment_terminal, banks, real_brand_blocklist, catalogue_only_brands, real_name_blocklist_extra,
+           retailers, professional_services, brand_screen, abn_register]
+
+real_name_blocklist_extra:
+  [Aldi, IGA, Telstra, Optus, "Origin Energy", AGL, Qantas, "Bank of Queensland",
+   Suncorp, ING, "Bendigo Bank", "Australia Post", Medicare, "McDonald's", KFC, Subway]
+
+# State -> telephone area code, used for the landline distractor on a document.
+phone_area_codes: {NSW: "02", ACT: "02", VIC: "03", TAS: "03", QLD: "07", SA: "08", WA: "08", NT: "08"}
+
+# Invented text for distractor items (config/distractors.yml, rule type pool_text/email).
+# Every entry is screened when drawn against the real-name blocklist: `retailers` and
+# `professional_services` (below) plus `real_name_blocklist_extra` (above). None may
+# name a real organisation, brand or product.
+distractor_text:
+  returns_policy:
+    - "Please retain this receipt as proof of purchase for returns within 30 days."
+    - "Unused goods in their original packaging may be exchanged within 14 days."
+    - "Refunds are issued to the original method of payment only."
+    - "Clearance items are not eligible for refund or exchange."
+    - "Faulty goods will be repaired, replaced or refunded in accordance with consumer law."
+    - "A valid receipt is required for all exchanges."
+  # The pools below that are mappings are keyed by industry (category_industries, further down): an
+  # invoice prints the sub-pool of its supplier's industry, so an accounting firm never advertises fleet
+  # servicing. Every keyed pool carries one non-empty sub-pool per industry.
+  accreditation:
+    financial_services:
+      - "Registered Tax Agent"
+      - "Registered BAS Agent"
+      - "Member of a recognised accounting body"
+      - "Certified Practising Bookkeeper"
+    legal_services:
+      - "Accredited Specialist in Commercial Law"
+      - "Accredited Specialist in Property Law"
+      - "Member of the state law society"
+      - "Notary Public"
+    technology:
+      - "Certified Network Engineer"
+      - "Accredited Cloud Solutions Partner"
+      - "Certified Security Professional"
+      - "Registered Cabling Provider"
+    business_advisory:
+      - "Certified Management Consultant"
+      - "Accredited Business Coach"
+      - "Certified Project Manager"
+      - "Accredited Mediator"
+    creative_services:
+      - "Certified Brand Strategist"
+      - "Accredited Digital Marketer"
+      - "Member of a professional design institute"
+      - "Certified Search Marketing Specialist"
+    plumbing_gas:
+      - "Licensed plumber and gasfitter"
+      - "Licensed drainer"
+      - "Certified backflow prevention tester"
+      - "Accredited mixing valve tester"
+    electrical_trades:
+      - "Licensed electrical contractor"
+      - "Registered solar installer"
+      - "Accredited data cabling installer"
+      - "Certified test and tag technician"
+    intellectual_property:
+      - "Registered patent attorney"
+      - "Registered trade marks attorney"
+      - "Member of a professional attorneys institute"
+      - "Accredited intellectual property mediator"
+    food_distribution:
+      - "Food safety certified supplier"
+      - "Registered food business"
+      - "Accredited cold chain operator"
+      - "Certified allergen-aware supplier"
+    cleaning_supply:
+      - "Certified environmental management supplier"
+      - "Accredited chemical handling supplier"
+      - "Registered dangerous goods carrier"
+      - "Member of a cleaning industry association"
+    software_services:
+      - "Certified information security provider"
+      - "Accredited cloud hosting partner"
+      - "Data hosted in Australian data centres"
+      - "Certified privacy compliant service"
+    security_monitoring:
+      - "Licensed security provider"
+      - "Accredited monitoring centre"
+      - "Registered security installer"
+      - "Accredited alarm response provider"
+  tagline:
+    financial_services:
+      - "Clear numbers, confident decisions"
+      - "Helping local business stay compliant"
+      - "Your numbers in good hands"
+      - "Tax time without the stress"
+    legal_services:
+      - "Straightforward legal advice"
+      - "Practical solutions in plain English"
+      - "Experienced advice when it counts"
+      - "Trusted counsel for local business"
+    technology:
+      - "Technology that just works"
+      - "Keeping your business online"
+      - "Smart IT for small business"
+      - "Secure systems, local support"
+    business_advisory:
+      - "Strategy that turns into results"
+      - "Clear thinking for growing businesses"
+      - "Plans you can act on"
+      - "Independent advice, measurable outcomes"
+    creative_services:
+      - "Ideas that get noticed"
+      - "Brands people remember"
+      - "Creative work that sells"
+      - "Making your brand stand out"
+    plumbing_gas:
+      - "Fast, clean and fully licensed"
+      - "No job too small"
+      - "Same-day service across the metro area"
+      - "On time, on budget, guaranteed"
+    electrical_trades:
+      - "Safe, reliable power"
+      - "Wired right the first time"
+      - "Local electricians you can trust"
+      - "Bright ideas, licensed work"
+    intellectual_property:
+      - "Protecting good ideas"
+      - "Patents and trade marks, clearly explained"
+      - "Your ideas, properly protected"
+      - "Practical advice on intellectual property"
+    food_distribution:
+      - "Fresh to your kitchen door"
+      - "Wholesale food for hospitality"
+      - "Supplying cafes and restaurants daily"
+      - "Quality produce, reliable delivery"
+    cleaning_supply:
+      - "Everything for a cleaner workplace"
+      - "Commercial cleaning supplies, delivered"
+      - "Hygiene solutions for business"
+      - "Stocked, packed and delivered"
+    software_services:
+      - "Run your business from anywhere"
+      - "Software that grows with you"
+      - "Simple tools for busy teams"
+      - "Your office, in the cloud"
+    security_monitoring:
+      - "Watching over your premises"
+      - "Protection around the clock"
+      - "Monitored security, peace of mind"
+      - "Local monitoring, fast response"
+  email_local: [accounts, admin, enquiries, sales, orders, hello, reception, billing]
+  payid_local: [payments, accounts, remit, finance, billing, receipts]
+  services:
+    financial_services:
+      - "Bookkeeping, payroll and BAS lodgement"
+      - "Tax returns, BAS and year-end accounts"
+      - "Budgeting, cash flow and business advice"
+      - "Self-managed super fund administration"
+    legal_services:
+      - "Contracts, leases and commercial disputes"
+      - "Conveyancing, wills and estate planning"
+      - "Employment law and workplace advice"
+      - "Business sales, purchases and structuring"
+    technology:
+      - "Managed IT, backups and help desk support"
+      - "Network design, installation and security"
+      - "Cloud migration and software licensing"
+      - "Website hosting, domains and email"
+    business_advisory:
+      - "Strategy, planning and performance reviews"
+      - "Process improvement and change management"
+      - "Risk, governance and compliance reviews"
+      - "Leadership coaching and team workshops"
+    creative_services:
+      - "Branding, design and campaign management"
+      - "Social media, content and advertising"
+      - "Website design, copywriting and search marketing"
+      - "Photography, video and print production"
+    plumbing_gas:
+      - "Blocked drains, leaking taps and burst pipes"
+      - "Hot water systems supplied, installed and repaired"
+      - "Gas fitting, appliance connection and leak detection"
+      - "Bathroom and kitchen renovations, rough-in to fit-off"
+    electrical_trades:
+      - "Switchboard upgrades, safety switches and rewiring"
+      - "Lighting, power points and ceiling fans"
+      - "Solar, battery and EV charger installation"
+      - "Test and tag, smoke alarms and compliance checks"
+    intellectual_property:
+      - "Patent searches, drafting and filing"
+      - "Trade mark clearance, registration and renewal"
+      - "Design registration and infringement advice"
+      - "Licensing, assignments and portfolio management"
+    food_distribution:
+      - "Dry goods, oils and pantry staples"
+      - "Chilled and frozen delivery six days a week"
+      - "Fresh produce and dairy by the case"
+      - "Packaging and disposables for takeaway"
+    cleaning_supply:
+      - "Chemicals, detergents and sanitisers in bulk"
+      - "Paper towel, toilet tissue and dispensers"
+      - "Cleaning equipment, mops and machines"
+      - "Washroom hygiene and waste services"
+    software_services:
+      - "Accounting, payroll and inventory software"
+      - "Online backup and file sharing"
+      - "Team chat, video meetings and calendars"
+      - "Customer support by phone and chat"
+    security_monitoring:
+      - "Alarm monitoring and patrol response"
+      - "CCTV supply, installation and remote viewing"
+      - "Access control and intercom systems"
+      - "Duress alarms and lone worker monitoring"
+  surcharge_note:
+    - "A surcharge of 1.5% applies to card payments."
+    - "Credit card payments attract a processing fee of 1.8%."
+    - "No surcharge applies to payment by bank transfer."
+    - "Card payments are subject to a 2% merchant fee."
+    - "Pay by direct deposit to avoid card fees."
+  terms:
+    financial_services:
+      - "Payment is due within 14 days of the invoice date."
+      - "Lodgement fees are payable before returns are lodged."
+      - "Terms: strictly 30 days net from the date of issue."
+      - "Settlement discount of 2% if paid within 7 days."
+    legal_services:
+      - "Payment is due within 14 days of the invoice date."
+      - "Disbursements are payable in advance of filing."
+      - "Monies held in trust will be applied to this account."
+      - "Terms: strictly 30 days net from the date of issue."
+    technology:
+      - "Payment is due within 14 days of the invoice date."
+      - "Monthly support fees are billed in advance."
+      - "Terms: strictly 30 days net from the date of issue."
+      - "Services may be suspended on overdue accounts."
+    business_advisory:
+      - "Payment is due within 14 days of the invoice date."
+      - "Milestone fees are payable on delivery of each stage."
+      - "Terms: strictly 30 days net from the date of issue."
+      - "Travel and accommodation are charged at cost."
+    creative_services:
+      - "Payment is due within 14 days of the invoice date."
+      - "A 50% deposit is required before work begins."
+      - "Terms: strictly 30 days net from the date of issue."
+      - "Media costs are payable before campaigns go live."
+    plumbing_gas:
+      - "Payment is due within 7 days of completion."
+      - "Materials remain our property until paid in full."
+      - "Call-out fees apply to all after-hours attendance."
+      - "Terms: strictly 14 days from the invoice date."
+    electrical_trades:
+      - "Payment is due within 7 days of completion."
+      - "Materials remain our property until paid in full."
+      - "After-hours call-outs are charged at penalty rates."
+      - "Terms: strictly 14 days from the invoice date."
+    intellectual_property:
+      - "Payment is due within 14 days of the invoice date."
+      - "Official fees are payable in advance of filing."
+      - "Foreign associate charges are passed on at cost."
+      - "Terms: strictly 30 days net from the date of issue."
+    food_distribution:
+      - "Payment is due within 14 days of the invoice date."
+      - "Goods remain our property until paid in full."
+      - "Claims for damaged goods must be made within 24 hours of delivery."
+      - "Terms: strictly 30 days end of month."
+    cleaning_supply:
+      - "Payment is due within 14 days of the invoice date."
+      - "Goods remain our property until paid in full."
+      - "Returns are accepted within 7 days in original packaging."
+      - "Terms: strictly 30 days end of month."
+    software_services:
+      - "Subscriptions renew automatically each billing period."
+      - "Plans may be changed or cancelled before the next billing date."
+      - "Your plan renews on the same day each month."
+      - "Unpaid accounts may be suspended after 14 days."
+    security_monitoring:
+      - "Monitoring fees are billed monthly."
+      - "Patrol attendance is charged per call-out."
+      - "The minimum monitoring term is 12 months."
+      - "Unpaid accounts may be suspended after 14 days."
+  late_fee:
+    - "A late payment fee of $25.00 applies to overdue accounts."
+    - "Overdue balances incur interest at 2% per month."
+    - "Accounts unpaid after 30 days may be referred for collection."
+    - "A reminder fee will be charged on each overdue notice."
+    - "Late payments may attract an administration fee."
+  # The fine print a business stands behind its work with: a trade's workmanship warranty, a firm's
+  # limitation of liability. Its item, in_warranty, is listed on the trade and professional layouts only;
+  # the four general layouts carry none, and the other sub-pools keep each industry's wording ready.
+  warranty:
+    financial_services:
+      - "Liability limited by a scheme approved under professional standards legislation."
+      - "Advice is based on the information you supplied and the law at the date of issue."
+    legal_services:
+      - "Liability limited by a scheme approved under professional standards legislation."
+      - "Our advice covers only the matters set out in our engagement letter."
+    technology:
+      - "Supplied hardware carries the manufacturer's warranty."
+      - "Configuration work is guaranteed for 30 days from completion."
+    business_advisory:
+      - "Recommendations rely on the information available at the time of engagement."
+      - "Our report is prepared solely for the client named above."
+    creative_services:
+      - "Artwork revisions are included for 14 days after delivery."
+      - "Ownership of artwork passes to the client on payment in full."
+    plumbing_gas:
+      - "All workmanship is guaranteed for 12 months from completion."
+      - "Supplied fixtures carry the manufacturer's warranty."
+    electrical_trades:
+      - "Workmanship is warranted for 12 months from completion."
+      - "A certificate of compliance is issued on payment in full."
+    intellectual_property:
+      - "Liability limited by a scheme approved under professional standards legislation."
+      - "Our advice relates only to the matters described in our letter of instruction."
+    food_distribution:
+      - "Perishable goods cannot be returned once accepted."
+      - "Goods are supplied subject to the delivery docket signed on receipt."
+    cleaning_supply:
+      - "Equipment carries a 12 month warranty against faulty parts."
+      - "Safety data sheets are available for every chemical supplied."
+    software_services:
+      - "Service availability is covered by our service level agreement."
+      - "Your data can be exported at any time during your subscription."
+    security_monitoring:
+      - "Installed equipment carries a 12 month warranty."
+      - "Response times are set out in your monitoring agreement."
+  # A subscription invoice's direct-debit notice, listed only on the subscription layout and worded for its
+  # payment state (config/distractors.yml -> items.in_direct_debit): an unpaid invoice's debit is still to
+  # come, a paid one's has been taken.
+  direct_debit_paid:
+    - "Paid in full by direct debit from your nominated account. Thank you."
+    - "This invoice was settled by direct debit on the due date."
+    - "Your direct debit payment has been received. No further action is required."
+    - "Payment received by direct debit. This invoice is for your records."
+    - "Settled by direct debit under your service agreement."
+  direct_debit_notice:
+    - "This amount will be debited from your nominated account on the due date. No action is required."
+    - "Your direct debit is scheduled for the due date; please ensure funds are available."
+    - "Payment is collected by direct debit under your service agreement."
+    - "To change your nominated account, contact us before the debit date."
+    - "A dishonour fee applies if a scheduled debit is declined."
+  # The professional layout's terms of engagement, printed in full: several sentences each, as a firm
+  # sets out its costs basis, disbursements and interest. Worded for conveyancing and patent work alike.
+  engagement_terms:
+    - >-
+      Our fees are charged in accordance with the costs agreement signed at the start of this matter.
+      Disbursements are passed on at cost. Accounts unpaid after 30 days may attract interest at the rate
+      set out in that agreement.
+    - >-
+      This account is payable within 14 days. Where funds are held in trust for this matter, we may apply
+      them to this account after 7 days unless you instruct us otherwise. Please quote the matter number
+      with your payment.
+    - >-
+      Professional fees are calculated in six-minute units at the hourly rates in our letter of
+      engagement. Official fees and searches are charged as incurred. If you have any question about this
+      account, please contact the principal named above.
+    - >-
+      Payment is due within 30 days of the invoice date. Interest may be charged on overdue amounts at the
+      rate allowed under our terms of engagement. You may ask us for an itemised account within 30 days of
+      receiving this invoice.
+    - >-
+      Fees for work completed to date are billed monthly and are payable within 14 days. Disbursements
+      paid on your behalf are shown separately. We may stop work on this matter while an account remains
+      unpaid.
+  thank_you:
+    - "Thank you for your business."
+    - "We appreciate your prompt payment."
+    - "Thanks for choosing us, we look forward to working with you again."
+    - "It was a pleasure to assist you."
+    - "Your support of local business is appreciated."
+  bank_promo:
+    - "Ask us about a fixed rate home loan with no ongoing fees. Conditions apply."
+    - "Switch your savings to earn bonus interest each month."
+    - "Keep your details safe: we will never ask for your password by email."
+    - "Set up automatic payments to avoid late fees."
+    - "Review your travel insurance options before you book."
+    - "Update your contact details in the app to receive alerts."
+  margin_note: [WRE, "D5 car", "50% work", "home office", "work use", "100% business", "tools", "client lunch"]
+
+# Which category_nouns categories feed receipts (retail) vs invoices (services).
+# Semantic partition — not derivable from category_nouns keys alone.
+# Each invoice layout declares which of the service categories its content may draw
+# (config/layouts/invoices.yml -> <layout>.service_categories).
+receipt_categories:
+  [hardware, grocery, office, electronics, retail, pharmacy, liquor, fuel, automotive, cafe]
+service_categories:
+  [accounting, legal, it_services, consulting, marketing, plumbing, electrical, conveyancing,
+   patent_attorneys, food_wholesale, cleaning_wholesale, cloud_software, security_monitoring]
+
+# Invoice service category -> the industry whose distractor text (the keyed pools under
+# distractor_text) its invoices print. Every service category is mapped; categories of one industry
+# share its wording.
+category_industries:
+  accounting: financial_services
+  legal: legal_services
+  it_services: technology
+  consulting: business_advisory
+  marketing: creative_services
+  plumbing: plumbing_gas
+  electrical: electrical_trades
+  conveyancing: legal_services
+  patent_attorneys: intellectual_property
+  food_wholesale: food_distribution
+  cleaning_wholesale: cleaning_supply
+  cloud_software: software_services
+  security_monitoring: security_monitoring
+
+# Existing real businesses — never emitted; content_engine.py reads only the
+# `name` field from each to build the real-name blocklist.
+retailers:
+  - {name: Bunnings Warehouse, address: "123 Main St, Alexandria NSW 2015", abn: "18 634 229 001", category: hardware}
+  - {name: Woolworths, address: "100 George St, Sydney NSW 2000", abn: "88 000 014 675", category: grocery}
+  - {name: Coles, address: "800 Toorak Rd, Hawthorn East VIC 3123", abn: "11 004 089 936", category: grocery}
+  - {name: Officeworks, address: "245 Bourke St, Melbourne VIC 3000", abn: "36 004 763 526", category: office}
+  - {name: JB Hi-Fi, address: "2 Parliament Sq, Melbourne VIC 3002", abn: "80 093 220 649", category: electronics}
+  - {name: Harvey Norman, address: "A1 Richmond Rd, Homebush West NSW 2140", abn: "85 003 237 545", category: electronics}
+  - {name: Kmart Australia, address: "690 Springvale Rd, Mulgrave VIC 3170", abn: "73 004 129 956", category: retail}
+  - {name: Big W, address: "1 Woolworths Way, Bella Vista NSW 2153", abn: "88 000 014 675", category: retail}
+  - {name: Chemist Warehouse, address: "250 Bourke St, Melbourne VIC 3000", abn: "42 618 648 185", category: pharmacy}
+  - {name: "Dan Murphy's", address: "47-61 Egan St, Richmond VIC 3121", abn: "37 006 275 906", category: liquor}
+  - {name: BP Australia, address: "717 Bourke St, Docklands VIC 3008", abn: "27 008 560 007", category: fuel}
+  - {name: Shell Australia, address: "8 Redfern Rd, Hawthorn East VIC 3123", abn: "46 004 610 459", category: fuel}
+  - {name: Ampol Limited, address: "29-33 Bourke Rd, Alexandria NSW 2015", abn: "40 004 201 307", category: fuel}
+  - {name: 7-Eleven Australia, address: "357 Ferntree Gully Rd, Mount Waverley VIC 3149", abn: "65 005 825 412", category: fuel}
+  - {name: Myer, address: "295 Lonsdale St, Melbourne VIC 3000", abn: "83 004 153 263", category: retail}
+  - {name: David Jones, address: "310 Bourke St, Melbourne VIC 3000", abn: "96 000 324 945", category: retail}
+  - {name: Target Australia, address: "12-14 Polo Ave, Mona Vale NSW 2103", abn: "75 004 250 944", category: retail}
+  - {name: Spotlight, address: "91 Dunning Ave, Rosebery NSW 2018", abn: "17 007 092 579", category: retail}
+  - {name: Supercheap Auto, address: "751-753 Springvale Rd, Mulgrave VIC 3170", abn: "61 004 806 598", category: automotive}
+  - {name: Repco, address: "53-57 Lonsdale St, Melbourne VIC 3000", abn: "25 004 825 802", category: automotive}
+
+professional_services:
+  - {name: "Smith & Associates Accounting", address: "Level 12, 100 Collins St, Melbourne VIC 3000", category: accounting}
+  - {name: "Johnson Legal", address: "Suite 5, 200 George St, Sydney NSW 2000", category: legal}
+  - {name: "Brisbane IT Solutions", address: "42 Creek St, Brisbane QLD 4000", category: it_services}
+  - {name: "Adelaide Business Consulting", address: "Level 3, 77 King William St, Adelaide SA 5000", category: consulting}
+  - {name: "Perth Marketing Group", address: "Level 8, 140 St Georges Tce, Perth WA 6000", category: marketing}

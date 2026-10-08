@@ -1,0 +1,255 @@
+# Field definitions for synthetic business document benchmark.
+# 20 columns across the three document types: bank statements, receipts, invoices.
+
+document_fields:
+  bank_statement:
+    - DOCUMENT_TYPE
+    - SUPPLIER_NAME
+    - STATEMENT_DATE_RANGE
+    - TRANSACTION_DATES
+    - TRANSACTION_DESCRIPTIONS
+    - TRANSACTION_AMOUNTS_PAID
+    - TRANSACTION_AMOUNTS_RECEIVED
+    - ACCOUNT_BALANCE
+    - PAYER_NAME
+
+  receipt:
+    - DOCUMENT_TYPE
+    - SUPPLIER_NAME
+    - BUSINESS_ABN
+    - BUSINESS_ADDRESS
+    - INVOICE_DATE
+    - IS_GST_INCLUDED
+    - GST_AMOUNT
+    - TOTAL_AMOUNT
+    - LINE_ITEM_DESCRIPTIONS
+    - LINE_ITEM_QUANTITIES
+    - LINE_ITEM_PRICES
+    - LINE_ITEM_TOTAL_PRICES
+
+  invoice:
+    - DOCUMENT_TYPE
+    - SUPPLIER_NAME
+    - BUSINESS_ABN
+    - BUSINESS_ADDRESS
+    - INVOICE_DATE
+    - IS_GST_INCLUDED
+    - GST_AMOUNT
+    - TOTAL_AMOUNT
+    - LINE_ITEM_DESCRIPTIONS
+    - LINE_ITEM_QUANTITIES
+    - LINE_ITEM_PRICES
+    - LINE_ITEM_TOTAL_PRICES
+    - PAYER_NAME
+    - PAYER_ADDRESS
+
+# The union of the three document_fields lists above, in the order the
+# derived CSV writes them. Nothing else belongs here: a column no surviving
+# type declares would be a NOT_FOUND column on every row of the corpus.
+all_columns:
+  - DOCUMENT_TYPE
+  - SUPPLIER_NAME
+  - BUSINESS_ABN
+  - BUSINESS_ADDRESS
+  - GST_AMOUNT
+  - INVOICE_DATE
+  - IS_GST_INCLUDED
+  - LINE_ITEM_DESCRIPTIONS
+  - LINE_ITEM_QUANTITIES
+  - LINE_ITEM_PRICES
+  - LINE_ITEM_TOTAL_PRICES
+  - PAYER_ADDRESS
+  - PAYER_NAME
+  - STATEMENT_DATE_RANGE
+  - TOTAL_AMOUNT
+  - TRANSACTION_AMOUNTS_PAID
+  - TRANSACTION_DATES
+  - TRANSACTION_DESCRIPTIONS
+  - TRANSACTION_AMOUNTS_RECEIVED
+  - ACCOUNT_BALANCE
+
+document_type_values:
+  - BANK_STATEMENT
+  - RECEIPT
+  - INVOICE
+
+# Documentation only — no code reads this block. The formats it describes
+# are enforced by generators/schema.py's regexes (sourced from field_types
+# below) and generators/derive_outputs.py's NOT_FOUND fill; this exists so a
+# human reading this file doesn't have to go find the code to learn them.
+field_formats:
+  date: "DD/MM/YYYY"
+  amount: "decimal without $ prefix"
+  boolean: "true / false"
+  list: "pipe-delimited (item1|item2|item3)"
+  not_found: "NOT_FOUND"
+
+field_types:
+  date:
+    - INVOICE_DATE
+  date_range:
+    - STATEMENT_DATE_RANGE
+  amount:
+    - GST_AMOUNT
+    - TOTAL_AMOUNT
+    - ACCOUNT_BALANCE
+  amount_list:
+    - TRANSACTION_AMOUNTS_PAID
+    - TRANSACTION_AMOUNTS_RECEIVED
+    - LINE_ITEM_PRICES
+    - LINE_ITEM_TOTAL_PRICES
+  date_list:
+    - TRANSACTION_DATES
+  text_list:
+    - LINE_ITEM_DESCRIPTIONS
+    - TRANSACTION_DESCRIPTIONS
+  # A quantity is a whole number of units written as one ("1", "12"): `pipeline validate` refuses "1.0"
+  # or "01", so a quantity of one is always the string "1", which is what a receipt prints no unit line
+  # for and what the quantity-1 exemption under geometry_exemptions matches.
+  count_list:
+    - LINE_ITEM_QUANTITIES
+  boolean:
+    - IS_GST_INCLUDED
+  abn:
+    - BUSINESS_ABN
+
+# Fields that describe the same rows and must therefore carry the same number of
+# pipe-delimited items. A mismatch means row N of one column describes a different
+# row from column to column, which silently corrupts every position-wise score
+# downstream. Keyed by DOCUMENT_TYPE; a type absent here has no parallel fields.
+#
+# Previously hardcoded in generators/schema.py. Declared here so the invariant is
+# visible to anyone reading the schema rather than only to anyone reading Python.
+parallel_field_groups:
+  RECEIPT:
+    - [LINE_ITEM_DESCRIPTIONS, LINE_ITEM_QUANTITIES, LINE_ITEM_PRICES, LINE_ITEM_TOTAL_PRICES]
+  INVOICE:
+    - [LINE_ITEM_DESCRIPTIONS, LINE_ITEM_QUANTITIES, LINE_ITEM_PRICES, LINE_ITEM_TOTAL_PRICES]
+  BANK_STATEMENT:
+    - [TRANSACTION_DATES, TRANSACTION_DESCRIPTIONS, TRANSACTION_AMOUNTS_PAID]
+
+# GST arithmetic, checked by `pipeline validate` when IS_GST_INCLUDED is true:
+# GST_AMOUNT must equal TOTAL_AMOUNT / divisor, rounded half-up to `decimals`.
+#
+# 11 is the Australian GST fraction on a tax-inclusive total (10% GST means the
+# tax is one eleventh of the total, not one tenth). Declared rather than assumed
+# so another jurisdiction is a YAML edit.
+gst_consistency:
+  divisor: 11
+  decimals: 2
+  inclusive_field: IS_GST_INCLUDED
+  gst_field: GST_AMOUNT
+  total_field: TOTAL_AMOUNT
+
+# Non-scored metadata a ground truth entry carries beside its `layout`, per DOCUMENT_TYPE (a type with
+# none says {} explicitly). It is never a field: it sits outside `fields:`, so no derived or exported view
+# (CSV, JSONL, CORD, DocILE, native, the extraction ground truth) ever sees it. Each key is required on
+# every entry of its type, and its value must be one the entry's layout lists under `allowed_from` in
+# `layouts`. An invoice's service_category is the category its supplier, line items and distractor
+# text were drawn for; a receipt's merchant_category the category its merchant and goods were drawn for.
+entry_metadata:
+  RECEIPT:
+    merchant_category: {layouts: config/layouts/receipts.yml, allowed_from: merchant_categories}
+  INVOICE:
+    service_category: {layouts: config/layouts/invoices.yml, allowed_from: service_categories}
+  BANK_STATEMENT: {}
+
+
+# How a plain render must print each scored value. `pipeline validate` renders every entry plain, reads
+# the string drawn in each recorded box (`FIELD`, or `FIELD[i]` for every list member with a value) and
+# compares it with the ground-truth string after this policy, and only this policy, has been applied to
+# the drawn string; a wrong value, a reformatted one, or a list member with no box of its own is refused.
+# The receipt's printed unit price is checked against the same policy when the line is built. Every key is
+# required.
+drawn_value_policy:
+  # `collapse`: a run of whitespace, line breaks from wrapping included, reads as one space on both sides.
+  # `exact`: compare character for character.
+  whitespace: collapse
+  # Fields under field_types `amount` and `amount_list`. A drawn amount may carry the currency sign before
+  # it and a credit or debit marker after it (a debit marker makes it negative); `grouping: allowed` lets
+  # it group thousands with `thousands_separator` ("1,234.50" reads as 1234.50), `refused` does not. The
+  # decimals must still match: "9.50" never reads as "9.5". Grouping is allowed because the scorer reads
+  # every monetary field the same way: score_extractions.ipynb `parse_money` drops the separator, the sign
+  # and any marker before comparing, so a grouped page and an ungrouped answer score as equal.
+  amounts:
+    currency_sign: "$"
+    grouping: allowed
+    thousands_separator: ","
+    credit_markers: [CR, Cr]
+    debit_markers: [DR, Dr]
+  # Fields under field_types `date` and `date_range`. Ground truth holds `ground_truth_format`, a range
+  # being two such dates joined by `range_separator`. A layout that prints its dates another way names its
+  # strftime format under `layout_formats` (layout id -> format); every layout absent there prints the
+  # ground-truth form, as each one does today.
+  dates:
+    ground_truth_format: "%d/%m/%Y"
+    range_separator: " - "
+    layout_formats: {}
+
+# Scored fields a layout is allowed to leave without a recorded geometry box, per document type (a type
+# with none says {} explicitly). `pipeline validate` renders every entry plain and refuses a scored
+# field whose value is not NOT_FOUND unless the value is drawn in a box of its own (`FIELD`, or `FIELD[i]`
+# for each list member) and reads as the ground truth under drawn_value_policy above, or it is listed here
+# for that layout (`layouts: all`, or the layout ids). This list is the known-and-reported set: an entry
+# here is a decision someone has seen, not a way to silence a new omission. Prefer binding the block with
+# `field:` in the layout; list a field only when it is by design not drawn as its own box, or when drawing
+# it is a layout redesign that is tracked separately. Every entry carries all four keys:
+#   layouts        `all`, or a list of layout ids.
+#   members_where  `none` to exempt every member, or {FIELD: "value"} to exempt only the list members at
+#                  whose position each named list holds that value; the field is then checked member by
+#                  member, and every other member with a value must be drawn in its own `FIELD[i]` box.
+#   printed_as     `none`, or {layout_key: KEY} when the value is printed from the layout's own KEY (a
+#                  letterhead) rather than bound: validate then checks that KEY equals the ground truth.
+#   reason         why the layout leaves it unboxed.
+geometry_exemptions:
+  BANK_STATEMENT:
+    DOCUMENT_TYPE:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: a classification label, never printed as a value
+    TRANSACTION_DATES:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: each date column draws its own layout date format, so no box holds the ground-truth string
+    SUPPLIER_NAME:
+      layouts: [anz_modern, anz_standard, cba_date_grouped, cba_standard, westpac_premium, westpac_standard]
+      members_where: none
+      printed_as: {layout_key: logo_text}
+      reason: printed as the letterhead (logo_text); the bound supplier line is suppressed when it repeats it
+  RECEIPT:
+    DOCUMENT_TYPE:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: a classification label, never printed as a value
+    IS_GST_INCLUDED:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: a boolean the page expresses through its GST line, never printed as a value
+    # A line of one unit prints no unit line, as on a real till receipt: its quantity is implied and its
+    # unit price is its line total. Every line of more than one unit prints "2 @ $3.50" beneath its
+    # description, so these two are checked member by member and only a quantity-1 member may go unboxed.
+    LINE_ITEM_PRICES:
+      layouts: all
+      members_where: {LINE_ITEM_QUANTITIES: "1"}
+      printed_as: none
+      reason: a line of one unit prints no unit line; its unit price is the line total printed beside it
+    LINE_ITEM_QUANTITIES:
+      layouts: all
+      members_where: {LINE_ITEM_QUANTITIES: "1"}
+      printed_as: none
+      reason: a line of one unit prints no unit line; a quantity of 1 is implied, as on a real till receipt
+  INVOICE:
+    DOCUMENT_TYPE:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: a classification label, never printed as a value
+    IS_GST_INCLUDED:
+      layouts: all
+      members_where: none
+      printed_as: none
+      reason: a boolean the page expresses through its GST line, never printed as a value

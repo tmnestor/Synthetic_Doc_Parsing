@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# Generated images: regenerate with: python -m generators.pipeline generate
+output/
+
+# Derived exports: regenerate with: python -m generators.pipeline derive
+derived/
+
+
+# Augraphy scratch output: written during augmentation runs, never source.
+augraphy_cache/
+
+# Figures written by score_extractions.ipynb (FIGURE_DIR). Derived from a
+# model run's output, so they belong with that run, not in the repo.
+figures/

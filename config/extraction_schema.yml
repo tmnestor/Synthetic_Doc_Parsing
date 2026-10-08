@@ -1,0 +1,93 @@
+# Extraction / evaluation contract for the 165-document benchmark.
+#
+# This defines the SHAPE OF THE EXTRACTION GROUND-TRUTH CSV produced by
+# scripts/generate_extraction_gt.py, and the field set a model is scored against:
+# which fields exist per document type, and how their values are formatted
+# (monetary fields carry "$", booleans are lowercase true/false).
+#
+# ---------------------------------------------------------------------------
+# DO NOT CONFUSE THIS WITH config/field_definitions.yml
+# ---------------------------------------------------------------------------
+# field_definitions.yml is the GENERATION contract: what the renderers draw on a
+# page. It deliberately differs from this file:
+#
+#   * bank statements there also carry ACCOUNT_BALANCE, SUPPLIER_NAME, PAYER_NAME,
+#     TRANSACTION_DESCRIPTIONS and TRANSACTION_AMOUNTS_RECEIVED — rendered on the
+#     document, but NOT part of the 5-field extraction task;
+#   * receipts there omit PAYER_NAME / PAYER_ADDRESS, because a receipt shows no
+#     payer. They ARE in the extraction set below: the extraction prompt asks for
+#     them, so the correct answer is NOT_FOUND and emitting a value is a
+#     hallucination the evaluation must catch.
+#
+# The field lists below must match the prompt the model is given. They are the
+# questions asked; the ground truth supplies the answers, and NOT_FOUND is a
+# legitimate answer rather than a gap.
+#
+# Fields listed under evaluation.field_types but absent from every document_fields
+# list (RECEIPT_TOTAL, BANK_TRANSACTION_DEBIT) are formatting declarations for
+# other pipelines; they add no CSV columns here.
+
+document_fields:
+  invoice:
+    count: 14
+    fields:
+      - DOCUMENT_TYPE
+      - BUSINESS_ABN
+      - SUPPLIER_NAME
+      - BUSINESS_ADDRESS
+      - PAYER_NAME
+      - PAYER_ADDRESS
+      - INVOICE_DATE
+      - LINE_ITEM_DESCRIPTIONS
+      - LINE_ITEM_QUANTITIES
+      - LINE_ITEM_PRICES
+      - LINE_ITEM_TOTAL_PRICES
+      - IS_GST_INCLUDED
+      - GST_AMOUNT
+      - TOTAL_AMOUNT
+
+  # Identical to invoice by design: the two prompts ask for the same 14 fields,
+  # which is why a receipt misclassified as an invoice is still asked the right
+  # questions and loses only DOCUMENT_TYPE.
+  receipt:
+    count: 14
+    fields:
+      - DOCUMENT_TYPE
+      - BUSINESS_ABN
+      - SUPPLIER_NAME
+      - BUSINESS_ADDRESS
+      - PAYER_NAME
+      - PAYER_ADDRESS
+      - INVOICE_DATE
+      - LINE_ITEM_DESCRIPTIONS
+      - LINE_ITEM_QUANTITIES
+      - LINE_ITEM_PRICES
+      - LINE_ITEM_TOTAL_PRICES
+      - IS_GST_INCLUDED
+      - GST_AMOUNT
+      - TOTAL_AMOUNT
+
+  bank_statement:
+    count: 5
+    fields:
+      - DOCUMENT_TYPE
+      - STATEMENT_DATE_RANGE
+      - LINE_ITEM_DESCRIPTIONS
+      - TRANSACTION_DATES
+      - TRANSACTION_AMOUNTS_PAID
+
+evaluation:
+  field_types:
+    monetary:
+      - GST_AMOUNT
+      - TOTAL_AMOUNT
+      - LINE_ITEM_PRICES
+      - LINE_ITEM_TOTAL_PRICES
+      - TRANSACTION_AMOUNTS_PAID
+      - TRANSACTION_AMOUNTS_RECEIVED
+      - ACCOUNT_BALANCE
+      - RECEIPT_TOTAL
+      - BANK_TRANSACTION_DEBIT
+
+    boolean:
+      - IS_GST_INCLUDED
