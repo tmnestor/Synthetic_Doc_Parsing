@@ -114,6 +114,8 @@ Then, from the committed clean tree: `conda run -n synthetic python -m generator
 
 ## Stage 7 outcome (8 October 2026)
 
+- Stage-end full suite on 28ed042: 3327 passed and the 10 strict expected failures unchanged (2 hours 27 minutes). The overhaul is complete.
+
 - Task 1 (94d45a3): the four paired halves, rendered from a committed tree into a staging directory and published only after every check passes.
 - Task 2 (315f701, with the README wording fix c9eb4ed): `MANIFEST.json`, `SHA256SUMS`, the README generated from `generators/snapshot/readme_template.md`, and `tools/` (`verify_snapshot.py`, stdlib only; `check_extractions_match_gt.py`; `score_extractions.ipynb` with its outputs cleared). The Task 1 review's fixes were folded in: an earlier snapshot of the same name is renamed aside and deleted only once the new one is in place (a failed swap restores it); the `eval-set` command reports degradation-tier and drawn-field configuration errors four-part instead of as tracebacks; superseded `eval_set` keys are refused before the presence check; one shared error helper.
 - The first kept snapshot: `../evaluation_data/snapshot_20261008/`, dated 8 October 2026, from generator commit c9eb4ed201e2bcfd5c2f6e14fb51b6d379eb9f15; 660 images (four halves of 165) and 676 files in all, 159 MB. `MANIFEST.json` SHA-256: `6c1f7c0753de60b33e7c834b718eb3ae4182c6f3538c848a98240917c9ed2972`. `python tools/verify_snapshot.py` and `shasum -a 256 -c SHA256SUMS` pass inside it; one flipped byte in a copy fails verification. A first snapshot from 315f701 was deleted after the README was read end to end and its template clarified.
