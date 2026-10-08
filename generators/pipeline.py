@@ -581,17 +581,28 @@ def eval_set(
     labelled varied halves (every case of every type under the same generic filenames, with
     byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
     `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
-    label_styles.jsonl and the scored-field geometry of the three clean halves. Tracked changes are
-    refused; every render is checked before anything is published; a snapshot of the same name is
-    replaced.
+    label_styles.jsonl, the scored-field geometry of the three clean halves, the tools, a README
+    generated from the manifest, MANIFEST.json and SHA256SUMS. Tracked changes are refused; every
+    render is checked before anything is published; a snapshot of the same name is replaced. Prints
+    MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
     """
+    from generators.degradation.tiers import TierConfigError
+    from generators.drawn_fields import DrawnFieldsError
     from generators.snapshot.config import HALVES
     from generators.snapshot.export import SnapshotError, export_snapshot
     from generators.snapshot.repo_state import RepoStateError
 
+    refusals = (
+        ValueError,
+        FileNotFoundError,
+        RepoStateError,
+        SnapshotError,
+        TierConfigError,
+        DrawnFieldsError,
+    )
     try:
         summary = export_snapshot(config)
-    except (ValueError, FileNotFoundError, RepoStateError, SnapshotError) as exc:
+    except refusals as exc:
         # Echoed plain rather than through rich, which would rewrap the four-part lines.
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
@@ -602,6 +613,7 @@ def eval_set(
         )
         typer.echo(f"{half}: {summary.total(half)} images ({per_type}) in {summary.half_dirs[half].name}")
     typer.echo(f"Snapshot: {summary.path}")
+    typer.echo(f"MANIFEST.json SHA-256: {summary.manifest_sha256} (record it beside the upload)")
 
 
 if __name__ == "__main__":

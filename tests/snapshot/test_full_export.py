@@ -1,17 +1,19 @@
 """One full-corpus snapshot export, from a fake clean repository state into tmp_path (slow).
 
 Module-scoped so every whole-corpus assertion reads the same export: four halves of 165 images, 55 per
-type in each clean half, the eval-format baseline's pinned counts and columns on the plain half, and
-every render's checks passed (the export refuses on any failure, so a published snapshot is the proof;
-the density reports show every render was measured).
+type in each clean half, the eval-format baseline's pinned counts and columns on the plain half, every
+render's checks passed (the export refuses on any failure, so a published snapshot is the proof; the
+density reports show every render was measured), and the snapshot verifying against its own manifest.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from generators.snapshot.config import HALVES
 from generators.snapshot.export import SnapshotSummary
+from scripts.verify_snapshot import verify
 from tests.eval_export_tools import (
     assert_eval_export_matches_baseline,
     capture_shape,
@@ -57,3 +59,17 @@ def test_every_render_was_checked_and_paired(full: SnapshotSummary) -> None:
         rows = read_jsonl(full.path / "geometry" / f"{half}.jsonl")
         assert len(rows) == 165, half
     assert not list(Path(full.path.parent).glob(".*.partial"))
+
+
+def test_the_full_snapshot_verifies_and_one_flipped_byte_fails(
+    full: SnapshotSummary, tmp_path: Path
+) -> None:
+    """The stage's exit criterion on the whole corpus: verify passes, then fails on one flipped byte."""
+    assert verify(full.path) == []
+    copy = tmp_path / full.path.name
+    shutil.copytree(full.path, copy)
+    image = sorted(copy.glob("degraded_*/*.png"))[-1]
+    data = bytearray(image.read_bytes())
+    data[-100] ^= 0xFF
+    image.write_bytes(bytes(data))
+    assert verify(copy) == [f"changed file: {image.relative_to(copy).as_posix()}"]

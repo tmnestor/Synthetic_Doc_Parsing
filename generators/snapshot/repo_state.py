@@ -64,7 +64,8 @@ def read_repo_state(repo_root: Path) -> RepoState:
     if head.returncode != 0:
         raise RepoStateError(
             "No repository to export from.\n"
-            f"  What:     `git rev-parse HEAD` failed in {repo_root}: {head.stderr.strip() or 'no output'}.\n"
+            f"  What:     `git rev-parse HEAD` failed in {repo_root}: "
+            f"{head.stderr.strip() or 'no output'}.\n"
             f"  Where:    {repo_root}\n"
             "  Expected: a git repository with at least one commit, so the snapshot can name the commit "
             "that produced it.\n"

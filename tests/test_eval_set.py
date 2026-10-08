@@ -252,13 +252,18 @@ def test_write_jsonl_preserves_field_order(tmp_path: Path) -> None:
 
 
 def test_export_creates_dated_half_directories(export: SnapshotSummary) -> None:
-    """One directory per declared half prefix, plus the geometry directory, inside the dated snapshot.
+    """One directory per declared half prefix, plus the geometry and tools directories and the README,
+    manifest and checksum files, inside the dated snapshot.
 
     Expected names are derived from the configured prefixes, so renaming a half does not require editing
     a list here.
     """
     expected = {f"{EVAL_CFG['half_prefixes'][half]}_{STAMP}" for half in HALVES} | {
-        EVAL_CFG["geometry_dir"]
+        EVAL_CFG["geometry_dir"],
+        "tools",
+        "README.md",
+        "MANIFEST.json",
+        "SHA256SUMS",
     }
     assert export.path.name == f"{EVAL_CFG['snapshot_dir_prefix']}_{STAMP}"
     assert {p.name for p in export.path.iterdir()} == expected
@@ -380,3 +385,23 @@ def test_cli_eval_set_prints_each_half_its_own_count(
     for half in ("plain", "distractor", "labelled_varied"):
         assert re.search(rf"^{half}: {clean_count} images", output, re.MULTILINE), output
     assert re.search(rf"^degraded: {degraded_count} images", output, re.MULTILINE), output
+
+
+def test_cli_eval_set_prints_the_manifest_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output, _, _ = _run_cli(tmp_path, monkeypatch)
+    assert re.search(r"^MANIFEST.json SHA-256: [0-9a-f]{64} ", output, re.MULTILINE), output
+
+
+def test_cli_eval_set_reports_a_malformed_tier_block_four_part(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A TierConfigError (a RuntimeError) prints its four-part message and exits 1, with no traceback."""
+    config = single_case_config(tmp_path, ["receipts"])
+    data = yaml.safe_load(config.read_text())
+    del data["receipt_degradation"]["tiers"][0]["suffix"]
+    config.write_text(yaml.safe_dump(data, sort_keys=False))
+    monkeypatch.setattr(export_module, "read_repo_state", lambda repo_root: clean_state())
+    result = CliRunner().invoke(app, ["eval-set", "--config", str(config)])
+    assert result.exit_code == 1, result.output
+    assert_diagnostic_error(result.output)
+    assert "Traceback" not in result.output and not isinstance(result.exception, RuntimeError)

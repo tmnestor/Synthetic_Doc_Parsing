@@ -8,6 +8,9 @@
                                  plus label_styles.jsonl (one row per image, sorted by image_file)
     degraded_<YYYYMMDD>/         each distractor receipt photographed at every declared tier
     geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl: scored boxes
+    tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
+    README.md                    generated from the manifest (generators/snapshot/readme.py)
+    MANIFEST.json, SHA256SUMS    provenance, inputs and every file's SHA-256 (snapshot/manifest.py)
 
 (directory names from `eval_set.half_prefixes` and `eval_set.geometry_dir`). The three clean halves
 share filenames and byte-identical ground truth, so pairing them is a direct join; degraded filenames
@@ -15,7 +18,8 @@ carry their tier suffix and their own receipt-only ground truth.
 
 The order is fixed, and each step refuses before the next begins:
 
-1. The configuration is checked and the output root resolved (Decision 3).
+1. The configuration and the README's field descriptions are checked and the output root resolved
+   (Decisions 3 and 13).
 2. The repository state is read; tracked changes are refused (Decision 4).
 3. The cheap checks run on every entry and layout before anything is drawn: the entry schema, the bank
    ledger, the distractor values, and each layout's DSL body (Decision 8). Every failure is collected and
@@ -26,11 +30,13 @@ The order is fixed, and each step refuses before the next begins:
    on every distractor and labelled varied render, the drawn-field guard on every plain and labelled
    varied render; overlay and unambiguity refusals are raised inside the renderers. Plain renders are
    measured, never bounded. Every failure is collected, and any refuses the export as one.
-5. The repository state is read again; a moved HEAD or a newly dirty tree discards the staging
+5. Ground truth, sidecar, geometry and tools are written; then the README, from the manifest without its
+   `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
+6. The repository state is read again; a moved HEAD or a newly dirty tree discards the staging
    directory, because a snapshot naming a commit that did not produce it is worse than none.
-6. An earlier snapshot of the same name is replaced: removed, then the staging directory is renamed into
-   place (the project owner's ruling; a leftover staging directory from a failed run is cleared at the
-   start of the next).
+7. An earlier snapshot of the same name is replaced (the project owner's ruling): it is renamed aside,
+   the staging directory renamed into place, and only then the earlier one deleted, so a failed swap
+   restores it. A leftover staging directory from a failed run is cleared at the start of the next.
 
 Any failure after the staging directory exists removes it, so a refused or interrupted export leaves no
 partial snapshot behind.
@@ -39,10 +45,9 @@ partial snapshot behind.
 import json
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import cast
 
 import yaml
 from PIL import Image
@@ -68,7 +73,7 @@ from generators.eval_set import (
 )
 from generators.exporters.eval_projection import ExtractionSchema, load_extraction_schema
 from generators.labels.config import LabelConfig, load_label_config
-from generators.labels.render import LabelOutcome, LabelRefusalError, label_sites, render_labelled_varied
+from generators.labels.render import LabelRefusalError, label_sites, render_labelled_varied
 from generators.labels.sidecar import sidecar_row, write_sidecar
 from generators.layout_dsl.schema import LayoutSchemaError, validate_layout
 from generators.loader import REPO_ROOT, load_ground_truth, load_layout_registry
@@ -76,7 +81,19 @@ from generators.overflow_check import LABELLED_VARIED_MODE, render_modes
 from generators.overlay.verify import OverlayError
 from generators.schema import field_names_for, validate_entry
 from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config
+from generators.snapshot.manifest import (
+    MANIFEST_NAME,
+    README_NAME,
+    TOOLS_DIR,
+    build_manifest,
+    describe_snapshot,
+    sha256_file,
+    write_checksums,
+    write_manifest,
+)
+from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
 from generators.snapshot.repo_state import RepoState, RepoStateError, read_repo_state, require_clean
+from generators.snapshot.summary import SnapshotSummary
 
 # The three halves rendered directly (the fourth, degraded, is made from the distractor render).
 CLEAN_HALVES = HALVES[:3]
@@ -84,37 +101,17 @@ PLAIN, DISTRACTOR, LABELLED_VARIED, DEGRADED = HALVES
 
 # The suffix of the staging directory beside the destination; it is a contract with the spec.
 _STAGING_SUFFIX = ".partial"
+# The suffix an earlier snapshot of the same name is renamed to while the new one is swapped in.
+_ASIDE_SUFFIX = ".old"
+
+# The tools every snapshot ships (Decision 12): two scripts copied byte for byte, and the scoring
+# notebook from the repository root with its outputs cleared.
+SHIPPED_SCRIPTS = ("verify_snapshot.py", "check_extractions_match_gt.py")
+SHIPPED_NOTEBOOK = "score_extractions.ipynb"
 
 
 class SnapshotError(RuntimeError):
     """The export refused: a check failed, or the repository changed while it ran."""
-
-
-@dataclass(frozen=True)
-class SnapshotSummary:
-    """What one export produced, for the command's report and the manifest.
-
-    Attributes:
-        path: The published snapshot directory.
-        stamp: Its date stamp, `%Y%m%d`.
-        repo_state: The repository state it was rendered from (clean, and unchanged at publish).
-        half_dirs: Half -> its directory inside the snapshot.
-        counts: Half -> extraction document type -> number of images (the degraded half names receipts only).
-        sidecar_rows: The labelled varied half's sidecar rows, sorted by image_file.
-        density: Clean half -> image_file -> the render's density report (plain renders measured only).
-    """
-
-    path: Path
-    stamp: str
-    repo_state: RepoState
-    half_dirs: dict[str, Path]
-    counts: dict[str, dict[str, int]]
-    sidecar_rows: tuple[dict, ...]
-    density: dict[str, dict[str, DensityReport]]
-
-    def total(self, half: str) -> int:
-        """Return a half's image count across document types."""
-        return sum(self.counts[half].values())
 
 
 @dataclass
@@ -307,7 +304,7 @@ def _plan_type(
     )
 
 
-def _attempt(failures: list[str], where: str, draw: Callable[[], object]) -> object | None:
+def _attempt[T](failures: list[str], where: str, draw: Callable[[], T]) -> T | None:
     """Run one render, collecting a fit, overlay or label refusal as a failure instead of raising."""
     try:
         return draw()
@@ -377,7 +374,7 @@ def _render_type(
         )
         if plain is None or distractor is None or varied is None:
             continue
-        varied_image, outcome = cast(tuple[Image.Image, LabelOutcome], varied)
+        varied_image, outcome = varied
 
         # The checks `validate` runs, on the very renders that ship.
         plan.plain_drawn(case_id, layout_id, plain_geometry)
@@ -390,7 +387,7 @@ def _render_type(
         renders = {PLAIN: (plain, plain_geometry), DISTRACTOR: (distractor, distractor_geometry)}
         renders[LABELLED_VARIED] = (varied_image, varied_geometry)
         for half, (image, geometry) in renders.items():
-            image.save(half_dirs[half] / filename)  # type: ignore[attr-defined]
+            image.save(half_dirs[half] / filename)
             out.geometry[half].append(_geometry_record(case_id, filename, geometry))
             out.density[half][filename] = density_report(geometry["ink"], int(geometry["height"]))
             out.counts[half][plan.canonical] += 1
@@ -412,9 +409,7 @@ def _render_type(
         seed = int(entry["degradation_seed"])
         for index, tier in enumerate(tiers):
             variant = f"{filename.removesuffix('.png')}_{tier.suffix}.png"
-            degrade_receipt(distractor, tier, tier_seed(seed, index)).save(  # type: ignore[arg-type]
-                half_dirs[DEGRADED] / variant
-            )
+            degrade_receipt(distractor, tier, tier_seed(seed, index)).save(half_dirs[DEGRADED] / variant)
             out.degraded_documents.append({"filename": variant, "fields": projected})
             out.counts[DEGRADED][plan.canonical] = out.counts[DEGRADED].get(plan.canonical, 0) + 1
 
@@ -443,6 +438,58 @@ def _write_geometry(config: SnapshotConfig, staging: Path, out: _Rendered) -> No
         (geometry_dir / f"{config.half_prefixes[half]}.jsonl").write_text(text)
 
 
+def _write_tools(staging: Path) -> None:
+    """Copy the three tools into `tools/`: two scripts byte for byte, the notebook with outputs cleared.
+
+    The notebook ships with every output removed and every `execution_count` null (Decision 12), so no
+    earlier run's numbers read as this snapshot's.
+    """
+    tools = staging / TOOLS_DIR
+    tools.mkdir()
+    for name in SHIPPED_SCRIPTS:
+        shutil.copyfile(REPO_ROOT / "scripts" / name, tools / name)
+    notebook = json.loads((REPO_ROOT / SHIPPED_NOTEBOOK).read_text())
+    for cell in notebook["cells"]:
+        if cell.get("cell_type") == "code":
+            cell["outputs"] = []
+            cell["execution_count"] = None
+    (tools / SHIPPED_NOTEBOOK).write_text(json.dumps(notebook, indent=1, ensure_ascii=False) + "\n")
+
+
+def _clear_staging(staging: Path) -> None:
+    """Clear a staging directory a killed run left behind; refuse anything else at that path."""
+    if staging.is_dir() and not staging.is_symlink():
+        shutil.rmtree(staging)
+    elif staging.exists() or staging.is_symlink():
+        raise SnapshotError(
+            "The snapshot's staging path is occupied by something other than a directory.\n"
+            f"  What:     {staging} exists and is not a directory, so the export cannot build there.\n"
+            f"  Where:    {staging}\n"
+            "  Expected: nothing at that path, or a staging directory left by an interrupted export.\n"
+            f"  Recover:  move or delete {staging}, then export again."
+        )
+
+
+def _publish(staging: Path, final: Path) -> None:
+    """Swap the staging directory into place, keeping any earlier snapshot until the new one is there.
+
+    An earlier snapshot of the same name is renamed aside, the staging directory renamed into place, and
+    only then the earlier one deleted; if the second rename fails, the earlier one is restored.
+    """
+    aside = final.parent / f".{final.name}{_ASIDE_SUFFIX}"
+    if aside.exists():
+        shutil.rmtree(aside)
+    if final.exists():
+        final.rename(aside)
+    try:
+        staging.rename(final)
+    except BaseException:
+        if aside.exists() and not final.exists():
+            aside.rename(final)
+        raise
+    shutil.rmtree(aside, ignore_errors=True)
+
+
 def export_snapshot(
     config_path: Path,
     *,
@@ -450,7 +497,7 @@ def export_snapshot(
     renderers: dict | None = None,
     repo_state: Callable[[], RepoState] | None = None,
 ) -> SnapshotSummary:
-    """Render and publish one dated snapshot of the four paired halves.
+    """Render and publish one dated snapshot of the four paired halves, documented and checksummed.
 
     Args:
         config_path: Path to generation_config.yml.
@@ -460,17 +507,20 @@ def export_snapshot(
             Injectable so tests run from a working tree under development.
 
     Returns:
-        The summary of what was published.
+        The summary of what was published, with the published MANIFEST.json's own SHA-256.
 
     Raises:
         FileNotFoundError: The generation config or a ground-truth file is missing.
-        ValueError: The configuration, a layout reference, a seed or a projection is invalid.
+        ValueError: The configuration, a field description, a layout reference, a seed or a projection
+            is invalid.
         RepoStateError: Git or the repository is missing, or the tree carries tracked changes.
-        SnapshotError: A check failed, or the repository changed during the export.
+        SnapshotError: A check failed, the staging path is occupied, or the repository changed during
+            the export.
         TierConfigError: The receipt_degradation block is missing or malformed.
     """
     config = load_snapshot_config(config_path)
     schema = load_extraction_schema()
+    load_field_descriptions(schema)  # refused now, before anything is drawn, not at the README
     if renderers is None:
         from generators.pipeline import _RENDERERS
 
@@ -508,18 +558,16 @@ def export_snapshot(
     ]
     if failures:
         raise _checks_failed(failures, stage="before rendering", config_path=config.config_path)
+    ready = [plan for plan in plans if plan is not None]
 
-    if staging.exists():
-        # A failed run removes its own staging directory; one left by a killed process is cleared.
-        shutil.rmtree(staging)
+    _clear_staging(staging)
     staging.mkdir()
     try:
         half_dirs = {half: staging / f"{config.half_prefixes[half]}_{stamp}" for half in HALVES}
         for directory in half_dirs.values():
             directory.mkdir()
         out = _Rendered()
-        for plan in plans:
-            assert plan is not None  # a None plan recorded a failure above
+        for plan in ready:
             _render_type(plan, half_dirs=half_dirs, tiers=tiers, label_config=label_config, out=out)
             out.failures.extend(plan.plain_drawn.errors + plan.density.errors)
             out.failures.extend(plan.varied_density.errors + plan.varied_drawn.errors)
@@ -530,26 +578,48 @@ def export_snapshot(
         rows = sorted(out.sidecar_rows, key=lambda row: row["image_file"])
         write_sidecar(half_dirs[LABELLED_VARIED], rows)
         _write_geometry(config, staging, out)
+        _write_tools(staging)
+
+        staged = SnapshotSummary(
+            path=final,  # the name it is published under; its files are still in staging
+            stamp=stamp,
+            repo_state=start,
+            half_dirs=half_dirs,
+            counts=out.counts,
+            sidecar_rows=tuple(rows),
+            density=out.density,
+            tiers=tuple((tier.name, tier.suffix) for tier in tiers),
+            geometry_dir=config.geometry_dir,
+            csv_name=config.csv_name,
+            jsonl_name=config.jsonl_name,
+        )
+        # The README is generated from the manifest without its files, then every file is hashed.
+        description = describe_snapshot(staged, repo_state=start, repo_root=REPO_ROOT)
+        previous = find_previous(
+            config.output_root,
+            prefix=config.snapshot_dir_prefix,
+            current_dir=name,
+            head=start.commit,
+            repo_root=REPO_ROOT,
+        )
+        (staging / README_NAME).write_text(render_readme(description, schema=schema, previous=previous))
+        manifest = build_manifest(staged, repo_state=start, repo_root=REPO_ROOT, snapshot_root=staging)
+        write_manifest(manifest, staging)
+        write_checksums(manifest, staging)
+        manifest_sha256 = sha256_file(staging / MANIFEST_NAME)
 
         end = read_state()
         if end != start:
             raise _state_changed(start, end)
-        if final.exists():
-            # The project owner's ruling: a same-day re-export replaces the earlier snapshot.
-            shutil.rmtree(final)
-        staging.rename(final)
+        _publish(staging, final)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    return SnapshotSummary(
-        path=final,
-        stamp=stamp,
-        repo_state=start,
+    return replace(
+        staged,
         half_dirs={half: final / directory.name for half, directory in half_dirs.items()},
-        counts=out.counts,
-        sidecar_rows=tuple(rows),
-        density=out.density,
+        manifest_sha256=manifest_sha256,
     )
 
 

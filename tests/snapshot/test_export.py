@@ -117,6 +117,23 @@ def test_a_mistyped_or_empty_key_is_refused(tmp_path: Path, key: str, value: obj
     assert named in str(err.value) and str(path.resolve()) in str(err.value)
 
 
+def test_a_stale_block_holding_only_superseded_keys_is_told_so(tmp_path: Path) -> None:
+    """The superseded-key refusal comes before the presence check, so a stale block is not told that
+    output_root is missing."""
+
+    def stale(config: dict) -> None:
+        keep = ("document_types", "csv_name", "jsonl_name")
+        config["eval_set"] = {k: v for k, v in config["eval_set"].items() if k in keep}
+        config["eval_set"]["clean_dir_prefix"] = "synthetic"
+        config["eval_set"]["degraded_dir_prefix"] = "degraded"
+
+    path = scratch_config(tmp_path, mutate=stale)
+    with pytest.raises(ValueError) as err:
+        load_snapshot_config(path)
+    assert_diagnostic_error(err.value)
+    assert "superseded" in str(err.value) and "output_root" not in str(err.value).split("Expected")[0]
+
+
 @pytest.mark.parametrize("key", ["clean_dir_prefix", "degraded_dir_prefix"])
 def test_a_superseded_key_is_refused_naming_its_replacement(tmp_path: Path, key: str) -> None:
     path = scratch_config(tmp_path, mutate=_bad(key, "synthetic"))
@@ -224,6 +241,8 @@ def test_the_file_set_is_exactly_the_layout(export: SnapshotSummary) -> None:
     stamp_dirs = {f"{half}_{STAMP}" for half in HALVES}
     expected = set(stamp_dirs) | {"geometry", "geometry/plain.jsonl", "geometry/distractor.jsonl"}
     expected |= {"geometry/labelled_varied.jsonl", f"labelled_varied_{STAMP}/{SIDECAR_NAME}"}
+    expected |= {"README.md", "MANIFEST.json", "SHA256SUMS", "tools", "tools/verify_snapshot.py"}
+    expected |= {"tools/check_extractions_match_gt.py", "tools/score_extractions.ipynb"}
     for half in HALVES:
         directory = export.half_dirs[half]
         expected |= {f"{directory.name}/ground_truth.csv", f"{directory.name}/ground_truth.jsonl"}
@@ -426,4 +445,77 @@ def test_a_drawn_field_failure_on_a_labelled_varied_render_refuses(
         _export(config)
     assert_diagnostic_error(err.value)
     assert "invented drawn-field failure (labelled varied render)" in str(err.value)
+    assert _entries(root) == []
+
+
+def _seed_earlier(root: Path) -> Path:
+    stale = root / f"snapshot_{STAMP}" / "stale.txt"
+    stale.parent.mkdir()
+    stale.write_text("earlier")
+    return stale
+
+
+def test_a_failed_swap_restores_the_earlier_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I1: the earlier snapshot is renamed aside, not deleted, until the new one is in place."""
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    stale = _seed_earlier(root)
+    real_rename = Path.rename
+
+    def failing(self: Path, target: Path) -> Path:
+        if self.name.endswith(".partial"):
+            raise OSError("invented rename failure")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing)
+    with pytest.raises(OSError, match="invented rename failure"):
+        _export(config)
+    assert stale.read_text() == "earlier"
+    assert _entries(root) == [stale.parent.name, f"{stale.parent.name}/stale.txt"]
+
+
+def test_a_failed_run_leaves_the_earlier_snapshot_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    stale = _seed_earlier(root)
+
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("invented interruption")
+
+    monkeypatch.setattr(export_module, "degrade_receipt", broken)
+    with pytest.raises(RuntimeError, match="invented interruption"):
+        _export(config)
+    assert stale.read_text() == "earlier"
+    assert _entries(root) == [stale.parent.name, f"{stale.parent.name}/stale.txt"]
+
+
+def test_a_staging_path_that_is_a_file_is_refused(tmp_path: Path) -> None:
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    blocker = root / f".snapshot_{STAMP}.partial"
+    blocker.write_text("not a directory")
+    with pytest.raises(SnapshotError) as err:
+        _export(config)
+    assert_diagnostic_error(err.value)
+    assert str(blocker) in str(err.value)
+    assert blocker.read_text() == "not a directory" and _entries(root) == [blocker.name]
+
+
+def test_git_failing_on_the_second_read_publishes_nothing(tmp_path: Path) -> None:
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    reads = iter([FAKE_STATE])
+
+    def state() -> RepoState:
+        try:
+            return next(reads)
+        except StopIteration:
+            raise RepoStateError("invented: git vanished mid-export") from None
+
+    with pytest.raises(RepoStateError, match="git vanished"):
+        _export(config, state)
     assert _entries(root) == []

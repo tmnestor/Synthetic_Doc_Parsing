@@ -20,7 +20,7 @@ python -m generators.pipeline validate
 
 # Render the 165 clean images into ../evaluation_data/output/clean/, and capture each field's bounding
 # box at draw time into ../evaluation_data/derived/geometry.jsonl. Filenames keep the layout
-# (CASE001_cba_standard.png). No degradation here — that belongs to `eval-set`.
+# (CASE001_<layout>.png). No degradation here; that belongs to `eval-set`.
 python -m generators.pipeline generate
 
 # Generate only one document type
@@ -42,64 +42,65 @@ python -m generators.pipeline generate --distractors --label-variation
 # `generate` captures, so run that first on a fresh clone.
 python -m generators.pipeline derive
 
-# Export the deliverable: two dated sibling directories, synthetic_<date>/ (165 clean
-# images, 3 types) and degraded_<date>/ (receipts only, 55 x 3 severity tiers). Each
-# carries its own ground_truth.csv/.jsonl for the images it holds, and filenames are
-# generic (CASE001_receipt.png) so the layout cannot leak to the model.
-python -m generators.pipeline eval-set --out /path/to/evaluation_data
+# Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/, from a
+# committed tree (tracked changes are refused). Four paired halves of 165 images each (plain,
+# distractor, labelled_varied, degraded), the clean halves' geometry, the tools, a README generated
+# from MANIFEST.json, and SHA256SUMS. Run validate first; the export prints MANIFEST.json's own
+# SHA-256 to record beside the upload. A snapshot of the same date is replaced.
+python -m generators.pipeline eval-set
+
+# Check a snapshot against its own manifest (standard library only; also runs on the receiving host).
+python ../evaluation_data/snapshot_<YYYYMMDD>/tools/verify_snapshot.py
 ```
 
-### The evaluation datasets
+### The evaluation snapshot
 
-`eval_set` is the whole procedure. One command renders every document once and writes
-two sibling directories, stamped with today's date:
+`eval-set` is the whole procedure. One command renders every document from the committed tree and
+writes one directory under `eval_set.output_root` (`../evaluation_data`, a required key in
+`config/generation_config.yml`; it must already exist and lie outside the repository), stamped with
+today's date:
 
 ```
-<out>/synthetic_<YYYYMMDD>/        <out>/degraded_<YYYYMMDD>/
-  CASE001_bank_statement.png         CASE001_receipt_v1.png
-  CASE001_invoice.png                CASE001_receipt_v2.png
-  CASE001_receipt.png                CASE001_receipt_v3.png
-  ...  165 images, 3 types           ...  165 images, receipts only
-  ground_truth.csv                   ground_truth.csv     ← describes THESE rows
-  ground_truth.jsonl                 ground_truth.jsonl   ← describes THESE rows
+snapshot_<YYYYMMDD>/
+  README.md                    generated from the manifest, for a reader with no repository access
+  MANIFEST.json                date, commit, input hashes, counts, label counts, metrics, every file's SHA-256
+  SHA256SUMS                   the same hashes, for `shasum -a 256 -c SHA256SUMS`
+  tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
+  plain_<YYYYMMDD>/            165 images, 3 types, ground_truth.csv and .jsonl
+  distractor_<YYYYMMDD>/       the same filenames and ground truth, with distractors
+  labelled_varied_<YYYYMMDD>/  the same again, labels varied, plus label_styles.jsonl
+  degraded_<YYYYMMDD>/         55 distractor receipts x 3 tiers, their own ground truth
+  geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl (scored boxes)
 ```
 
-No prior `generate` is needed, and no other checkout: both halves come from a single
-render pass, so a degraded variant is the very same document as the receipt it derives
-from, never an independent re-roll.
+No prior `generate` is needed: all four halves come from one render pass, so a degraded variant is
+the very same document as the distractor receipt it photographs, never an independent re-roll. The
+export runs every render check (density, drawn fields, overlay, label unambiguity) and publishes
+nothing unless all pass; it builds in a hidden staging directory and swaps it into place only at the
+end, so a refused or interrupted export leaves any earlier snapshot as it was.
 
-**The two halves are not mirrors, and the asymmetry is the design.** Both hold 165
-images, but that symmetry is a coincidence: the clean half is 55 cases × 3 document
-types, while the degraded half is 55 receipts × the 3 severity tiers declared under
-`receipt_degradation:` in `config/generation_config.yml`. Receipts are the only type a
-user photographs — bank statements and invoices arrive as clean PDFs or printouts — so
-degrading the other two would model nothing.
+**Pairing.** The three clean halves share filenames and byte-identical ground truth, so they join
+directly on the filename: plain against distractor isolates the distractor effect, distractor
+against labelled_varied the label effect. The degraded half holds receipts only (55 receipts x the
+three tiers under `receipt_degradation:`), named with the tier suffix; `CASE001_receipt_v2.png`
+pairs with `CASE001_receipt.png` once the suffix is removed. A degradation comparison therefore runs
+over the 55 receipts only, or document type is confounded with image quality.
 
-Each directory is self-contained, carrying the ground truth for the images **it** holds,
-so a model run points at one path and finds everything. The degraded ground truth is
-written rather than copied: each variant row repeats its source receipt's field values
-verbatim and differs only in `image_file`. The two files are consequently **not**
-byte-identical, and neither one scores the other's images.
+Filenames are deliberately generic (`CASE001_bank_statement.png`, never one naming the layout), so a
+model cannot infer the template before reading a pixel.
 
-Pairing the halves therefore joins on the filename with the tier suffix removed —
-`CASE001_receipt_v2.png` pairs with `CASE001_receipt.png` — and never on the filename
-itself. It follows that a degradation-effect comparison runs over the 55 clean receipts
-and their 165 variants: the 110 bank statements and invoices have no degraded
-counterpart and must be excluded from it, or document type is confounded with image
-quality.
-
-Filenames are deliberately generic — `CASE001_bank_statement.png`, never
-`CASE001_cba_standard.png`. A model must not be able to infer which layout template it
-is looking at before reading a pixel.
-
-The command creates new directories and deletes nothing; retiring an older dated set is
-a manual choice.
+**The manifest.** `MANIFEST.json` serves integrity (every file's SHA-256; `verify_snapshot.py` also
+fails on a missing or extra file or a wrong count), provenance (the generator commit and the hash of
+every tracked file under `config/` and `ground_truth/` and of `environment.yml`) and comparability
+(two scores are comparable only when they come from the same manifest). The heavy (`_v3`) tier is not
+bit-reproducible: its fold noise comes from a generator no seed reaches, so the snapshot itself, not a
+regeneration, is the record. The manifest cannot vouch for itself; `eval-set` prints its SHA-256.
 
 ### Extraction ground truth as a standalone CSV
 
 `derive` emits this repo's own 165-row `../evaluation_data/derived/ground_truth.csv`. To build an
-**extraction CSV** separately from a full `eval_set` export — against an existing image
-directory, say — use:
+**extraction CSV** separately from a full `eval-set` snapshot (against an existing image
+directory, say), use:
 
 ```bash
 python scripts/generate_extraction_gt.py \
@@ -136,8 +137,9 @@ field lists must match the prompt your model was given, since that is what defin
 fair scoring set. Figures are saved to `figures/` at 300 dpi as well as drawn inline.
 
 When inference runs on a remote GPU host and scoring happens locally,
-`docs/remote_extraction_runbook.md` covers the round trip — send the images up, keep the
-ground truth here, bring back one `raw_extractions.jsonl` per half. Run
+`docs/remote_extraction_runbook.md` covers the round trip: verify the snapshot, send the images
+up, keep the ground truth, sidecar and geometry here, bring back one `raw_extractions.jsonl` per
+half. Every snapshot ships the notebook (outputs cleared) and the preflight in its `tools/`. Run
 `scripts/check_extractions_match_gt.py` on whatever comes back before scoring it: it
 fails loudly when a run and a ground truth describe different image sets, which the
 notebook itself would otherwise absorb as "unmatched" and score around.
@@ -211,7 +213,7 @@ python -m generators.pipeline <command> [OPTIONS]
 | `validate` | Required fields, layout references, ABN checksums, date/amount formats, parallel-list parity, GST arithmetic, DSL layout bodies, fit-overflow backstop, distractor density bounds, every entry's distractor values, and that the name grammar cannot emit a real business |
 | `generate` | Render document images from ground truth + layouts, plus `../evaluation_data/derived/geometry.jsonl` |
 | `derive` | Regenerate CSV/JSONL and the benchmark projections from ground truth YAML |
-| `eval-set` | Export the clean and degraded evaluation sets as dated sibling directories |
+| `eval-set` | Export one dated snapshot of four paired halves with its manifest, README and tools |
 
 | Flag | Default | Applies To | Description |
 |------|---------|------------|-------------|
@@ -748,12 +750,13 @@ Determinism comes from each entry's `degradation_seed` combined with the tier's 
 Pipeline: grayscale → blur → Canny edges → dilate → largest external contour → 4-point polygon → `cv2.getPerspectiveTransform` / `cv2.warpPerspective`. It uses the **same** homography library `generators/degradation/camera.py` warps with. Note the two are approximate rather than exact inverses: the rectifier re-detects the quad from pixels instead of reusing the stored homography, and the blur, noise and JPEG steps are not invertible. This is moot under value-F1 scoring and matters only for spatial round-trip checks. **Fail-open:** if no convincing quad is found (no 4-gon, too small, or too large), the image passes through unchanged — a missed rectification is cheap; a wrong crop that drops a row is a regression.
 
 ```bash
-# Rectify all degraded receipts: output/degraded/receipts/ -> output/rectified/receipts/
-python rectify_camera_scan.py --batch output
-
-# Single image
+# Single image: any input path and output path, here a heavy-tier receipt from a snapshot
 python rectify_camera_scan.py \
-    output/degraded/receipts/CASE001_receipt_fuel_degraded.png /tmp/CASE001.png
+    ../evaluation_data/snapshot_<YYYYMMDD>/degraded_<YYYYMMDD>/CASE001_receipt_v3.png /tmp/CASE001_receipt_v3.png
+
+# Batch: reads <root>/degraded/receipts/*.png and writes <root>/rectified/receipts/, so lay the
+# receipts out that way first (a snapshot's degraded half is flat and is not read by --batch)
+python rectify_camera_scan.py --batch <root>
 ```
 
 On the 55 camera-scan receipts the quad is detected 55/55 (100%), recovering close to the original clean dimensions (e.g. CASE001 clean 420×374 → degraded 516×490 → rectified 425×380). **Dependency:** `opencv-python-headless` (cv2), same as the degrader. Tunable knobs in `detect_document_quad()`: `min_area_frac` / `max_area_frac` (reject spurious tiny / full-frame quads).

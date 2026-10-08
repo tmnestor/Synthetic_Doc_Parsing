@@ -2,13 +2,17 @@
 
 Every key is required and checked before anything is read or rendered. `load_eval_set_config` (in
 `generators.eval_set`) keeps its checks of the block, the ground-truth file names and the document
-types; this module adds the snapshot's own keys, refuses the superseded ones, and resolves the root the
-snapshot is written under (Decision 3: against the repository root, outside it, already existing).
+types (its presence check of the seven keys); this module refuses the superseded keys first, checks each
+key's shape, and resolves the root the snapshot is written under (Decision 3: against the repository
+root, outside it, already existing).
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
+from generators.eval_set import _err as config_error
 from generators.eval_set import load_eval_set_config
 from generators.loader import REPO_ROOT
 
@@ -58,13 +62,9 @@ class SnapshotConfig:
 
 
 def _err(what: str, *, config_path: Path, key: str, expected: str, recover: str) -> ValueError:
-    """Build a four-part diagnostic naming `<abs config> -> eval_set.<key>`."""
-    return ValueError(
-        "Invalid snapshot export configuration.\n"
-        f"  What:     {what}\n"
-        f"  Where:    {config_path.resolve()} -> {_ROOT_KEY}.{key}\n"
-        f"  Expected: {expected}\n"
-        f"  Recover:  {recover}"
+    """Build a four-part diagnostic naming `<abs config> -> eval_set.<key>` (the shared helper)."""
+    return config_error(
+        what, path=config_path, key_path=f"{_ROOT_KEY}.{key}", expected=expected, recover=recover
     )
 
 
@@ -165,9 +165,12 @@ def load_snapshot_config(config_path: Path) -> SnapshotConfig:
         FileNotFoundError: `config_path` does not exist.
         ValueError: A key is missing, empty, mistyped or superseded, or the output root is unusable.
     """
-    cfg = load_eval_set_config(config_path)
+    # Superseded keys first, so a stale block is told what replaced its keys rather than that the new
+    # ones are missing.
+    raw = yaml.safe_load(config_path.read_text()) if config_path.is_file() else None
+    stale = raw.get(_ROOT_KEY) if isinstance(raw, dict) else None
     for key, replacement in SUPERSEDED_KEYS.items():
-        if key in cfg:
+        if isinstance(stale, dict) and key in stale:
             raise _err(
                 f"eval_set.{key} is superseded by eval_set.{replacement}; the export no longer reads it.",
                 config_path=config_path,
@@ -175,6 +178,7 @@ def load_snapshot_config(config_path: Path) -> SnapshotConfig:
                 expected="half_prefixes: {" + ", ".join(f"{half}: {half}" for half in HALVES) + "}",
                 recover=f"delete eval_set.{key}; set eval_set.{replacement} instead.",
             )
+    cfg = load_eval_set_config(config_path)
     for key in ("csv_name", "jsonl_name"):
         if not _is_single_name(cfg[key]):
             raise _err(

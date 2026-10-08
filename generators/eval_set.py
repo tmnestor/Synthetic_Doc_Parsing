@@ -1,7 +1,8 @@
 """Ground-truth projection for the evaluation snapshot, owned entirely by this repository.
 
 The snapshot export (`generators.snapshot.export`) renders the images; this module supplies what it
-writes beside them: the `eval_set:` block's base checks (`load_eval_set_config`), the projection of a
+writes beside them: the `eval_set:` block's presence and document-type checks (`load_eval_set_config`;
+each key's shape is checked in `generators.snapshot.config`), the projection of a
 ground-truth entry onto its document type's extraction fields (`project_fields`, `format_value`), and
 the two ground-truth files every half carries (`write_jsonl`, `csv_from_jsonl`).
 
@@ -78,13 +79,17 @@ _DATE_FORMAT = "%Y%m%d"
 
 
 def _err(what: str, *, path: Path, key_path: str, expected: str, recover: str) -> ValueError:
-    """Build a four-element fail-fast diagnostic (what / where / expected / recover)."""
+    """Build a four-element fail-fast diagnostic (what / where / expected / recover).
+
+    The one helper for the `eval_set:` checks here and in `generators.snapshot.config`, and for the
+    export's own refusals about a ground-truth entry.
+    """
     return ValueError(
-        f"{what}\n"
+        "Invalid snapshot export input.\n"
         f"  What:     {what}\n"
         f"  Where:    {path.resolve()} -> {key_path}\n"
         f"  Expected: {expected}\n"
-        f"  Recover:  {recover} in {path.resolve()}."
+        f"  Recover:  {recover.rstrip('.')} in {path.resolve()}."
     )
 
 

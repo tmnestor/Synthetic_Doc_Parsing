@@ -8,8 +8,8 @@
 Run this on anything that comes back from the extraction host, BEFORE opening the
 scoring notebook. A raw-extractions file names the images it processed; a ground
 truth names the images it describes. If those two sets have drifted apart the
-notebook still produces numbers -- it scores whatever overlap exists and reports
-the rest as unmatched -- and a partial overlap is very easy to miss in a summary
+notebook still produces numbers (it scores whatever overlap exists and reports
+the rest as unmatched), and a partial overlap is very easy to miss in a summary
 that otherwise looks reasonable.
 
 That is not hypothetical. A raw_extractions.jsonl from June, scored against the
@@ -33,14 +33,14 @@ _ID_COLUMNS = ("image_file", "filename", "image_name", "file")
 
 def _diagnostic(what: str, where: str, example: str, fix: str) -> str:
     """Assemble a 4-element diagnostic error message."""
-    return f"What: {what}\nWhere: {where}\nExpected: {example}\nHow to fix: {fix}"
+    return f"What:     {what}\nWhere:    {where}\nExpected: {example}\nRecover:  {fix}"
 
 
 def load_ground_truth_names(path: Path) -> set[str]:
     """Read the set of image filenames a ground-truth file describes.
 
-    Accepts the two shapes `eval-set` writes -- a wide CSV and a per-record JSONL
-    -- without pandas, so this stays runnable on a bare interpreter.
+    Accepts the two shapes `eval-set` writes (a wide CSV and a per-record JSONL)
+    without pandas, so this stays runnable on a bare interpreter.
 
     Args:
         path: A ground_truth.csv or ground_truth.jsonl.
@@ -65,7 +65,7 @@ def load_ground_truth_names(path: Path) -> set[str]:
                 what=f"the ground-truth file {path} is empty.",
                 where=str(path),
                 example="at least one row naming an image.",
-                fix="regenerate it with `python -m generators.pipeline eval-set --out <dir>`.",
+                fix="use the ground_truth.csv or .jsonl that sits beside the images the model was given.",
             )
         )
 
@@ -166,14 +166,18 @@ def main() -> int:
             return 1
 
     extraction_names, errors = load_extraction_records(args.extractions)
-    gt_names = load_ground_truth_names(args.ground_truth)
+    try:
+        gt_names = load_ground_truth_names(args.ground_truth)
+    except ValueError as err:
+        print(err, file=sys.stderr)
+        return 1
     ok = report(extraction_names, gt_names, errors)
 
     if ok:
-        print("\nPASS — every extracted image has ground truth. Safe to score.")
+        print("\nPASS: every extracted image has ground truth. Safe to score.")
         return 0
     if args.allow_partial:
-        print("\nPARTIAL — proceeding because --allow-partial was passed.")
+        print("\nPARTIAL: proceeding because --allow-partial was passed.")
         return 0
 
     print(

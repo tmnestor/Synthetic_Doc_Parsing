@@ -91,3 +91,26 @@ evaluation:
 
     boolean:
       - IS_GST_INCLUDED
+
+# One sentence per extraction field, printed in each snapshot's README for a
+# reader with no access to this repository. Every field named under
+# document_fields needs exactly one entry, and every entry must name such a
+# field; the snapshot export refuses otherwise. The CSV projection ignores it.
+field_descriptions:
+  DOCUMENT_TYPE: "The kind of document shown: INVOICE, RECEIPT or BANK_STATEMENT."
+  BUSINESS_ABN: "The supplier's 11-digit Australian Business Number, written in the 2-3-3-3 grouping."
+  SUPPLIER_NAME: "The trading name of the business that issued the invoice or receipt."
+  BUSINESS_ADDRESS: "The supplier's street address as printed on the document."
+  PAYER_NAME: "The customer billed by an invoice, or NOT_FOUND on a receipt, which names no payer."
+  PAYER_ADDRESS: "The billed customer's address, or NOT_FOUND where the document shows none."
+  INVOICE_DATE: "The date the invoice or receipt was issued, as DD/MM/YYYY."
+  LINE_ITEM_DESCRIPTIONS: "The description of each purchased item, or of each debit transaction on a statement, in printed order, separated by ' | '."
+  LINE_ITEM_QUANTITIES: "The quantity of each line item, in the same order as the descriptions."
+  LINE_ITEM_PRICES: "The unit price of each line item, in the same order, each with a leading '$'."
+  LINE_ITEM_TOTAL_PRICES: "The extended price of each line item (quantity times unit price), each with a leading '$'."
+  IS_GST_INCLUDED: "Whether the total includes GST, as lowercase true or false."
+  GST_AMOUNT: "The GST charged, with a leading '$'; where prices include GST it is one eleventh of the total."
+  TOTAL_AMOUNT: "The total amount payable or paid, including GST, with a leading '$'."
+  STATEMENT_DATE_RANGE: "The period a bank statement covers, as DD/MM/YYYY - DD/MM/YYYY."
+  TRANSACTION_DATES: "The date of each debit transaction on the statement, as DD/MM/YYYY, separated by ' | '."
+  TRANSACTION_AMOUNTS_PAID: "The amount of each debit transaction, in the same order as the dates, each with a leading '$'."
