@@ -162,3 +162,27 @@ Gate: the stage-end gate. The full suite `conda run -n synthetic pytest tests/` 
 Commit: `✨ feat: generate the labelled_varied render with its label styles sidecar`.
 
 **Stage 6 is complete when** every receipt and invoice can render its ABN, GST and total labels as labelled, variant or unlabelled from identical ground truth and identical distractors, every unlabelled or variant choice that a careful reader could misread is refused and redrawn with the refusal recorded, each unambiguity rule has a failing fixture, every style occurs for every field in each of receipts and invoices, the sidecar matches what was drawn and never reaches the ground truth, plain and distractor renders are unchanged, and the `labelled_varied` snapshot is pinned.
+
+## Stage 6 outcome (8 October 2026)
+
+Complete. The stage-end suite (3226 tests, 2 hours 25 minutes) gave 3213 passed and the 11 strict expected failures unchanged; 2 failed only because a test read layouts from a commit the history rebuild removed, and now reads a pinned fixture instead (both pass). The repository history was rebuilt on 8 October 2026 as a single commit (see below), so the stage's commits are no longer individually addressable.
+
+### How the shipped code differs from this plan's text
+
+- **Rule fixes after review.** Rival ABNs are read as sliding 11-digit windows over digit groups, so a longer reference number cannot hide one; an unlabelled value whose line moves onto neighbouring ink is refused as an overlap; `ignore_words` is per field; only the refused field advances to its next candidate. `totals_region_fields` is a required YAML key rather than a Python constant.
+- **Wordings.** `label_variation.withheld_by_state` withholds 'Balance:' from a paid invoice's total. The receipt GST pool dropped 'INCLUDES GST OF' and 'GST INCL.', because every receipt prints GST as a line added between subtotal and total. 'A.B.N.' is refused under Decision 17, so receipts offer 'ABN NO. ' and 'ABN NUMBER: '. The account summary's 'Amount due' repeats the total and is treated as a repeat, not a rival.
+- **Realised styles** (labelled / variant / unlabelled, all 55 cases per type, recorded with refusal counts in `config/distractors.yml`): receipts ABN 20/17/18, GST 20/18/17, total 21/20/14; invoices ABN 22/20/13, GST 19/21/15, total 23/18/14. Each label is absent on about 28% of receipt and invoice pages. Unlabelled pages are selected by content (the GST-inclusive invoice layout never drops GST or the total; no receipt with 'You saved' below its total drops the total), so the experiment compares each case's distractor and labelled_varied renders rather than styles within one render. Invoice total variants mostly keep the word 'Total'.
+- **Bank statements** carry no label sites; their labelled_varied pages are byte-identical to their distractor pages.
+- **Type sizes (Stage 4 carry):** PAYER_NAME prints at 20 on all eight invoice layouts and SUPPLIER_NAME at 20 on four, below the 28 body size; reported, not changed.
+
+### Events in this stage outside the plan
+
+- **Test suite tracked.** `tests/` is tracked in git since 8 October 2026, at the project owner's request.
+- **ABN register.** The project owner added a screen of invented ABNs against the public ABN register (built locally from the ABN Bulk Extract, kept outside the repository). The corpus printed four registered ABNs; receipts and invoices were reseeded with the screen, and every baseline re-captured. Without the register file, the seed fails fast and the tests use a small stand-in.
+- **History rebuilt.** The earlier public history held generated, checksum-valid TFNs from the since-deleted trust document types. The GitHub repository was deleted and recreated, private, with one fresh commit of the cleaned tree; the old history survives only as a local backup. No TFN, tooling reference or banned acronym is in the current tree.
+
+### Constraints carried into Stage 7
+
+- The export ships the `labelled_varied` half with its per-type `label_styles.jsonl` sidecars, which never enter the extraction ground truth; MANIFEST counts come from the sidecars.
+- The README states which scores are not comparable with runs before Stages 5 and 6 (bank statements, receipt unit prices, the Westpac closing balance, and everything after the ABN-register reseed).
+- The snapshot must be produced from a committed, clean tree; the export never includes the ABN register file.

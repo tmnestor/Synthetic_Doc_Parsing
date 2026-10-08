@@ -13,11 +13,9 @@ value boxes on every receipt and invoice; nothing of the kind on a bank statemen
 
 import hashlib
 import json
-import subprocess
 from collections.abc import Iterator
 
 import pytest
-import yaml
 from PIL import Image
 
 from generators.distractors.density import density_report
@@ -31,7 +29,7 @@ from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.renderer_helpers import corpus_entries, entry_per_layout, layouts_for, render_entry, renderer_for
 
 # The commit this task started from: the layouts as they printed before label sites existed.
-BEFORE = "bace32e"
+BEFORE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "label_sites_before.json"
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "stage6_ink_baseline.json"
 LABELLED_TYPES = ("receipt", "invoice")
 STEMS = {"receipt": "receipts", "invoice": "invoices", "bank_statement": "bank_statements"}
@@ -71,30 +69,13 @@ def corpus() -> dict[tuple[str, str], tuple[dict, dict, Image.Image]]:
 
 
 def _before_labels(doc_type: str) -> dict[str, dict[str, str]]:
-    """Per layout, the label each site's block printed on the commit before this task."""
-    text = subprocess.run(
-        ["git", "show", f"{BEFORE}:config/layouts/{STEMS[doc_type]}.yml"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    registry = yaml.safe_load(text)["layouts"]
-    printed: dict[str, dict[str, str]] = {}
-    for layout_id, layout in registry.items():
-        found: dict[str, str] = {}
-        for block in _blocks(layout["body"]):
-            field = block.get("field")
-            if field not in SITE_FIELDS:
-                continue
-            if block["type"] == "pair":
-                separator = block.get("separator", layout["defaults"]["pair_separator"])
-                found[field] = f"{block['label']}{separator}"
-            elif block["type"] == "text":
-                assert block["content"].endswith("{" + field + "}")
-                found[field] = block["content"][: -len(field) - 2]
-        printed[layout_id] = found
-    return printed
+    """Per layout, the label each site's block printed before label sites existed.
+
+    Read from a pinned fixture, captured from the layouts as they stood before this stage, so the
+    test does not depend on git history.
+    """
+    pinned = json.loads(BEFORE_FIXTURE.read_text())
+    return pinned[doc_type]
 
 
 @pytest.mark.parametrize("doc_type", LABELLED_TYPES)
