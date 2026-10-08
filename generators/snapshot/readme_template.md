@@ -144,10 +144,13 @@ python tools/check_extractions_match_gt.py \
     --ground-truth $plain_dir/$csv_name
 ```
 
-  It exits 1 unless every extracted image has ground truth (`--allow-partial` for a deliberate subset).
+  Use the ground truth of the half the run was given. The check exits 1 unless every extracted image
+  has ground truth (`--allow-partial` for a deliberate subset).
 - **Scoring:** `tools/score_extractions.ipynb` reports per-field F1, a field by document type heatmap and
   an optional paired comparison of two runs. It needs pandas, matplotlib and seaborn. Its outputs are
-  cleared; set the paths in its configuration cell and point its figure directory outside this snapshot.
+  cleared. Set `RAW_PATH` and `GT_PATH` (and `RAW_PATH_B`, `GT_PATH_B` for a comparison) in its
+  configuration cell, and set `FIGURE_DIR`, which defaults to `figures/` under the working directory,
+  to a directory outside this snapshot.
 
 ## 8. Changes and comparability
 
@@ -158,7 +161,7 @@ These notes hold for every snapshot from this generator:
 - The control half was once called `synthetic_`; it is now `plain_`, since every half is synthetic.
 - Two invoice rendering defects were fixed in the plain control: a 'Total' label that overlapped its
   amount, and line-total amounts that overran the right margin.
-- **No score from an export made before this snapshot's series is comparable with a score on this
-  snapshot.** Before it, bank statements, receipt unit prices and one bank layout's closing balance
+- **No score from an export made before the first manifested snapshot is comparable with a score on
+  this snapshot.** Before that export, bank statements, receipt unit prices and one bank layout's closing balance
   changed, and every receipt and invoice was regenerated when the invented ABNs were screened so that none
   belongs to a registered business. Re-run any earlier model on this snapshot rather than reuse its score.
