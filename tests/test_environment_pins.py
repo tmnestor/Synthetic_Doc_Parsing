@@ -117,6 +117,7 @@ def test_no_gui_opencv_is_installed() -> None:
 
 def test_the_pin_check_can_fail() -> None:
     """A drifted pin is reported, so the parametrised check is not vacuous."""
-    drifted = ENV.replace("numba==0.68.0", "numba==0.0.1")
+    (current,) = re.findall(r"^\s*-\s*numba==([\w.]+)\s*$", ENV, re.MULTILINE)
+    drifted = ENV.replace(f"numba=={current}", "numba==0.0.1")
     (pin,) = re.findall(r"^\s*-\s*numba==([\w.]+)\s*$", drifted, re.MULTILINE)
     assert version("numba") != pin

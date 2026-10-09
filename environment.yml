@@ -122,11 +122,11 @@ dependencies:
       # mirror lacks this numba, change both pins together and re-run the
       # degradation tests. scipy is not an Augraphy requirement on paper but
       # comes in through scikit-image and drives its image operations.
-      - numba==0.68.0
-      - llvmlite==0.50.0
-      - scikit-image==0.26.0
+      - numba==0.63.1
+      - llvmlite==0.46.0
+      - scikit-image==0.25.2
       - scipy==1.18.0
-      - scikit-learn==1.9.1
+      - scikit-learn==1.9.0
       - lazy_loader==0.6
       - imageio==2.38.0
       - tifffile==2026.9.20
@@ -200,7 +200,8 @@ dependencies:
       - seaborn
 
 # =============================================================================
-# KNOWN-GOOD RESOLVED VERSIONS (macOS arm64, 2026-10-06)
+# KNOWN-GOOD RESOLVED VERSIONS (macOS arm64, 2026-10-09; numba, llvmlite,
+# scikit-image and scikit-learn set to the versions the PROD mirror carries)
 # =============================================================================
 # Reference only. Augraphy's dependencies are pinned above and augraphy itself
 # in scripts/post_install.sh; pyyaml,
@@ -210,8 +211,8 @@ dependencies:
 #   pillow 12.2.0          numpy 2.3.5           pyyaml 6.0.3
 #   typer 0.27.2           rich 15.0.0           faker 40.8.0
 #   opencv-python-headless 4.13.0.92             augraphy 8.2.6
-#   numba 0.68.0           llvmlite 0.50.0       scikit-image 0.26.0
-#   scikit-learn 1.9.1     lazy-loader 0.6       imageio 2.38.0
+#   numba 0.63.1           llvmlite 0.46.0       scikit-image 0.25.2
+#   scikit-learn 1.9.0     lazy-loader 0.6       imageio 2.38.0
 #   tifffile 2026.9.20     networkx 3.7          joblib 1.6.0
 #   threadpoolctl 3.7.0    narwhals 2.26.0       requests 2.34.2
 #   urllib3 2.8.0          idna 3.20             certifi 2026.07.22
