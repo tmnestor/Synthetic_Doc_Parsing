@@ -28,10 +28,15 @@ REAL_LOAD_ABN_REGISTER = abn_register.load_abn_register
 # against the real register wherever it is built, and prints the new list after a reseed moves it.
 SEED_REGISTER_HITS = ("58 737 631 165", "54 419 049 663", "27 507 527 354", "45 677 378 263")
 
+# The registered ABNs whose last nine digits a distractor ACN drew in the committed corpus (a company's
+# ABN is two digits, then its ACN): the screen redrew each, so the stand-in must reject them too.
+ACN_REGISTER_HITS = ("29 624 060 788",)
+
 
 def seed_register_stand_in() -> abn_register.AbnRegister:
-    """A register holding only the committed seed's register hits."""
-    return abn_register.AbnRegister.from_abns(int(abn.replace(" ", "")) for abn in SEED_REGISTER_HITS)
+    """A register holding only the committed corpus's register hits, ABN and ACN alike."""
+    hits = (*SEED_REGISTER_HITS, *ACN_REGISTER_HITS)
+    return abn_register.AbnRegister.from_abns(int(abn.replace(" ", "")) for abn in hits)
 
 
 @pytest.fixture(scope="session", autouse=True)

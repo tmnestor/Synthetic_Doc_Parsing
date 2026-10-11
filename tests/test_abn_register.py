@@ -13,7 +13,7 @@ from generators import abn_register
 from generators.abn_register import AbnRegister, abns_in_extract, build_from_zips
 from generators.common import generate_abn, validate_abn
 from tests.conftest import REAL_LOAD_ABN_REGISTER as load_abn_register
-from tests.conftest import REPO_ROOT, SEED_REGISTER_HITS, assert_diagnostic_error
+from tests.conftest import ACN_REGISTER_HITS, REPO_ROOT, SEED_REGISTER_HITS, assert_diagnostic_error
 from tests.test_seed_ground_truth_dry_run import _load_seed_module
 
 POOLS_PATH = REPO_ROOT / "config" / "data_pools.yml"
@@ -186,8 +186,8 @@ def test_generate_abn_fails_fast_when_every_draw_is_registered():
 
 def test_conftest_supplies_the_seed_register_hits_by_default():
     register = abn_register.load_abn_register({}, POOLS_PATH)
-    assert len(register) == len(SEED_REGISTER_HITS) == 4
-    assert all(abn in register for abn in SEED_REGISTER_HITS)
+    assert len(register) == len(SEED_REGISTER_HITS) + len(ACN_REGISTER_HITS) == 5
+    assert all(abn in register for abn in (*SEED_REGISTER_HITS, *ACN_REGISTER_HITS))
 
 
 def _real_register_or_skip() -> AbnRegister:

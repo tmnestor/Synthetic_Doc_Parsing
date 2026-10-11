@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml
 
+from generators import abn_register
+from generators.common import validate_abn
 from generators.content_engine import ContentEngine
 from generators.distractors.paths import DATA_POOLS_PATH, DISTRACTORS_PATH, LINKS_PATH, layout_file
 from generators.exporters.eval_projection import load_extraction_schema
@@ -307,12 +309,51 @@ def _digits_rule(ctx: RuleContext, rule: dict) -> str:
     return f"{prefix}{_digits(ctx.rng, length)}"
 
 
-def _acn(ctx: RuleContext, rule: dict) -> str:
-    digits = [int(ch) for ch in _digits(ctx.rng, 8)]
+_ACN_ATTEMPTS = 100
+_registers: dict[tuple[object, str], object] = {}
+
+
+def _abn_register(pools: dict) -> object:
+    """The public ABN register, loaded once per loader (the suite swaps the loader for a stand-in)."""
+    loader = abn_register.load_abn_register
+    key = (loader, str(pools["abn_register"]["path"]))
+    if key not in _registers:
+        _registers[key] = loader(pools, DATA_POOLS_PATH)
+    return _registers[key]
+
+
+def _checksum_acn(rng: random.Random) -> str:
+    digits = [int(ch) for ch in _digits(rng, 8)]
     weighted = sum(d * w for d, w in zip(digits, range(8, 0, -1), strict=True))
     digits.append((10 - weighted % 10) % 10)
-    text = "".join(map(str, digits))
-    return f"{text[:3]} {text[3:6]} {text[6:]}"
+    return "".join(map(str, digits))
+
+
+def _company_registered(acn: str, register: object) -> bool:
+    """Whether a registered ABN ends in this ACN, as a company's ABN does (two digits, then its ACN)."""
+    return any(validate_abn(f"{p}{acn}") and f"{p}{acn}" in register for p in range(10, 100))  # type: ignore[operator]
+
+
+def _acn(ctx: RuleContext, rule: dict) -> str:
+    """A checksum-valid ACN that no registered company holds.
+
+    A draw that is the tail of a registered ABN is redrawn from a stream seeded by the rejected ACN, as
+    `generate_abn` does, so screening moves only that value and every later draw is unchanged.
+    """
+    register = _abn_register(ctx.pools)
+    text = _checksum_acn(ctx.rng)
+    redraw = random.Random(int(text))
+    for _ in range(_ACN_ATTEMPTS):
+        if not _company_registered(text, register):
+            return f"{text[:3]} {text[3:6]} {text[6:]}"
+        text = _checksum_acn(redraw)
+    raise _fail(
+        f"the register at 'abn_register.path' in {DATA_POOLS_PATH}",
+        f"{_ACN_ATTEMPTS} checksum-valid ACN draws were all the tail of a registered ABN.",
+        "a register of issued ABNs, a small fraction of the checksum-valid space.",
+        "rebuild the register with scripts/build_abn_register.py from the data.gov.au extract; a register "
+        "holding nearly every ABN is a build fault.",
+    )
 
 
 def _phone(ctx: RuleContext, rule: dict) -> str:

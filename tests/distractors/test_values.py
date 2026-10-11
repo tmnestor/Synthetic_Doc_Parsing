@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from generators import abn_register
+from generators.abn_register import AbnRegister
+from generators.common import validate_abn
 from generators.content_engine import ContentEngine, build_engine
 from generators.distractors import values
 from generators.distractors.config import load_distractor_config
@@ -145,6 +148,44 @@ def test_acn_check_digit_is_valid() -> None:
         digits = [int(ch) for ch in value.replace(" ", "")]
         weighted = sum(d * w for d, w in zip(digits[:8], range(8, 0, -1), strict=True))
         assert len(digits) == 9 and digits[8] == (10 - weighted % 10) % 10
+
+
+def _company_abn(acn: str) -> str:
+    """The checksum-valid ABN a company with this ACN would hold: two digits, then the ACN."""
+    digits = acn.replace(" ", "")
+    prefix = next(p for p in range(10, 100) if validate_abn(f"{p}{digits}"))
+    return f"{prefix} {digits[:3]} {digits[3:6]} {digits[6:]}"
+
+
+def test_acn_of_a_registered_company_is_redrawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An ACN that is the tail of a registered ABN belongs to a real company, so it is redrawn."""
+    first = RULES["acn"](ctx(seed=7), {"type": "acn"})
+    real = AbnRegister.from_abns([int(_company_abn(first).replace(" ", ""))])
+    monkeypatch.setattr(abn_register, "load_abn_register", lambda pools, pools_path: real)
+
+    redrawn_ctx = ctx(seed=7)
+    value = RULES["acn"](redrawn_ctx, {"type": "acn"})
+
+    assert value != first
+    digits = [int(ch) for ch in value.replace(" ", "")]
+    weighted = sum(d * w for d, w in zip(digits[:8], range(8, 0, -1), strict=True))
+    assert digits[8] == (10 - weighted % 10) % 10
+    assert _company_abn(value) not in real
+    # The redraw comes from its own stream, so the document's later draws are unchanged.
+    plain_ctx = ctx(seed=7)
+    RULES["acn"](plain_ctx, {"type": "acn"})
+    assert redrawn_ctx.rng.random() == plain_ctx.rng.random()
+
+
+def test_acn_screen_fails_fast_when_every_draw_is_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Everything:
+        def __contains__(self, abn: object) -> bool:
+            return True
+
+    monkeypatch.setattr(abn_register, "load_abn_register", lambda pools, pools_path: _Everything())
+    with pytest.raises(ValueRuleError) as err:
+        RULES["acn"](ctx(seed=7), {"type": "acn"})
+    assert_diagnostic_error(err.value)
 
 
 def test_bsb_shape() -> None:
