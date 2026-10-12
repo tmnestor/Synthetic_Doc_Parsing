@@ -1,0 +1,85 @@
+"""The scan a snapshot passes before it is published: no file name or text says how it was produced.
+
+The snapshot goes to a bucket that hosted models and their operators read, so it may say what the data
+is and how to use it, never which repository, command, input file or library made it. The terms are the
+operator's, declared under `eval_set.forbidden_terms`; this module only finds them.
+
+A term matches case-insensitively and as a whole word: where the term begins or ends with a letter or
+digit, the neighbouring character must not be one, so `PROD` does not match `product`. A term that ends
+in punctuation (`config/`) is matched up to that punctuation.
+
+Images are not read; every other file is read as UTF-8 text, and one that is not refuses the export,
+since it can be neither scanned nor trusted to be what the manifest says.
+"""
+
+import re
+from pathlib import Path
+
+# Image files carry pixels, not text, and are not scanned.
+IMAGE_SUFFIXES = (".png",)
+# The most hits named in a refusal; the total is always given.
+LISTED = 20
+
+
+def _pattern(term: str) -> re.Pattern[str]:
+    """A case-insensitive pattern for one term, bounded only where the term ends in a word character."""
+    head = r"(?<![A-Za-z0-9])" if term[0].isalnum() else ""
+    tail = r"(?![A-Za-z0-9])" if term[-1].isalnum() else ""
+    return re.compile(head + re.escape(term) + tail, re.IGNORECASE)
+
+
+def find_forbidden(root: Path, terms: tuple[str, ...]) -> list[str]:
+    """Find every forbidden term in the file names and texts under `root`.
+
+    Args:
+        root: The directory about to be published.
+        terms: The forbidden terms (empty finds nothing).
+
+    Returns:
+        One line per hit, `<path>: name contains 'term'` or `<path>:<line>: contains 'term'`, sorted by
+        path then line; a file that is not UTF-8 text is reported as unreadable.
+    """
+    patterns = [(term, _pattern(term)) for term in terms]
+    if not patterns:
+        return []
+    hits: list[str] = []
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        relative = path.relative_to(root).as_posix()
+        hits += [f"{relative}: name contains {term!r}" for term, pat in patterns if pat.search(relative)]
+        if path.suffix.lower() in IMAGE_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            hits.append(f"{relative}: not UTF-8 text, so it cannot be scanned")
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            hits += [
+                f"{relative}:{number}: contains {term!r}" for term, pat in patterns if pat.search(line)
+            ]
+    return hits
+
+
+def refusal(hits: list[str], *, root: Path, config_path: Path) -> str:
+    """The four-part diagnostic for a snapshot that names how it was produced.
+
+    Args:
+        hits: `find_forbidden`'s result, non-empty.
+        root: The directory scanned.
+        config_path: The generation config declaring the terms.
+
+    Returns:
+        The message.
+    """
+    named = hits[:LISTED]
+    more = [f"... and {len(hits) - LISTED} more ({len(hits)} in all)"] if len(hits) > LISTED else []
+    listing = "\n".join(f"            {line}" for line in named + more)
+    return (
+        "The snapshot names how it was produced, so it was not published.\n"
+        f"  What:     {len(hits)} forbidden term(s) in the files about to be published:\n{listing}\n"
+        f"  Where:    {root} (the staging copy), against {config_path} -> eval_set.forbidden_terms\n"
+        "  Expected: published files say what the data is and how to use it, never which repository,\n"
+        "            command, input file or library made it.\n"
+        "  Recover:  reword the source of each hit (the README template, the notebook or a shipped\n"
+        "            script), or remove a term from eval_set.forbidden_terms if it discloses nothing."
+    )

@@ -612,9 +612,10 @@ def eval_set(
     byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
     `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
     label_styles.jsonl, the scored-field geometry of the three clean halves, the tools, a README
-    generated from the manifest, MANIFEST.json and SHA256SUMS. A modified working tree is not refused:
-    the manifest records `dirty: true` and every changed path, and the snapshot carries
-    working_tree.patch, the exact difference from the commit. A tree changed during the export is
+    generated from the manifest, MANIFEST.json and SHA256SUMS. The snapshot says nothing about how it
+    was produced and is refused if it names a term under `eval_set.forbidden_terms`; that is written
+    beside it, in `<snapshot dir>.<provenance_suffix>/` (PROVENANCE.json, and working_tree.patch when
+    the tree was modified, which is recorded rather than refused). A tree changed during the export is
     refused. Every render is checked before anything is published; a snapshot of the same name is
     replaced. Prints MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
     """
@@ -649,11 +650,12 @@ def eval_set(
     if state.dirty:
         typer.echo(
             f"Working tree: modified, {len(state.changes)} path(s) differ from {state.commit[:12]} "
-            "(recorded in MANIFEST.json and working_tree.patch)"
+            f"(recorded in {summary.provenance_dir})"
         )
     else:
         typer.echo(f"Working tree: clean at {state.commit[:12]}")
-    typer.echo(f"MANIFEST.json SHA-256: {summary.manifest_sha256} (record it beside the upload)")
+    typer.echo(f"Provenance (keep, never upload): {summary.provenance_dir}")
+    typer.echo(f"MANIFEST.json SHA-256: {summary.manifest_sha256} (also in the provenance record)")
 
 
 @app.command("parsing-probe")

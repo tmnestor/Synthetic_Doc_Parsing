@@ -26,6 +26,7 @@ class SnapshotSummary:
         csv_name: The ground-truth CSV file name in each half.
         jsonl_name: The ground-truth JSONL file name in each half.
         manifest_sha256: The SHA-256 of the published MANIFEST.json (empty until it is written).
+        provenance_dir: The provenance directory written beside the snapshot (None until it is).
     """
 
     path: Path
@@ -40,6 +41,7 @@ class SnapshotSummary:
     csv_name: str
     jsonl_name: str
     manifest_sha256: str = ""
+    provenance_dir: Path | None = None
 
     def total(self, half: str) -> int:
         """Return a half's image count across document types."""

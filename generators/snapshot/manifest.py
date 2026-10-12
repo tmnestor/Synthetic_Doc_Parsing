@@ -1,15 +1,18 @@
-"""The snapshot's MANIFEST.json and SHA256SUMS: what was produced, from what, and every file's hash.
+"""The snapshot's MANIFEST.json and SHA256SUMS, and the provenance record written beside it.
 
-The manifest covers inputs as well as outputs (Decision 9): the commit, the SHA-256 of every tracked file
-under `config/` and `ground_truth/` and of `environment.yml`, the library versions, each half's counts,
-the label-style and refusal counts from the sidecar, the density metrics of every clean render, and the
-SHA-256 of every file in the snapshot except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is
-POSIX and relative (to the snapshot root, or to the repository root for inputs); no absolute path is
-written. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads (Decision 10).
+The snapshot is published as is, to readers who never see the repository, so its manifest says what the
+snapshot holds and nothing about how it was produced: each half's directory and counts, the degradation
+tiers, the ground-truth and geometry names, the label-style and refusal counts from the sidecar, and the
+SHA-256 of every file except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is POSIX and
+relative to the snapshot root. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads
+(Decision 10).
 
-`dirty` says whether the working tree differed from the commit. When it did, `working_tree_changes` lists
-every changed path with its status code and content hash, and `working_tree.patch` (hashed like every
-other file) holds the difference itself.
+What produced it is the provenance record, `PROVENANCE.json`, in a directory beside the snapshot that is
+never uploaded (Decision 9): the commit, the SHA-256 of every tracked file under `config/` and
+`ground_truth/` and of `environment.yml`, the library versions, the density metrics of every clean
+render, the published manifest's own SHA-256, and the earlier snapshot it follows. `dirty` says whether
+the working tree differed from the commit; when it did, `working_tree_changes` lists every changed path
+with its status code and content hash, and `working_tree.patch` beside the record holds the difference.
 """
 
 import hashlib
@@ -30,7 +33,9 @@ MANIFEST_NAME = "MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS"
 README_NAME = "README.md"
 TOOLS_DIR = "tools"
-# Written only when the tree was modified: what differed from the recorded commit, as `git apply` reads.
+# The provenance record, and the patch written beside it only when the tree was modified (what differed
+# from the recorded commit, as `git apply` reads). Both live outside the snapshot.
+PROVENANCE_NAME = "PROVENANCE.json"
 PATCH_NAME = "working_tree.patch"
 
 # Files neither hashed into `files` nor listed in SHA256SUMS: the manifest cannot vouch for itself.
@@ -170,14 +175,17 @@ def _metrics(density: dict) -> dict:
     return out
 
 
-def describe_snapshot(summary: SnapshotSummary, *, repo_state: RepoState, repo_root: Path) -> dict:
+def _snapshot_date(summary: SnapshotSummary) -> str:
+    return datetime.strptime(summary.stamp, _DATE_FORMAT).date().isoformat()
+
+
+def describe_snapshot(summary: SnapshotSummary) -> dict:
     """Everything the manifest records except the `files` map (what the README is generated from).
 
+    Nothing here says how the snapshot was produced; that is `describe_provenance`.
+
     Args:
-        summary: The export's `SnapshotSummary` (its counts, sidecar rows, density, names and tiers).
-        repo_state: The state the snapshot was rendered from; when it is dirty, the description carries
-            `working_tree_changes`, one record per changed path.
-        repo_root: The repository root, for the tracked inputs.
+        summary: The export's `SnapshotSummary` (its counts, sidecar rows, names and tiers).
 
     Returns:
         The manifest's description, keys sorted.
@@ -187,46 +195,89 @@ def describe_snapshot(summary: SnapshotSummary, *, repo_state: RepoState, repo_r
         for half, per_type in summary.counts.items()
     }
     style_counts, refusal_counts = _label_counts(summary.sidecar_rows)
-    snapshot_date = datetime.strptime(summary.stamp, _DATE_FORMAT).date()
     description = {
-        "config_sha256": tracked_inputs(repo_root, _CONFIG_INPUTS),
         "counts": counts,
         "degradation_tiers": [{"name": name, "suffix": suffix} for name, suffix in summary.tiers],
-        "dirty": repo_state.dirty,
-        "generator_commit": repo_state.commit,
         "geometry_dir": summary.geometry_dir,
         "ground_truth_files": [summary.csv_name, summary.jsonl_name],
-        "ground_truth_sha256": tracked_inputs(repo_root, _GROUND_TRUTH_INPUTS),
         "halves": {half: directory.name for half, directory in summary.half_dirs.items()},
         "label_refusal_counts": refusal_counts,
         "label_style_counts": style_counts,
-        "metrics": _metrics(summary.density),
-        "snapshot_date": snapshot_date.isoformat(),
+        "snapshot_date": _snapshot_date(summary),
         "snapshot_dir": summary.path.name,
-        "versions": _versions(),
     }
-    if repo_state.dirty:
-        description["working_tree_changes"] = [change.as_record() for change in repo_state.changes]
     return dict(sorted(description.items()))
 
 
-def build_manifest(
-    summary: SnapshotSummary, *, repo_state: RepoState, repo_root: Path, snapshot_root: Path
-) -> dict:
+def build_manifest(summary: SnapshotSummary, *, snapshot_root: Path) -> dict:
     """Build the full manifest: the description plus the SHA-256 of every file now in the snapshot.
 
     Args:
         summary: The export's `SnapshotSummary`.
-        repo_state: The state the snapshot was rendered from.
-        repo_root: The repository root, for the tracked inputs.
         snapshot_root: The directory whose files are hashed (the staging directory, before publishing).
 
     Returns:
         The manifest, keys sorted.
     """
-    manifest = describe_snapshot(summary, repo_state=repo_state, repo_root=repo_root)
+    manifest = describe_snapshot(summary)
     manifest["files"] = hash_files(snapshot_root)
     return dict(sorted(manifest.items()))
+
+
+def describe_provenance(
+    summary: SnapshotSummary,
+    *,
+    repo_state: RepoState,
+    repo_root: Path,
+    manifest_sha256: str,
+    previous: dict | None,
+) -> dict:
+    """The provenance record: what produced the snapshot, kept beside it and never published.
+
+    Args:
+        summary: The export's `SnapshotSummary` (its name, date and density reports).
+        repo_state: The state the snapshot was rendered from; when it is dirty, the record carries
+            `working_tree_changes`, one record per changed path.
+        repo_root: The repository root, for the tracked inputs.
+        manifest_sha256: The SHA-256 of the published MANIFEST.json, which cannot record itself.
+        previous: The earlier snapshot this one follows (`PreviousSnapshot.as_record()`), or None.
+
+    Returns:
+        The record, keys sorted.
+    """
+    record = {
+        "config_sha256": tracked_inputs(repo_root, _CONFIG_INPUTS),
+        "dirty": repo_state.dirty,
+        "generator_commit": repo_state.commit,
+        "ground_truth_sha256": tracked_inputs(repo_root, _GROUND_TRUTH_INPUTS),
+        "manifest_sha256": manifest_sha256,
+        "metrics": _metrics(summary.density),
+        "previous_snapshot": previous,
+        "snapshot_date": _snapshot_date(summary),
+        "snapshot_dir": summary.path.name,
+        "versions": _versions(),
+    }
+    if repo_state.dirty:
+        record["working_tree_changes"] = [change.as_record() for change in repo_state.changes]
+    return dict(sorted(record.items()))
+
+
+def write_provenance(record: dict, directory: Path, *, patch: bytes | None) -> Path:
+    """Write PROVENANCE.json (and the working-tree patch, when there is one) into `directory`.
+
+    Args:
+        record: The provenance record.
+        directory: The provenance directory (its staging copy, before publishing).
+        patch: The working-tree patch of a modified tree, or None for a clean one.
+
+    Returns:
+        The path of PROVENANCE.json.
+    """
+    path = directory / PROVENANCE_NAME
+    path.write_text(manifest_text(record))
+    if patch is not None:
+        (directory / PATCH_NAME).write_bytes(patch)
+    return path
 
 
 def manifest_text(manifest: dict) -> str:

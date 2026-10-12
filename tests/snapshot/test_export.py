@@ -109,6 +109,11 @@ def _bad(key: str, value: object) -> Callable[[dict], None]:
         ),
         ("output_root", 5, "eval_set.output_root"),
         ("output_root", "", "eval_set.output_root"),
+        ("provenance_suffix", "nested/provenance", "eval_set.provenance_suffix"),
+        ("provenance_suffix", "", "eval_set.provenance_suffix"),
+        ("forbidden_terms", "one term", "eval_set.forbidden_terms"),
+        ("forbidden_terms", ["term", "  "], "eval_set.forbidden_terms"),
+        ("forbidden_terms", None, "eval_set.forbidden_terms"),
     ],
 )
 def test_a_mistyped_or_empty_key_is_refused(tmp_path: Path, key: str, value: object, named: str) -> None:
@@ -423,52 +428,62 @@ def test_a_tree_changed_during_the_export_fails_fast_and_publishes_nothing(
     assert _entries(root) == []
 
 
+def _provenance(summary: SnapshotSummary) -> dict:
+    assert summary.provenance_dir is not None
+    return json.loads((summary.provenance_dir / "PROVENANCE.json").read_text())
+
+
 def test_a_dirty_tree_exports_when_it_stays_the_same(tmp_path: Path) -> None:
-    """Decision 4 as revised: a modified tree is recorded, not refused."""
+    """Decision 4 as revised: a modified tree is recorded, not refused, beside the snapshot."""
     config = _receipt_config(tmp_path)
     summary = _export(config, lambda: _DIRTY_START)
-    manifest = json.loads((summary.path / "MANIFEST.json").read_text())
-    assert manifest["dirty"] is True
-    assert manifest["working_tree_changes"] == [
+    record = _provenance(summary)
+    assert record["dirty"] is True
+    assert record["working_tree_changes"] == [
         {"path": "config/invented.yml", "sha256": "a" * 64, "status": " M"}
     ]
-    assert (summary.path / "working_tree.patch").read_bytes() == b"invented patch\n"
+    assert summary.provenance_dir is not None
+    assert (summary.provenance_dir / "working_tree.patch").read_bytes() == b"invented patch\n"
+    assert summary.provenance_dir == summary.path.parent / f"{summary.path.name}.provenance"
 
 
 def test_a_dirty_export_records_every_change_with_its_hash(
     dirty_export: tuple[SnapshotSummary, Path],
 ) -> None:
     summary, repo = dirty_export
-    manifest = json.loads((summary.path / "MANIFEST.json").read_text())
-    assert manifest["dirty"] is True
-    recorded = {row["path"]: row for row in manifest["working_tree_changes"]}
+    record = _provenance(summary)
+    assert record["dirty"] is True
+    recorded = {row["path"]: row for row in record["working_tree_changes"]}
     assert {path: row["status"] for path, row in recorded.items()} == EXPECTED_STATUS
     assert recorded["gone.txt"]["sha256"] == "deleted"
     for path, row in recorded.items():
         if path != "gone.txt":
             assert row["sha256"] == hashlib.sha256((repo / path).read_bytes()).hexdigest()
     assert "ignored.log" not in recorded
-    assert [row["path"] for row in manifest["working_tree_changes"]] == sorted(recorded)
+    assert [row["path"] for row in record["working_tree_changes"]] == sorted(recorded)
 
 
-def test_a_dirty_export_carries_a_patch_that_reproduces_the_tree(
+def test_a_dirty_export_keeps_its_patch_beside_the_snapshot_and_it_reproduces_the_tree(
     dirty_export: tuple[SnapshotSummary, Path], tmp_path: Path
 ) -> None:
     summary, repo = dirty_export
-    patch = summary.path / "working_tree.patch"
+    assert summary.provenance_dir is not None
+    patch = summary.provenance_dir / "working_tree.patch"
     manifest = json.loads((summary.path / "MANIFEST.json").read_text())
-    assert manifest["files"]["working_tree.patch"] == hashlib.sha256(patch.read_bytes()).hexdigest()
-    assert "  working_tree.patch" in (summary.path / "SHA256SUMS").read_text()
+    assert not (summary.path / "working_tree.patch").exists()
+    assert "working_tree.patch" not in manifest["files"]
+    assert "working_tree.patch" not in (summary.path / "SHA256SUMS").read_text()
     clone = apply_to_clone(repo, patch, tmp_path / "clone")
     expected = {path: data for path, data in tree_files(repo).items() if path != "ignored.log"}
     assert tree_files(clone) == expected
 
 
 def test_a_clean_export_has_no_patch_and_no_change_list(export: SnapshotSummary) -> None:
-    manifest = json.loads((export.path / "MANIFEST.json").read_text())
-    assert manifest["dirty"] is False and "working_tree_changes" not in manifest
-    assert not (export.path / "working_tree.patch").exists()
-    assert "working_tree.patch" not in manifest["files"]
+    record = _provenance(export)
+    assert record["dirty"] is False and "working_tree_changes" not in record
+    assert export.provenance_dir is not None
+    assert not (export.provenance_dir / "working_tree.patch").exists()
+    assert not list(export.path.rglob("working_tree.patch"))
 
 
 def test_a_tightened_density_bound_refuses_the_export(
@@ -582,4 +597,29 @@ def test_git_failing_on_the_second_read_publishes_nothing(tmp_path: Path) -> Non
 
     with pytest.raises(RepoStateError, match="git vanished"):
         _export(config, state)
+    assert _entries(root) == []
+
+
+# --- publication ------------------------------------------------------------------------------------
+
+
+def test_an_empty_forbidden_list_disables_the_scan(tmp_path: Path) -> None:
+    path = scratch_config(tmp_path, mutate=_bad("forbidden_terms", []))
+    assert load_snapshot_config(path).forbidden_terms == ()
+
+
+def test_a_snapshot_naming_a_forbidden_term_is_refused_and_nothing_is_published(tmp_path: Path) -> None:
+    """A term the README is known to print refuses the export, and neither directory is published."""
+    config = _receipt_config(tmp_path)
+    data = yaml.safe_load(config.read_text())
+    data["eval_set"]["forbidden_terms"] = ["Invented Business Term", "answer key"]
+    config.write_text(yaml.safe_dump(data, sort_keys=False))
+    root = load_snapshot_config(config).output_root
+    with pytest.raises(SnapshotError) as err:
+        _export(config)
+    assert_diagnostic_error(err.value)
+    message = str(err.value)
+    assert "README.md:" in message and "contains 'answer key'" in message
+    assert "Invented Business Term" not in message.split("Where:")[0]
+    assert "eval_set.forbidden_terms" in message
     assert _entries(root) == []

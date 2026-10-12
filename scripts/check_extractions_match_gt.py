@@ -39,7 +39,7 @@ def _diagnostic(what: str, where: str, example: str, fix: str) -> str:
 def load_ground_truth_names(path: Path) -> set[str]:
     """Read the set of image filenames a ground-truth file describes.
 
-    Accepts the two shapes `eval-set` writes (a wide CSV and a per-record JSONL)
+    Accepts both shapes a snapshot ships (a wide CSV and a per-record JSONL)
     without pandas, so this stays runnable on a bare interpreter.
 
     Args:

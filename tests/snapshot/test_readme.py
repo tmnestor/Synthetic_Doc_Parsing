@@ -1,5 +1,6 @@
 """The snapshot README: generated from the manifest, every section present, the field descriptions
-required, and the changes section's three cases (Decisions 13 and 14)."""
+required, nothing said about how the snapshot was produced, and the earlier snapshot the provenance
+record names (Decisions 13 and 14)."""
 
 import json
 import re
@@ -12,7 +13,9 @@ import yaml
 from generators.exporters.eval_projection import load_extraction_schema
 from generators.snapshot import readme as readme_module
 from generators.snapshot.export import SnapshotSummary
-from generators.snapshot.manifest import MANIFEST_NAME
+from generators.snapshot.config import load_snapshot_config
+from generators.snapshot.manifest import MANIFEST_NAME, PROVENANCE_NAME
+from generators.snapshot.publication import find_forbidden
 from generators.snapshot.readme import (
     ANCESTOR,
     TEMPLATE_PATH,
@@ -28,14 +31,13 @@ from tests.conftest import REPO_ROOT, assert_diagnostic_error
 SCHEMA = load_extraction_schema()
 SCHEMA_PATH = REPO_ROOT / "config" / "extraction_schema.yml"
 SECTIONS = (
-    "## 1. Purpose and the four halves",
-    "## 2. The role of MANIFEST.json",
-    "## 3. Heavy-tier images are not bit-reproducible",
-    "## 4. Fields and formats",
-    "## 5. Distractor and overlay policy",
-    "## 6. Label variation and the sidecar",
-    "## 7. Pairing, joining, the preflight and the notebook",
-    "## 8. Changes and comparability",
+    "## 1. What is here",
+    "## 2. Fields and formats",
+    "## 3. Distractors and annotations",
+    "## 4. Label variation and the sidecar",
+    "## 5. Running a model and scoring it",
+    "## 6. Verifying what you downloaded",
+    "## 7. Comparing scores",
 )
 
 
@@ -54,52 +56,38 @@ def test_every_section_is_present_in_order(export: SnapshotSummary) -> None:
 
 
 def test_the_shipped_readme_is_the_manifest_rendered(export: SnapshotSummary) -> None:
-    """With no earlier snapshot under the root, the README is exactly what the manifest renders to."""
-    assert _readme(export) == render_readme(_manifest(export), schema=SCHEMA, previous=None)
-    assert "first snapshot to carry a manifest" in _readme(export)
+    assert _readme(export) == render_readme(_manifest(export), schema=SCHEMA)
 
 
-def test_counts_dates_and_commit_come_from_the_manifest(export: SnapshotSummary) -> None:
+def test_counts_and_dates_come_from_the_manifest(export: SnapshotSummary) -> None:
     manifest = _manifest(export)
     text = _readme(export)
     for half, directory in manifest["halves"].items():
         assert f"| `{directory}/` | {manifest['counts'][half]['total']} |" in text, half
     total = sum(count["total"] for count in manifest["counts"].values())
-    assert f"holds {total} images" in text
-    assert manifest["snapshot_date"] in text and manifest["generator_commit"] in text
-    for block in ("config_sha256", "ground_truth_sha256"):
-        for path, digest in manifest[block].items():
-            assert f"| `{path}` | `{digest}` |" in text
+    assert f"holds {total} page images" in text
+    assert manifest["snapshot_date"] in text
+    for tier in manifest["degradation_tiers"]:
+        assert f"`_{tier['suffix']}` ({tier['name']})" in text
 
 
-def _opening(text: str) -> str:
-    """The README before its first numbered section."""
-    return text[: text.index(SECTIONS[0])]
-
-
-def test_a_clean_snapshot_says_so_near_the_top(export: SnapshotSummary) -> None:
-    opening = _opening(_readme(export))
-    assert "**Built from a clean commit.**" in opening and "`dirty: false`" in opening
-    assert "working_tree.patch" not in opening and "modified working tree" not in opening
-
-
-def test_a_dirty_snapshot_says_so_near_the_top_and_points_to_the_patch(
-    dirty_export: tuple[SnapshotSummary, Path],
-) -> None:
-    summary, _ = dirty_export
-    manifest = _manifest(summary)
-    opening = _opening(_readme(summary))
-    count = len(manifest["working_tree_changes"])
-    assert "**Built from a modified working tree, not from a clean commit.**" in opening
-    assert f"{count} path(s) differed from commit `{manifest['generator_commit'][:12]}`" in opening
-    assert "`working_tree.patch`" in opening and "`working_tree_changes`" in opening
-    assert _readme(summary) == render_readme(manifest, schema=SCHEMA, previous=None)
-
-
-def test_the_readme_states_the_heavy_tier_is_not_reproducible(export: SnapshotSummary) -> None:
-    heavy = _manifest(export)["degradation_tiers"][-1]["suffix"]
+def test_the_readme_says_nothing_about_how_the_snapshot_was_produced(export: SnapshotSummary) -> None:
+    """No commit, input file, library or repository: the README is published to readers of a bucket."""
     text = _readme(export)
-    assert "not bit-reproducible" in text and f"every `_{heavy}`" in text
+    assert export.provenance_dir is not None
+    record = json.loads((export.provenance_dir / PROVENANCE_NAME).read_text())
+    assert record["generator_commit"][:12] not in text
+    for path in [*record["config_sha256"], *record["ground_truth_sha256"]]:
+        assert path not in text, path
+    terms = load_snapshot_config(REPO_ROOT / "config" / "generation_config.yml").forbidden_terms
+    assert terms, "no forbidden terms are declared, so this test proves nothing"
+    assert find_forbidden(export.path, terms) == []
+
+
+def test_the_readme_describes_the_prediction_format(export: SnapshotSummary) -> None:
+    text = _readme(export)
+    for key in ("`image_name`", "`document_type`", "`raw_response`"):
+        assert key in text
 
 
 def test_the_readme_gives_the_integrity_commands(export: SnapshotSummary) -> None:
@@ -156,7 +144,7 @@ def test_an_unfilled_placeholder_raises(
     template.write_text(TEMPLATE_PATH.read_text() + "\n$invented_placeholder\n")
     monkeypatch.setattr(readme_module, "TEMPLATE_PATH", template)
     with pytest.raises(ReadmeError) as err:
-        render_readme(_manifest(export), schema=SCHEMA, previous=None)
+        render_readme(_manifest(export), schema=SCHEMA)
     assert_diagnostic_error(err.value)
     assert "invented_placeholder" in str(err.value)
 
@@ -209,7 +197,7 @@ def test_the_projection_and_the_csv_script_ignore_field_descriptions() -> None:
     assert set(_load_schema(SCHEMA_PATH)) == {"invoice_fields", "bank_fields", "monetary", "boolean"}
 
 
-# --- changes since the previous snapshot (Decision 14) -----------------------------------------------
+# --- the earlier snapshot the provenance record names (Decision 14) ---------------------------------
 
 
 def _git(root: Path, *args: str) -> str:
@@ -236,9 +224,9 @@ def history(tmp_path: Path) -> tuple[Path, list[str]]:
 
 
 def _earlier(output: Path, name: str, commit: str) -> None:
-    (output / name).mkdir(parents=True)
-    manifest = {"generator_commit": commit, "snapshot_date": "2031-03-01"}
-    (output / name / MANIFEST_NAME).write_text(json.dumps(manifest))
+    (output / f"{name}.provenance").mkdir(parents=True)
+    record = {"generator_commit": commit, "snapshot_date": "2031-03-01"}
+    (output / f"{name}.provenance" / PROVENANCE_NAME).write_text(json.dumps(record))
 
 
 def test_an_ancestor_lists_the_commits_between(history: tuple[Path, list[str]], tmp_path: Path) -> None:
@@ -247,7 +235,12 @@ def test_an_ancestor_lists_the_commits_between(history: tuple[Path, list[str]], 
     _earlier(output, "snapshot_20310101", commits[0])
     _earlier(output, "snapshot_20310201", commits[0])
     previous = find_previous(
-        output, prefix="snapshot", current_dir="snapshot_20310309", head=commits[2], repo_root=root
+        output,
+        prefix="snapshot",
+        suffix="provenance",
+        current_dir="snapshot_20310309",
+        head=commits[2],
+        repo_root=root,
     )
     assert previous == PreviousSnapshot(
         "snapshot_20310201",
@@ -267,7 +260,12 @@ def test_a_later_or_same_name_snapshot_is_not_the_previous_one(
     _earlier(output, "snapshot_20310401", commits[0])
     assert (
         find_previous(
-            output, prefix="snapshot", current_dir="snapshot_20310309", head=commits[2], repo_root=root
+            output,
+            prefix="snapshot",
+            suffix="provenance",
+            current_dir="snapshot_20310309",
+            head=commits[2],
+            repo_root=root,
         )
         is None
     )
@@ -278,7 +276,12 @@ def test_an_unknown_commit_is_said_to_be_unknown(history: tuple[Path, list[str]]
     output = tmp_path / "out"
     _earlier(output, "snapshot_20310101", "f" * 40)
     previous = find_previous(
-        output, prefix="snapshot", current_dir="snapshot_20310309", head=commits[2], repo_root=root
+        output,
+        prefix="snapshot",
+        suffix="provenance",
+        current_dir="snapshot_20310309",
+        head=commits[2],
+        repo_root=root,
     )
     assert previous is not None and previous.relation == UNKNOWN and previous.subjects == ()
 
@@ -286,10 +289,16 @@ def test_an_unknown_commit_is_said_to_be_unknown(history: tuple[Path, list[str]]
 def test_no_earlier_manifest_means_none(history: tuple[Path, list[str]], tmp_path: Path) -> None:
     root, commits = history
     output = tmp_path / "out"
-    (output / "snapshot_20310101").mkdir(parents=True)  # an earlier export with no manifest
+    (output / "snapshot_20310101").mkdir(parents=True)  # an earlier snapshot with no record
+    (output / "snapshot_20310101" / MANIFEST_NAME).write_text(json.dumps({"generator_commit": "a" * 40}))
     assert (
         find_previous(
-            output, prefix="snapshot", current_dir="snapshot_20310309", head=commits[2], repo_root=root
+            output,
+            prefix="snapshot",
+            suffix="provenance",
+            current_dir="snapshot_20310309",
+            head=commits[2],
+            repo_root=root,
         )
         is None
     )
@@ -298,36 +307,28 @@ def test_no_earlier_manifest_means_none(history: tuple[Path, list[str]], tmp_pat
 def test_an_unreadable_earlier_manifest_is_refused(history: tuple[Path, list[str]], tmp_path: Path) -> None:
     root, commits = history
     output = tmp_path / "out"
-    (output / "snapshot_20310101").mkdir(parents=True)
-    (output / "snapshot_20310101" / MANIFEST_NAME).write_text("{not json")
+    (output / "snapshot_20310101.provenance").mkdir(parents=True)
+    (output / "snapshot_20310101.provenance" / PROVENANCE_NAME).write_text("{not json")
     with pytest.raises(ReadmeError) as err:
         find_previous(
-            output, prefix="snapshot", current_dir="snapshot_20310309", head=commits[2], repo_root=root
+            output,
+            prefix="snapshot",
+            suffix="provenance",
+            current_dir="snapshot_20310309",
+            head=commits[2],
+            repo_root=root,
         )
     assert_diagnostic_error(err.value)
 
 
-@pytest.mark.parametrize(
-    ("previous", "expected"),
-    [
-        (None, "This is the first snapshot to carry a manifest"),
-        (
-            PreviousSnapshot("snapshot_20310101", "2031-01-01", "a" * 40, ANCESTOR, ("invented subject",)),
-            "The commits between the two, oldest first:\n\n- invented subject",
-        ),
-        (
-            PreviousSnapshot("snapshot_20310101", "2031-01-01", "b" * 40, UNKNOWN),
-            "Its commit is unknown to the generator's repository",
-        ),
-    ],
-    ids=["none", "ancestor", "unknown"],
-)
-def test_the_changes_section_covers_each_case(
-    export: SnapshotSummary, previous: PreviousSnapshot | None, expected: str
-) -> None:
-    text = render_readme(_manifest(export), schema=SCHEMA, previous=previous)
-    changes = text[text.index("## 8. Changes and comparability") :]
-    assert expected in changes
-    assert "`synthetic_`" in changes and "`plain_`" in changes
-    assert "No score from an export made before" in changes
-    assert chr(0x2014) not in text
+def test_the_previous_snapshot_is_recorded_in_full() -> None:
+    previous = PreviousSnapshot(
+        "snapshot_20310101", "2031-01-01", "a" * 40, ANCESTOR, ("invented subject",)
+    )
+    assert previous.as_record() == {
+        "commit": "a" * 40,
+        "commits_since": ["invented subject"],
+        "directory": "snapshot_20310101",
+        "relation": ANCESTOR,
+        "snapshot_date": "2031-01-01",
+    }

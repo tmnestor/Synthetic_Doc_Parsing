@@ -10,12 +10,18 @@
     geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl: scored boxes
     tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
     README.md                    generated from the manifest (generators/snapshot/readme.py)
-    MANIFEST.json, SHA256SUMS    provenance, inputs and every file's SHA-256 (snapshot/manifest.py)
-    working_tree.patch           only when the tree was modified: what differed from the commit
+    MANIFEST.json, SHA256SUMS    what the snapshot holds and every file's SHA-256 (snapshot/manifest.py)
 
 (directory names from `eval_set.half_prefixes` and `eval_set.geometry_dir`). The three clean halves
 share filenames and byte-identical ground truth, so pairing them is a direct join; degraded filenames
 carry their tier suffix and their own receipt-only ground truth.
+
+The snapshot is published as is, so nothing in it says how it was produced. That is written beside it,
+in `<snapshot dir>.<eval_set.provenance_suffix>/`, which is never uploaded::
+
+    PROVENANCE.json              the commit, input hashes, library versions, density metrics, the
+                                 manifest's own SHA-256 and the earlier snapshot this one follows
+    working_tree.patch           only when the tree was modified: what differed from the commit
 
 The order is fixed, and each step refuses before the next begins:
 
@@ -32,17 +38,20 @@ The order is fixed, and each step refuses before the next begins:
    on every distractor and labelled varied render, the drawn-field guard on every plain and labelled
    varied render; overlay and unambiguity refusals are raised inside the renderers. Plain renders are
    measured, never bounded. Every failure is collected, and any refuses the export as one.
-5. Ground truth, sidecar, geometry and tools are written, and `working_tree.patch` when the tree was
-   modified; then the README, from the manifest without its `files`; then every file is hashed and
-   MANIFEST.json and SHA256SUMS written last.
-6. The repository state is read again. Any difference from the first read (a moved HEAD, a path changed,
+5. Ground truth, sidecar, geometry and tools are written; then the README, from the manifest without
+   its `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
+6. Every file name and non-image file in the staging directory is scanned for `eval_set.forbidden_terms`;
+   one hit refuses the export. The provenance record (and the patch, when the tree was modified) is
+   written into its own staging directory beside the snapshot's.
+7. The repository state is read again. Any difference from the first read (a moved HEAD, a path changed,
    reverted or edited again) means the tree changed during the export, so the snapshot would mix two
-   states; the staging directory is discarded and the export fails.
-7. An earlier snapshot of the same name is replaced (the project owner's ruling): it is renamed aside,
+   states; the staging directories are discarded and the export fails.
+8. An earlier snapshot of the same name is replaced (the project owner's ruling): it is renamed aside,
    the staging directory renamed into place, and only then the earlier one deleted, so a failed swap
-   restores it. A leftover staging directory from a failed run is cleared at the start of the next.
+   restores it. Its provenance directory is replaced the same way, after it. A leftover staging
+   directory from a failed run is cleared at the start of the next.
 
-Any failure after the staging directory exists removes it, so a refused or interrupted export leaves no
+Any failure after a staging directory exists removes it, so a refused or interrupted export leaves no
 partial snapshot behind.
 """
 
@@ -87,15 +96,17 @@ from generators.schema import field_names_for, validate_entry
 from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config
 from generators.snapshot.manifest import (
     MANIFEST_NAME,
-    PATCH_NAME,
     README_NAME,
     TOOLS_DIR,
     build_manifest,
+    describe_provenance,
     describe_snapshot,
     sha256_file,
     write_checksums,
     write_manifest,
+    write_provenance,
 )
+from generators.snapshot.publication import find_forbidden, refusal
 from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange, read_repo_state
 from generators.snapshot.summary import SnapshotSummary
@@ -557,6 +568,9 @@ def export_snapshot(
     name = f"{config.snapshot_dir_prefix}_{stamp}"
     final = config.output_root / name
     staging = config.output_root / f".{name}{_STAGING_SUFFIX}"
+    provenance_name = f"{name}.{config.provenance_suffix}"
+    provenance_final = config.output_root / provenance_name
+    provenance_staging = config.output_root / f".{provenance_name}{_STAGING_SUFFIX}"
 
     tiers = load_tiers(config.config_path)
     data = yaml.safe_load(config.config_path.read_text())
@@ -585,6 +599,7 @@ def export_snapshot(
     ready = [plan for plan in plans if plan is not None]
 
     _clear_staging(staging)
+    _clear_staging(provenance_staging)
     staging.mkdir()
     try:
         half_dirs = {half: staging / f"{config.half_prefixes[half]}_{stamp}" for half in HALVES}
@@ -603,8 +618,6 @@ def export_snapshot(
         write_sidecar(half_dirs[LABELLED_VARIED], rows)
         _write_geometry(config, staging, out)
         _write_tools(staging)
-        if start.dirty:
-            (staging / PATCH_NAME).write_bytes(start.patch)
 
         staged = SnapshotSummary(
             path=final,  # the name it is published under; its files are still in staging
@@ -620,32 +633,50 @@ def export_snapshot(
             jsonl_name=config.jsonl_name,
         )
         # The README is generated from the manifest without its files, then every file is hashed.
-        description = describe_snapshot(staged, repo_state=start, repo_root=REPO_ROOT)
+        description = describe_snapshot(staged)
+        (staging / README_NAME).write_text(render_readme(description, schema=schema))
+        manifest = build_manifest(staged, snapshot_root=staging)
+        write_manifest(manifest, staging)
+        write_checksums(manifest, staging)
+        manifest_sha256 = sha256_file(staging / MANIFEST_NAME)
+
+        hits = find_forbidden(staging, config.forbidden_terms)
+        if hits:
+            raise SnapshotError(refusal(hits, root=staging, config_path=config.config_path))
+
         previous = find_previous(
             config.output_root,
             prefix=config.snapshot_dir_prefix,
+            suffix=config.provenance_suffix,
             current_dir=name,
             head=start.commit,
             repo_root=REPO_ROOT,
         )
-        (staging / README_NAME).write_text(render_readme(description, schema=schema, previous=previous))
-        manifest = build_manifest(staged, repo_state=start, repo_root=REPO_ROOT, snapshot_root=staging)
-        write_manifest(manifest, staging)
-        write_checksums(manifest, staging)
-        manifest_sha256 = sha256_file(staging / MANIFEST_NAME)
+        record = describe_provenance(
+            staged,
+            repo_state=start,
+            repo_root=REPO_ROOT,
+            manifest_sha256=manifest_sha256,
+            previous=previous.as_record() if previous is not None else None,
+        )
+        provenance_staging.mkdir()
+        write_provenance(record, provenance_staging, patch=start.patch if start.dirty else None)
 
         end = read_state()
         if end != start:
             raise _state_changed(start, end)
         _publish(staging, final)
+        _publish(provenance_staging, provenance_final)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(provenance_staging, ignore_errors=True)
         raise
 
     return replace(
         staged,
         half_dirs={half: final / directory.name for half, directory in half_dirs.items()},
         manifest_sha256=manifest_sha256,
+        provenance_dir=provenance_final,
     )
 
 

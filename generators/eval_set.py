@@ -71,6 +71,7 @@ _REQUIRED_KEYS: dict[str, str] = {
     "document_types block)",
     "csv_name": "csv_name: ground_truth.csv",
     "jsonl_name": "jsonl_name: ground_truth.jsonl",
+    "provenance_suffix": "provenance_suffix: provenance",
 }
 
 # Date stamp appended to the snapshot's and each half's directory name. Not configurable: the format is

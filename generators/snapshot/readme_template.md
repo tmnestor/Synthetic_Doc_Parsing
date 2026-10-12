@@ -1,83 +1,38 @@
 # Synthetic Australian business documents: snapshot $snapshot_date
 
-This directory, `$snapshot_dir/`, is one dated, self-contained snapshot of a synthetic benchmark for
-extracting fields from Australian business documents (bank statements, invoices and receipts). Every
-document is invented. Its ground truth is authored, not annotated: each value was printed on the page
-verbatim from the answer key, so an extraction that disagrees with the answer key misread the page.
+This directory, `$snapshot_dir/`, is a self-contained benchmark for reading named fields off Australian
+business documents: bank statements, invoices and receipts. It holds $image_total page images in four
+halves, the answer key for every image, and the tools to verify the download and score a model.
 
-It was generated on $snapshot_date from generator commit `$commit`. This README was generated from the
-snapshot's `MANIFEST.json`, so its counts cannot disagree with the files.
+**Every page is synthetic.** No real document, and no real person's or business's data, appears here.
+Every name, address, ABN, line item and transaction was invented, and every ABN was checked so that none
+belongs to a registered business. All of it is safe to send to a hosted model.
 
-$tree_state
+The answer key is authored, not annotated: each value was printed on the page verbatim from the answer
+key, so an extraction that disagrees with it misread the page.
 
-## 1. Purpose and the four halves
+## 1. What is here
 
-The snapshot holds $image_total images in four halves. The first three render every case of every
-document type from identical ground truth under identical filenames; each differs from the one before it
-in one respect only, so a paired difference in score measures that one respect.
-
-| Half | What it varies relative to the one before |
+| Path | What it holds |
 | --- | --- |
-| `$plain_dir/` | The control: each document as originally designed, with no distractors and with every label (`ABN:`, `GST`, `TOTAL`) printed. |
-| `$distractor_dir/` | The same pages with realistic unscored distractors added (section 5). Plain against distractor isolates the distractor effect. |
-| `$labelled_varied_dir/` | The distractor pages with the labels beside BUSINESS_ABN, GST_AMOUNT and TOTAL_AMOUNT varied or removed (section 6). Distractor against labelled varied isolates the label effect. |
-| `$degraded_dir/` | Each distractor receipt photographed at $tier_count severity tiers: $tier_list. Receipts only, because receipts are the documents people photograph. |
+| `$plain_dir/` | The control: each document with no distractors and with every label (`ABN:`, `GST`, `TOTAL`) printed. |
+| `$distractor_dir/` | The same pages with realistic unscored distractors added (section 3). Plain against distractor isolates the distractor effect. |
+| `$labelled_varied_dir/` | The distractor pages with the labels beside BUSINESS_ABN, GST_AMOUNT and TOTAL_AMOUNT varied or removed (section 4). Distractor against labelled varied isolates the label effect. |
+| `$degraded_dir/` | Each distractor receipt photographed at $tier_count severity tiers: $tier_list. Receipts only, because receipts are the documents people photograph; statements and invoices arrive as clean PDFs or printouts. |
+| `$geometry_dir/` | The bounding box of every scored field on the three clean halves, one JSON line per image. |
+| `tools/` | A verifier, a preflight check and a scoring notebook (sections 5 and 6). |
+| `MANIFEST.json`, `SHA256SUMS` | What the snapshot holds, and the SHA-256 of every file (section 6). |
 
 $count_table
 
-Each half carries its own ground truth as `$csv_name` and `$jsonl_name`. The labelled varied half also
-carries `label_styles.jsonl` (section 6). `$geometry_dir/` holds the scored fields' bounding boxes for the
-three clean halves, one JSON line per image (`plain.jsonl`, `distractor.jsonl`, `labelled_varied.jsonl`),
-in pixels of the image as shipped; only scored fields have boxes. `tools/` holds the verifier, the
-preflight and the scoring notebook (sections 2 and 7).
+Each half carries its own answer key twice, as `$csv_name` and as `$jsonl_name`; the two hold the same
+rows and score identically. The labelled varied half also carries `label_styles.jsonl` (section 4).
 
-## 2. The role of MANIFEST.json
+The first three halves render the same $clean_total documents from the same answer key under the same
+filenames, and each differs from the one before it in one respect only, so a paired difference in score
+measures that one respect. Their answer-key files are byte-identical.
 
-`MANIFEST.json` records what this snapshot is, so that three questions can be answered without the
-generator.
-
-**Integrity: is this copy exactly what was generated?** The manifest lists the SHA-256 of every file
-except itself and `SHA256SUMS`, which repeats the same list in the form the standard checksum tools read.
-From the directory that holds the snapshot:
-
-```sh
-cd $snapshot_dir
-shasum -a 256 -c SHA256SUMS        # macOS
-sha256sum -c SHA256SUMS            # Linux
-python tools/verify_snapshot.py    # any platform, Python 3.9 or later, standard library only
-```
-
-The checksum tools confirm every listed file. `tools/verify_snapshot.py` also fails on a missing file, an
-extra file (a `.DS_Store` is reported as a note and tolerated), a `SHA256SUMS` that disagrees with the
-manifest, or an image count that disagrees with the files present. Run it on arrival, before anything
-else. Writing into this directory (for example a notebook's figures) makes it fail, which is correct: keep
-outputs elsewhere.
-
-The manifest cannot vouch for itself. Its own SHA-256 was printed when the snapshot was made and is
-recorded beside the upload; compare it with `shasum -a 256 MANIFEST.json`.
-
-**Provenance: what produced it?** `generator_commit` names the code, and `dirty` says whether the working
-tree differed from that commit (when it did, `working_tree_changes` and `working_tree.patch` say how).
-`config_sha256` and
-`ground_truth_sha256` hash every input file the generator read, and `versions` records the libraries that
-shape the pixels ($versions). The input hashes:
-
-$input_table
-
-**Comparability: may two scores be compared?** Only when both come from the same manifest. Two runs on
-different snapshots differ in their documents, not only in their models, even where the filenames
-coincide. Record the manifest's SHA-256 beside every score.
-
-## 3. Heavy-tier images are not bit-reproducible
-
-The heaviest degradation tier (`_$heavy_suffix` files) includes a paper fold whose noise comes from a
-random generator that no seed reaches. Regenerating this snapshot from the same commit gives the same
-pixels for the three clean halves and the lighter tiers, but different pixels for every `_$heavy_suffix`
-receipt. The images in this snapshot are the record: its manifest hashes exactly what was produced, and
-`tools/verify_snapshot.py` checks the snapshot against its own manifest, never against a regeneration.
-To compare models on the heavy tier, run them on the same snapshot.
-
-## 4. Fields and formats
+## 2. Fields and formats
 
 The answer key has $field_count fields: 14 for invoices and receipts (the same 14, so a misclassified
 document is still asked the right questions) and 5 for bank statements.
@@ -97,50 +52,55 @@ Conventions:
   quantities, prices, totals; dates and amounts) have the same number of items, in printed order.
 - Bank statements are scored on debits only.
 
-## 5. Distractor and overlay policy
+## 3. Distractors and annotations
 
 Distractors are unscored text and marks a real document carries: on receipts, merchant and terminal
 numbers, website and loyalty lines, QR codes and survey codes; on invoices, contact and licence lines,
 site addresses, payment blocks, offers, remittance slips and a PAID stamp; on bank statements, barcodes
-and a taxpayer's annotations (highlighter, ticks, circled amounts and handwritten notes and sums). Some
-are deliberate near-misses: labelled, same-type lookalikes of a scored field, such as a due date beside the
-invoice date. A near-miss never equals or contains a scored value.
+and the account holder's annotations (highlighter, ticks, circled amounts and handwritten notes and
+sums). Some are deliberate near-misses: labelled, same-type lookalikes of a scored field, such as a due
+date beside the invoice date. A near-miss never equals or contains a scored value.
 
 What never happens: no stamp and no opaque ink (ticks, circles, underlines, handwriting) touches a scored
-value; this is verified on the drawn pixels. Highlighter may cover a scored row, but it is translucent and
-each highlighted value is contrast-checked so that it stays legible. Every distractor and labelled varied
-render was checked against density bounds; the plain renders are the control and are measured only.
+value; this was checked on the drawn pixels. Highlighter may cover a scored row, but it is translucent and
+each highlighted value was contrast-checked so that it stays legible.
 
-## 6. Label variation and the sidecar
+## 4. Label variation and the sidecar
 
 In the labelled varied half, each receipt and invoice draws one style for each of BUSINESS_ABN,
 GST_AMOUNT and TOTAL_AMOUNT: `labelled` (the original label), `variant` (another wording a real document
-uses) or `unlabelled` (the value alone). The value itself is never changed, so the ground truth is the
-same as in the other clean halves. An unlabelled value is still unambiguous to a careful reader: no other
+uses) or `unlabelled` (the value alone). The value itself is never changed, so the answer key is the same
+as in the other clean halves. An unlabelled value is still unambiguous to a careful reader: no other
 checksum-valid ABN on the page, the GST figure sits in the totals block above the total, and the total is
 the last and most prominent amount there. Bank statements print none of these fields, so their labelled
 varied pages equal their distractor pages.
 
 `label_styles.jsonl` has one JSON line per image, sorted by `image_file`: `styles` maps each varied field
 to its `style` and the `wording` printed (empty for a bank statement), and `refusals` lists any style
-refused by the unambiguity rules before the one drawn. It is metadata, never ground truth, and is not
-given to the model. To stratify, join it to your per-field scores on `image_file` and group by
+refused by the unambiguity rules before the one drawn. It is metadata, never answer key, and is not given
+to the model. To stratify, join it to your per-field scores on `image_file` and group by
 `styles.<FIELD>.style`. The realised counts:
 
 $style_table
 
-## 7. Pairing, joining, the preflight and the notebook
+## 5. Running a model and scoring it
 
-- **Clean halves:** join directly on the filename, `CASE001_invoice.png` and so on, which is the same in
-  all three clean halves; their ground-truth files are byte-identical. Filenames name the case and the
-  document type, never the visual template.
+- **Give the model the images only.** The answer key, the sidecar and the geometry stay with the scorer.
+  Ask for the fields of section 2, in the formats of section 2.
+- **Clean halves:** join on the filename, `CASE001_invoice.png` and so on, which is the same in all three
+  clean halves. Filenames name the case and the document type, never the visual template.
 - **Degraded half:** filenames carry the tier suffix (`CASE001_receipt_$light_suffix.png`). Strip the
-  suffix to pair a degraded receipt with its clean counterparts. The degraded half's own ground truth
-  repeats the source receipt's values under each tier's filename.
-- **Give the model the images only.** The ground truth, the sidecar and the geometry stay with the scorer.
-- **Preflight:** before scoring, check that the extractions and the answer key describe the same images.
-  A run paired with the wrong ground truth still produces a plausible score from whatever filenames
-  happen to overlap.
+  suffix to pair a degraded receipt with the page that was photographed, the receipt of the same name in
+  `$distractor_dir/`. The degraded half's own answer key repeats that receipt's values under each tier's
+  filename. Compare a tier with that clean receipt, document by document; never compare the degraded
+  half's overall score with a clean half's, since one holds receipts only and the other all three types.
+- **Predictions** are read as JSON Lines, one object per image: `image_name` (the image's filename),
+  `document_type` (the type the model assigned) and `raw_response` (the model's text, either a JSON
+  object of field to value or one `FIELD: value` line per field). A record carrying a non-empty `error`
+  is skipped and reported.
+- **Preflight:** before scoring, check that the predictions and the answer key describe the same images.
+  A run paired with the wrong answer key still produces a plausible score from whatever filenames happen
+  to overlap.
 
 ```sh
 python tools/check_extractions_match_gt.py \
@@ -148,24 +108,36 @@ python tools/check_extractions_match_gt.py \
     --ground-truth $plain_dir/$csv_name
 ```
 
-  Use the ground truth of the half the run was given. The check exits 1 unless every extracted image
-  has ground truth (`--allow-partial` for a deliberate subset).
+  Use the answer key of the half the run was given. The check exits 1 unless every predicted image has
+  an answer (`--allow-partial` for a deliberate subset).
 - **Scoring:** `tools/score_extractions.ipynb` reports per-field F1, a field by document type heatmap and
-  an optional paired comparison of two runs. It needs pandas, matplotlib and seaborn. Its outputs are
-  cleared. Set `RAW_PATH` and `GT_PATH` (and `RAW_PATH_B`, `GT_PATH_B` for a comparison) in its
-  configuration cell, and set `FIGURE_DIR`, which defaults to `figures/` under the working directory,
-  to a directory outside this snapshot.
+  an optional paired comparison of two runs, such as a clean half against the degraded half. It needs
+  pandas, matplotlib and seaborn, and its outputs are cleared. Set `RAW_PATH` and `GT_PATH` (and
+  `RAW_PATH_B`, `GT_PATH_B` for a comparison) in its configuration cell, and set `FIGURE_DIR`, which
+  defaults to `figures/` under the working directory, to a directory outside this snapshot.
 
-## 8. Changes and comparability
+## 6. Verifying what you downloaded
 
-$changes
+`MANIFEST.json` lists the SHA-256 of every file except itself and `SHA256SUMS`, which repeats the same
+list in the form the standard checksum tools read. From the directory that holds the snapshot:
 
-These notes hold for every snapshot from this generator:
+```sh
+cd $snapshot_dir
+shasum -a 256 -c SHA256SUMS        # macOS
+sha256sum -c SHA256SUMS            # Linux
+python tools/verify_snapshot.py    # any platform, Python 3.9 or later, standard library only
+```
 
-- The control half was once called `synthetic_`; it is now `plain_`, since every half is synthetic.
-- Two invoice rendering defects were fixed in the plain control: a 'Total' label that overlapped its
-  amount, and line-total amounts that overran the right margin.
-- **No score from an export made before the first manifested snapshot is comparable with a score on
-  this snapshot.** Before that export, bank statements, receipt unit prices and one bank layout's closing balance
-  changed, and every receipt and invoice was regenerated when the invented ABNs were screened so that none
-  belongs to a registered business. Re-run any earlier model on this snapshot rather than reuse its score.
+The checksum tools confirm every listed file. `tools/verify_snapshot.py` also fails on a missing file, an
+extra file (a `.DS_Store` is reported as a note and tolerated), a `SHA256SUMS` that disagrees with the
+manifest, or an image count that disagrees with the files present. Run it on arrival, before anything
+else. Writing into this directory (for example a notebook's figures) makes it fail, which is correct: keep
+outputs elsewhere. The manifest cannot vouch for itself; whoever gave you access can give you its
+SHA-256 to compare with `shasum -a 256 MANIFEST.json`.
+
+## 7. Comparing scores
+
+Two scores are comparable only when both were computed on this snapshot. Another snapshot holds
+different documents, not merely a different copy of these, even where its filenames coincide with these.
+Record the snapshot's name, `$snapshot_dir`, beside every score, and re-run a model on this snapshot
+rather than reuse a score from another.

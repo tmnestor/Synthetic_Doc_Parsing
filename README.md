@@ -42,11 +42,12 @@ python -m generators.pipeline generate --distractors --label-variation
 # `generate` captures, so run that first on a fresh clone.
 python -m generators.pipeline derive
 
-# Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/. A modified
-# tree is exported, not refused, and recorded (dirty: true, working_tree.patch). Four paired halves of 165 images each (plain,
-# distractor, labelled_varied, degraded), the clean halves' geometry, the tools, a README generated
-# from MANIFEST.json, and SHA256SUMS. Run validate first; the export prints MANIFEST.json's own
-# SHA-256 to record beside the upload. A snapshot of the same date is replaced.
+# Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/, ready to
+# upload as is. Four paired halves of 165 images each (plain, distractor, labelled_varied, degraded),
+# the clean halves' geometry, the tools, a README generated from MANIFEST.json, and SHA256SUMS. What
+# produced it (commit, input hashes, any working-tree patch) goes beside it, in
+# snapshot_<YYYYMMDD>.provenance/, which is never uploaded. Run validate first. A snapshot of the
+# same date is replaced.
 python -m generators.pipeline eval-set
 
 # Check a snapshot against its own manifest (standard library only; also runs on the receiving host).
@@ -63,8 +64,7 @@ today's date:
 ```
 snapshot_<YYYYMMDD>/
   README.md                    generated from the manifest, for a reader with no repository access
-  MANIFEST.json                date, commit, dirty flag and changes, input hashes, counts, metrics, every SHA-256
-  working_tree.patch           only when the tree was modified: exactly what differed from the commit
+  MANIFEST.json                date, halves, counts, tiers, label-style counts, every SHA-256
   SHA256SUMS                   the same hashes, for `shasum -a 256 -c SHA256SUMS`
   tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
   plain_<YYYYMMDD>/            165 images, 3 types, ground_truth.csv and .jsonl
@@ -72,7 +72,17 @@ snapshot_<YYYYMMDD>/
   labelled_varied_<YYYYMMDD>/  the same again, labels varied, plus label_styles.jsonl
   degraded_<YYYYMMDD>/         55 distractor receipts x 3 tiers, their own ground truth
   geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl (scored boxes)
+snapshot_<YYYYMMDD>.provenance/
+  PROVENANCE.json              commit, dirty flag and changes, input hashes, library versions, metrics,
+                               MANIFEST.json's own SHA-256, and the earlier snapshot it follows
+  working_tree.patch           only when the tree was modified: exactly what differed from the commit
 ```
+
+**The snapshot is what gets uploaded, and only the snapshot.** It goes to a bucket that hosted models
+read, so it says what the data is and how to use it, never how it was produced. Before it is
+published, every file name and every non-image file in it is scanned for the terms under
+`eval_set.forbidden_terms` (the repository, the command, the input files, the libraries), and a single
+hit refuses the export. The provenance directory beside it keeps everything needed to reproduce it.
 
 No prior `generate` is needed: all four halves come from one render pass, so a degraded variant is
 the very same document as the distractor receipt it photographs, never an independent re-roll. The
@@ -81,13 +91,12 @@ nothing unless all pass; it builds in a hidden staging directory and swaps it in
 end, so a refused or interrupted export leaves any earlier snapshot as it was.
 
 **A modified tree.** The export never refuses uncommitted changes (so config can be edited on a
-sandbox and exported there); it records them. `MANIFEST.json` says `dirty: true` and lists under
+sandbox and exported there); it records them. `PROVENANCE.json` says `dirty: true` and lists under
 `working_tree_changes` every path `git status --porcelain --untracked-files=all` reports (changed
 tracked paths and untracked, not-ignored ones), each with its status code and the SHA-256 of its
-content (or `deleted`). The snapshot carries `working_tree.patch`: `git diff HEAD --binary` plus
-each untracked file as a new-file diff, so `git apply` on the recorded commit reproduces the tree.
-The patch is in `SHA256SUMS` like every other file, and the snapshot's README says near its top
-whether it came from a clean commit or a modified tree. The state is read again before publishing:
+content (or `deleted`). Beside it, `working_tree.patch` holds `git diff HEAD --binary` plus each
+untracked file as a new-file diff, so `git apply` on the recorded commit reproduces the tree. The
+state is read again before publishing:
 a tree that changed during the export (an edit, a commit, a revert) fails with a diagnostic and
 publishes nothing, since the snapshot would mix two states.
 

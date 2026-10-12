@@ -1,4 +1,5 @@
-"""MANIFEST.json, SHA256SUMS and the shipped tools, read from the shared small snapshot (Decisions 9-12)."""
+"""MANIFEST.json, SHA256SUMS, the provenance record and the shipped tools, read from the shared small
+snapshot (Decisions 9-12)."""
 
 import json
 import re
@@ -12,6 +13,7 @@ from generators.snapshot.export import SHIPPED_NOTEBOOK, SnapshotSummary
 from generators.snapshot.manifest import (
     CHECKSUMS_NAME,
     MANIFEST_NAME,
+    PROVENANCE_NAME,
     build_manifest,
     manifest_text,
     sha256_file,
@@ -24,6 +26,26 @@ from tests.snapshot.git_tools import EDITED, make_dirty, make_repo
 
 def _manifest(export: SnapshotSummary) -> dict:
     return json.loads((export.path / MANIFEST_NAME).read_text())
+
+
+def _provenance(export: SnapshotSummary) -> dict:
+    assert export.provenance_dir is not None
+    return json.loads((export.provenance_dir / PROVENANCE_NAME).read_text())
+
+
+# Everything the published manifest may carry: what the snapshot holds, never how it was made.
+PUBLIC_KEYS = (
+    "counts",
+    "degradation_tiers",
+    "files",
+    "geometry_dir",
+    "ground_truth_files",
+    "halves",
+    "label_refusal_counts",
+    "label_style_counts",
+    "snapshot_date",
+    "snapshot_dir",
+)
 
 
 def _tracked(*pathspecs: str) -> set[str]:
@@ -68,16 +90,28 @@ def test_the_manifest_is_written_sorted_with_indent_two_and_a_trailing_newline(
     assert export.manifest_sha256 == sha256_file(export.path / MANIFEST_NAME)
 
 
-def test_provenance(export: SnapshotSummary) -> None:
+def test_the_manifest_says_what_the_snapshot_holds_and_nothing_about_how_it_was_made(
+    export: SnapshotSummary,
+) -> None:
     manifest = _manifest(export)
-    assert manifest["generator_commit"] == FAKE_STATE.commit and manifest["dirty"] is False
+    assert sorted(manifest) == sorted(PUBLIC_KEYS)
     assert manifest["snapshot_date"] == f"{STAMP[:4]}-{STAMP[4:6]}-{STAMP[6:]}"
     assert manifest["snapshot_dir"] == export.path.name
-    assert set(manifest["versions"]) == {"augraphy", "numpy", "opencv", "pillow", "python"}
+    assert FAKE_STATE.commit not in (export.path / MANIFEST_NAME).read_text()
+
+
+def test_the_provenance_record_sits_beside_the_snapshot(export: SnapshotSummary) -> None:
+    record = _provenance(export)
+    assert export.provenance_dir == export.path.parent / f"{export.path.name}.provenance"
+    assert record["generator_commit"] == FAKE_STATE.commit and record["dirty"] is False
+    assert record["snapshot_dir"] == export.path.name and record["previous_snapshot"] is None
+    assert record["manifest_sha256"] == export.manifest_sha256
+    assert set(record["versions"]) == {"augraphy", "numpy", "opencv", "pillow", "python"}
+    assert sorted(p.name for p in export.provenance_dir.iterdir()) == [PROVENANCE_NAME]
 
 
 def test_the_inputs_hashed_are_exactly_the_tracked_config_and_ground_truth(export: SnapshotSummary) -> None:
-    manifest = _manifest(export)
+    manifest = _provenance(export)
     assert set(manifest["config_sha256"]) == _tracked("config", "environment.yml")
     assert set(manifest["ground_truth_sha256"]) == _tracked("ground_truth")
     for block in ("config_sha256", "ground_truth_sha256"):
@@ -117,7 +151,7 @@ def test_label_counts_equal_the_sidecar(export: SnapshotSummary) -> None:
 
 
 def test_metrics_summarise_every_clean_render(export: SnapshotSummary) -> None:
-    metrics = _manifest(export)["metrics"]
+    metrics = _provenance(export)["metrics"]
     assert set(metrics) == {"plain", "distractor", "labelled_varied"}
     for half, by_type in metrics.items():
         assert set(by_type) == {"bank_statement", "invoice", "receipt"}, half
@@ -136,7 +170,7 @@ def test_no_absolute_path_anywhere_in_the_manifest(export: SnapshotSummary) -> N
 
 def test_build_manifest_rehashes_the_files_it_is_given(export: SnapshotSummary, tmp_path: Path) -> None:
     """A manifest built twice over the same files is identical: nothing in it depends on the clock."""
-    rebuilt = build_manifest(export, repo_state=FAKE_STATE, repo_root=REPO_ROOT, snapshot_root=export.path)
+    rebuilt = build_manifest(export, snapshot_root=export.path)
     assert rebuilt == _manifest(export)
 
 

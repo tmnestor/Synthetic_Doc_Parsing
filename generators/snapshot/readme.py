@@ -1,10 +1,12 @@
-"""The snapshot's README.md, generated from `readme_template.md` and the manifest.
+"""The snapshot's README.md, generated from `readme_template.md` and the manifest, and the earlier
+snapshot its provenance record names.
 
-The README is written for a reader with no access to the repository, so every count, date, commit and
-input hash in it is filled from the manifest (the manifest without its `files` map, since the README is
-itself one of the files hashed). The field definitions come from the required `field_descriptions:`
-block of `config/extraction_schema.yml` (Decision 13). The changes section compares this snapshot's
-commit with the latest earlier manifested snapshot under the same root (Decision 14).
+The README is published with the snapshot to readers who never see the repository, so it says what the
+data is and how to use it, never how it was produced. Every count and date in it is filled from the
+manifest (without its `files` map, since the README is itself one of the files hashed). The field
+definitions come from the required `field_descriptions:` block of `config/extraction_schema.yml`
+(Decision 13). The commits since the latest earlier snapshot go into the provenance record, not the
+README (Decision 14).
 """
 
 import json
@@ -19,7 +21,7 @@ import yaml
 from generators.exporters.eval_projection import ExtractionSchema
 from generators.labels.keys import LABEL_STYLES
 from generators.snapshot.config import HALVES
-from generators.snapshot.manifest import MANIFEST_NAME, PATCH_NAME
+from generators.snapshot.manifest import PROVENANCE_NAME
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "readme_template.md"
 
@@ -40,12 +42,12 @@ class ReadmeError(ValueError):
 
 @dataclass(frozen=True)
 class PreviousSnapshot:
-    """The latest earlier manifested snapshot under the same root.
+    """The latest earlier snapshot under the same root that carries a provenance record.
 
     Attributes:
-        directory: Its directory name.
-        snapshot_date: Its manifest's `snapshot_date`.
-        commit: Its manifest's `generator_commit`.
+        directory: Its snapshot directory name.
+        snapshot_date: Its record's `snapshot_date`.
+        commit: Its record's `generator_commit`.
         relation: `ancestor` (its commit is an ancestor of this one's), `unknown` (the repository does
             not know its commit) or `diverged` (known, but not an ancestor).
         subjects: For an ancestor, the subjects of the commits after it up to this one, oldest first.
@@ -56,6 +58,16 @@ class PreviousSnapshot:
     commit: str
     relation: str
     subjects: tuple[str, ...] = ()
+
+    def as_record(self) -> dict:
+        """The form the provenance record stores, keys sorted."""
+        return {
+            "commit": self.commit,
+            "commits_since": list(self.subjects),
+            "directory": self.directory,
+            "relation": self.relation,
+            "snapshot_date": self.snapshot_date,
+        }
 
 
 def _refuse(what: str, *, where: str, expected: str, recover: str) -> ReadmeError:
@@ -119,44 +131,44 @@ def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def find_previous(
-    output_root: Path, *, prefix: str, current_dir: str, head: str, repo_root: Path
+    output_root: Path, *, prefix: str, suffix: str, current_dir: str, head: str, repo_root: Path
 ) -> PreviousSnapshot | None:
-    """Find the latest earlier manifested snapshot under the root, and relate its commit to HEAD.
+    """Find the latest earlier snapshot with a provenance record under the root, and relate its commit.
 
     Args:
         output_root: The root snapshots are written under.
         prefix: `eval_set.snapshot_dir_prefix`.
+        suffix: `eval_set.provenance_suffix`; a record lives in `<snapshot dir>.<suffix>/`.
         current_dir: This snapshot's directory name; only names sorting before it count as earlier.
         head: This snapshot's commit.
         repo_root: The repository, asked whether the earlier commit is an ancestor.
 
     Returns:
-        The earlier snapshot, or None when no earlier snapshot carries a manifest.
+        The earlier snapshot, or None when no earlier snapshot has a provenance record.
 
     Raises:
-        ReadmeError: An earlier manifest is not readable JSON with a `generator_commit`.
+        ReadmeError: An earlier record is not readable JSON with a `generator_commit`.
     """
-    pattern = re.compile(rf"{re.escape(prefix)}_\d{{8}}")
+    pattern = re.compile(rf"({re.escape(prefix)}_\d{{8}})\.{re.escape(suffix)}")
     earlier = sorted(
-        path
-        for path in output_root.glob(f"{prefix}_*/{MANIFEST_NAME}")
-        if pattern.fullmatch(path.parent.name) and path.parent.name < current_dir
+        (match.group(1), path)
+        for path in output_root.glob(f"{prefix}_*.{suffix}/{PROVENANCE_NAME}")
+        if (match := pattern.fullmatch(path.parent.name)) and match.group(1) < current_dir
     )
     if not earlier:
         return None
-    manifest_path = earlier[-1]
+    directory, record_path = earlier[-1]
     try:
-        manifest = json.loads(manifest_path.read_text())
-        commit = str(manifest["generator_commit"])
-        snapshot_date = str(manifest["snapshot_date"])
+        record = json.loads(record_path.read_text())
+        commit = str(record["generator_commit"])
+        snapshot_date = str(record["snapshot_date"])
     except (json.JSONDecodeError, KeyError, TypeError) as err:
         raise _refuse(
-            f"the earlier snapshot's manifest is unreadable ({err}).",
-            where=str(manifest_path),
+            f"the earlier snapshot's provenance record is unreadable ({err}).",
+            where=str(record_path),
             expected='a JSON object with "generator_commit" and "snapshot_date".',
-            recover="restore that snapshot from its upload, or move it out of the output root.",
+            recover="restore that record from a backup, or move its directory out of the output root.",
         ) from err
-    directory = manifest_path.parent.name
     if _git(repo_root, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         return PreviousSnapshot(directory, snapshot_date, commit, UNKNOWN)
     if _git(repo_root, "merge-base", "--is-ancestor", commit, head).returncode != 0:
@@ -172,52 +184,6 @@ def _table(header: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _changes(previous: PreviousSnapshot | None, commit: str) -> str:
-    """The generated part of the changes section (Decision 14)."""
-    if previous is None:
-        return (
-            "This is the first snapshot to carry a manifest; there is no earlier manifested snapshot to "
-            "compare it with."
-        )
-    head = (
-        f"The previous manifested snapshot is `{previous.directory}` ({previous.snapshot_date}, "
-        f"commit `{previous.commit[:12]}`)."
-    )
-    if previous.relation == UNKNOWN:
-        return (
-            f"{head} Its commit is unknown to the generator's repository, whose history was rebuilt on "
-            "8 October 2026, so the commits between the two cannot be listed. Treat the two snapshots as "
-            "unrelated for comparison."
-        )
-    if previous.relation == DIVERGED:
-        return (
-            f"{head} Its commit is not an ancestor of `{commit[:12]}`, so no list of commits leads "
-            "from one to the other. Treat the two snapshots as unrelated for comparison."
-        )
-    if not previous.subjects:
-        return f"{head} Both were generated from the same commit."
-    listing = "\n".join(f"- {subject}" for subject in previous.subjects)
-    return f"{head} The commits between the two, oldest first:\n\n{listing}"
-
-
-def _tree_state(manifest: dict) -> str:
-    """Say whether the snapshot was built from a clean commit or a modified tree, near the README's top."""
-    commit = str(manifest["generator_commit"])[:12]
-    if not manifest["dirty"]:
-        return (
-            f"**Built from a clean commit.** The working tree matched commit `{commit}` exactly when the "
-            "snapshot was generated (`dirty: false` in the manifest), so that commit alone reproduces it."
-        )
-    changes = manifest["working_tree_changes"]
-    return (
-        f"**Built from a modified working tree, not from a clean commit.** {len(changes)} path(s) "
-        f"differed from commit `{commit}` when the snapshot was generated (`dirty: true` in the "
-        f"manifest). `{PATCH_NAME}` holds the exact difference (apply it with `git apply` on top of that "
-        "commit to reproduce the tree), and the manifest's `working_tree_changes` lists every changed path "
-        "with its git status code and the SHA-256 of its content at the time."
-    )
-
-
 def _fill(template: str, values: dict[str, str]) -> str:
     """Fill the template; a placeholder left unfilled raises rather than shipping as `$name`."""
     try:
@@ -231,13 +197,12 @@ def _fill(template: str, values: dict[str, str]) -> str:
         ) from err
 
 
-def render_readme(manifest: dict, *, schema: ExtractionSchema, previous: PreviousSnapshot | None) -> str:
+def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
     """Generate the README from the manifest (without its `files` map).
 
     Args:
         manifest: The manifest description (`describe_snapshot`), or the full manifest.
         schema: The extraction schema, for the field list and its descriptions.
-        previous: The latest earlier manifested snapshot, or None.
 
     Returns:
         The README text.
@@ -267,17 +232,9 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema, previous: Previou
         for field, styles in per_field.items()
     ]
     tiers = manifest["degradation_tiers"]
-    input_rows = [
-        [f"`{path}`", f"`{digest}`"]
-        for block in ("config_sha256", "ground_truth_sha256")
-        for path, digest in manifest[block].items()
-    ]
-    versions = ", ".join(f"{name} {version}" for name, version in manifest["versions"].items())
-    commit = manifest["generator_commit"]
     values = {
         "snapshot_dir": manifest["snapshot_dir"],
         "snapshot_date": manifest["snapshot_date"],
-        "commit": commit,
         "plain_dir": halves["plain"],
         "distractor_dir": halves["distractor"],
         "labelled_varied_dir": halves["labelled_varied"],
@@ -287,18 +244,12 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema, previous: Previou
         "jsonl_name": manifest["ground_truth_files"][1],
         "image_total": str(sum(counts[half]["total"] for half in halves)),
         "clean_total": str(counts["plain"]["total"]),
-        "degraded_total": str(counts["degraded"]["total"]),
         "count_table": _table(["Directory", "Images", "By document type"], count_rows),
         "tier_list": ", ".join(f"`_{t['suffix']}` ({t['name']})" for t in tiers),
         "light_suffix": tiers[0]["suffix"],
-        "heavy_suffix": tiers[-1]["suffix"],
         "tier_count": str(len(tiers)),
         "field_count": str(len(descriptions)),
         "field_table": _table(["Field", "Document types", "Definition"], field_rows),
         "style_table": _table(["Document type", "Field", *LABEL_STYLES], style_rows),
-        "input_table": _table(["Input file", "SHA-256"], input_rows),
-        "versions": versions,
-        "changes": _changes(previous, commit),
-        "tree_state": _tree_state(manifest),
     }
     return _fill(TEMPLATE_PATH.read_text(), values)

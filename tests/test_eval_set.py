@@ -57,6 +57,8 @@ REQUIRED_KEYS = [
     "document_types",
     "csv_name",
     "jsonl_name",
+    "provenance_suffix",
+    "forbidden_terms",
 ]
 
 
@@ -117,9 +119,12 @@ def test_relabel_keys_are_gone_from_the_config() -> None:
     text = CONFIG_PATH.read_text()
     cfg = yaml.safe_load(text)["eval_set"]
     assert sorted(cfg) == sorted(REQUIRED_KEYS)
+    # The forbidden terms name other repositories in order to keep them out of the snapshot.
+    for term in cfg["forbidden_terms"]:
+        text = text.replace(term, "")
     assert not re.search(r"relabel|lmm_poc|field_schema", text, re.IGNORECASE)
     for key, value in cfg.items():
-        if key == "output_root":
+        if key in ("output_root", "forbidden_terms"):
             continue
         assert not (isinstance(value, str) and ("/" in value or ".." in value)), value
 

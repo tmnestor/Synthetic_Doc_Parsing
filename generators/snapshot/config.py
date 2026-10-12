@@ -33,7 +33,10 @@ SUPERSEDED_KEYS = {
 _NAME_KEYS = {
     "snapshot_dir_prefix": "snapshot_dir_prefix: snapshot",
     "geometry_dir": "geometry_dir: geometry",
+    "provenance_suffix": "provenance_suffix: provenance",
 }
+
+_FORBIDDEN_EXAMPLE = "forbidden_terms:\n    - Synthetic_Doc_Generation\n    - generation_config"
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,9 @@ class SnapshotConfig:
         document_types: Keys of the top-level `document_types` block to export, in order.
         csv_name: The ground-truth CSV file name written into each half.
         jsonl_name: The ground-truth JSONL file name written into each half.
+        provenance_suffix: The suffix of the provenance directory written beside the snapshot,
+            `<snapshot dir>.<provenance_suffix>`.
+        forbidden_terms: Terms no published file name or text may contain (empty disables the scan).
     """
 
     config_path: Path
@@ -59,6 +65,8 @@ class SnapshotConfig:
     document_types: tuple[str, ...]
     csv_name: str
     jsonl_name: str
+    provenance_suffix: str
+    forbidden_terms: tuple[str, ...]
 
 
 def _err(what: str, *, config_path: Path, key: str, expected: str, recover: str) -> ValueError:
@@ -152,6 +160,28 @@ def _half_prefixes(value: object, *, config_path: Path) -> dict[str, str]:
     return {half: str(value[half]) for half in HALVES}
 
 
+def _forbidden_terms(block: dict, *, config_path: Path) -> tuple[str, ...]:
+    """Check `forbidden_terms`: present, and a list of non-empty strings (an explicit [] disables it)."""
+    if "forbidden_terms" not in block:
+        raise _err(
+            "eval_set.forbidden_terms is missing; the export scans the snapshot for these before publishing.",
+            config_path=config_path,
+            key="forbidden_terms",
+            expected=f"a YAML list of terms, or [] to disable the scan:\n  {_FORBIDDEN_EXAMPLE}",
+            recover="add a forbidden_terms: list under eval_set.",
+        )
+    value = block["forbidden_terms"]
+    if not isinstance(value, list) or not all(isinstance(t, str) and t.strip() for t in value):
+        raise _err(
+            f"eval_set.forbidden_terms must be a list of non-empty strings, got {value!r}.",
+            config_path=config_path,
+            key="forbidden_terms",
+            expected=f"a YAML list of terms, or [] to disable the scan:\n  {_FORBIDDEN_EXAMPLE}",
+            recover="write each term as one non-empty list item under eval_set.forbidden_terms.",
+        )
+    return tuple(term.strip() for term in value)
+
+
 def load_snapshot_config(config_path: Path) -> SnapshotConfig:
     """Load and check the `eval_set:` block, resolving the output root.
 
@@ -208,4 +238,6 @@ def load_snapshot_config(config_path: Path) -> SnapshotConfig:
         document_types=tuple(str(dtype) for dtype in cfg["document_types"]),
         csv_name=str(cfg["csv_name"]),
         jsonl_name=str(cfg["jsonl_name"]),
+        provenance_suffix=str(cfg["provenance_suffix"]),
+        forbidden_terms=_forbidden_terms(cfg, config_path=config_path),
     )

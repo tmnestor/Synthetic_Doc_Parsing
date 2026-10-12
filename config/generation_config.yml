@@ -109,3 +109,39 @@ eval_set:
   document_types: [bank_statements, invoices, receipts]
   csv_name: ground_truth.csv
   jsonl_name: ground_truth.jsonl
+  # The snapshot is published as is, to a bucket that hosted models read, so it says what the data is
+  # and how to use it, never how it was produced. What produced it (the commit, whether the tree was
+  # modified and the patch if so, the SHA-256 of every input, the library versions, the density metrics
+  # and the commits since the previous snapshot) is written beside it, never inside it:
+  # <output_root>/<snapshot dir>.<provenance_suffix>/. Upload the snapshot directory only.
+  provenance_suffix: provenance
+  # Scanned for in every file name and every non-image file of the snapshot before it is published,
+  # case-insensitively and as whole words; a single hit refuses the export. Use an explicit empty list
+  # [] to disable the scan.
+  forbidden_terms:
+    # The repository, in both spellings a bucket prefix or a link would use, and its owner.
+    - Synthetic_Doc_Generation
+    - synthetic-doc-generation
+    - tmnestor
+    # How the data was produced: the command, the input files and the libraries.
+    - generators.pipeline
+    - eval_set
+    - eval-set
+    - generation_config
+    - extraction_schema
+    - field_definitions
+    - export_config
+    - data_pools
+    - distractors.yml
+    - config/
+    - augraphy
+    - InkBleed
+    # Version control and the provenance record's own keys.
+    - git
+    - generator_commit
+    - working_tree
+    - provenance
+    # Where the data is consumed, and the machine it was made on.
+    - LMM_POC
+    - PROD
+    - /Users/
