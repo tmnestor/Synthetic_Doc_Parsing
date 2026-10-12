@@ -302,9 +302,10 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
     """With a labelled varied run's sidecars on disk, derive, eval-set and the extraction ground-truth
     script write nothing naming a label key, a style or a sidecar column.
 
-    The snapshot's own labelled varied sidecar is metadata beside the ground truth, and its README and
-    MANIFEST.json document the snapshot, naming the labelled varied half and its style counts by design;
-    none of the three is scanned. Every other file the snapshot writes is."""
+    The snapshot's own labelled varied sidecar is metadata beside the ground truth, and its README,
+    MANIFEST.json and the PROVENANCE.json beside it document the snapshot, naming the labelled varied
+    half (its style counts, or its density metrics) by design; none of the four is scanned. Every other
+    file the export writes is."""
     from generators.snapshot.export import export_snapshot
     from tests.eval_export_tools import clean_state
 
@@ -333,7 +334,7 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
         for f in files
         if f.is_file()
         and f.suffix in {".csv", ".jsonl", ".json", ".txt", ".md"}
-        and f.name not in {SIDECAR_NAME, "README.md", "MANIFEST.json"}
+        and f.name not in {SIDECAR_NAME, "README.md", "MANIFEST.json", "PROVENANCE.json"}
     ]
     assert len(scanned) >= 5 and any(f.parent.name == "derived" for f in scanned), scanned
     for path in scanned:
