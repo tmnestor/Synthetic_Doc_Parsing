@@ -1,0 +1,274 @@
+# Document Parsing Benchmark: Design Spec
+
+> Status: approved design (13 October 2026), pending review of this written spec. It covers a
+> three-stage programme; the first implementation plan covers **stage one only**. Stages two and three
+> are outlined here so stage one's choices do not close them off, and each gets its own spec when it
+> starts.
+
+---
+
+## 1. Goal
+
+Turn the generator into a **general document parsing benchmark** for tools such as MinerU, Docling and
+Marker: a leaderboard that scores how well each tool reads a page into structured markdown (text,
+tables, reading order) and, secondarily, where it places and how it classifies each region.
+
+Two principles carry over unchanged from the extraction benchmark:
+
+- **Ground truth is authored, not annotated.** Every block, its text, its category, its order and every
+  table cell is recorded at draw time by the code that drew it, so it is exact by construction and
+  checkable by invariants.
+- **Published metrics, published scorer.** The benchmark scores with OmniDocBench's evaluation protocol
+  and its Apache-2.0 evaluation code, pinned and unmodified. This repository writes ground truth in
+  OmniDocBench's JSON format; it does not write a scorer.
+
+### Non-goals
+
+- A bespoke metric, or a fork of the evaluator.
+- Formula scoring, and therefore the published Overall score, before stage three.
+- Multi-page documents and PDF inputs before stage two.
+- Re-rendering or reseeding the existing corpus. Stage one adds ground truth to the pages the snapshot
+  already ships, which stay byte-identical.
+
+---
+
+## 2. Programme
+
+```mermaid
+flowchart LR
+    S1["Stage one<br/>PIL business documents<br/>OmniDocBench ground truth<br/>first leaderboard"]
+    S2{"Stage two<br/>Typst spike<br/>go / no-go"}
+    S3["Stage three<br/>new genres, one per stage<br/>formulas enable CDM and Overall"]
+    S1 --> S2
+    S2 -->|go| S3
+    S2 -->|no-go| STOP["Keep stage one leaderboard"]
+```
+
+| Stage | Renderer | Pages | Delivers |
+|---|---|---|---|
+| One | PIL (existing DSL) | The snapshot's 660: plain, distractor, labelled_varied (165 each), degraded receipts (165) | Ground truth in OmniDocBench JSON; text, table and reading-order scores; layout ground truth ready for detection scoring |
+| Two | Typst (spike) | One multi-page genre | Proof that Typst yields exact block and word ground truth, PDF and image inputs; go/no-go |
+| Three | Typst | New genres | Genre breadth, digital-PDF inputs, formulas |
+
+---
+
+## 3. Metrics (OmniDocBench protocol)
+
+| Metric | Published as | Status | Needs from each tool |
+|---|---|---|---|
+| Full-page text | Normalised edit distance (with BLEU, METEOR) | Primary, stage one | Per-page markdown only |
+| Table structure | TEDS and TEDS-S (Zhong et al. 2020) | Primary, stage one | Per-page markdown or HTML tables only |
+| Reading order | Edit distance over block order | Primary, stage one | Per-page markdown only |
+| Layout detection | COCO mAP / mAR | Secondary; ground truth in stage one, per-tool box adapters after the primary scores work | Boxes in COCO form, via one adapter per tool |
+| Formulas | CDM and edit distance | Stage three | Per-page markdown only |
+| Overall | Mean of (1 - text edit distance) x 100, table TEDS, formula CDM | Stage three | Derived |
+
+Until formulas exist the leaderboard reports the components separately and leaves Overall blank; it
+never substitutes a two-component average.
+
+---
+
+## 4. Stage one: ground truth for the PIL business documents
+
+### 4.1 Flow
+
+```mermaid
+flowchart TD
+    YAML["ground_truth/*.yml + config/layouts/*.yml"] --> R["Renderer + DSL walker"]
+    R -->|ink lines, block scopes, table grids| BR["BoxRecorder"]
+    R --> IMG["Page image (unchanged)"]
+    IMG --> DEG["Degradation (receipts)<br/>now returns homography + offset"]
+    BR --> EX["Parsing exporter"]
+    DEG --> EX
+    EX --> V{"Invariants"}
+    V -->|pass| OUT["snapshot parsing/ directory<br/>one OmniDocBench JSON per half"]
+    V -->|fail| ERR["Four-part diagnostic, nothing written"]
+```
+
+Parsing ground truth needs a render, so it is produced by `eval-set`, not by `derive`. The snapshot gains
+a `parsing/` directory beside `geometry/`, named by a new key beside `geometry_dir` in
+`config/generation_config.yml`, holding one JSON file per half: `plain.json`, `distractor.json`,
+`labelled_varied.json`, `degraded.json`. `MANIFEST.json`, `SHA256SUMS` and the generated README cover
+them. Images are not duplicated: each page's `page_info.image_path` points at the half's existing image.
+
+### 4.2 Blocks
+
+- **Unit.** Each leaf content primitive (`text`, `pair`, `block`, `table`, `banner`, `logo`, `barcode`,
+  `qrcode`) opens one block scope; every ink record drawn inside it carries that block's id. Containers
+  (`stack`, `panel`, `split`) only position, and `rule` and `spacer` draw no text.
+- **Grouping override.** A container may declare `parse_block: true`, making everything beneath it one
+  block (a key-value panel a parser naturally reads as one paragraph). The default grouping is fixed by
+  the matcher check (section 5.3), not decided in advance.
+- **Category.** A new `config/parsing_config.yml` carries a required `category_map` from every DSL
+  primitive and every overlay type (`stamp`, `highlight`, `ink_marks`, `handwriting`) to an OmniDocBench
+  category. A block may override its category with `parse_category:`, for example the 'TAX INVOICE'
+  heading `text` as `title`. `category_map` has three required sub-maps: `primitives` (every DSL
+  primitive that opens a block), `overlays` (every registered overlay type) and `anchors`, which
+  overrides the primitive's category by block anchor (`foot: footer`). Precedence, highest first:
+  `parse_category:`, then `anchors`, then `primitives`. Starting values:
+
+  | Source | Category |
+  |---|---|
+  | `banner` | `title` |
+  | `text`, `pair`, `block` | `text_block` |
+  | `table` | `table` |
+  | `logo`, `barcode`, `qrcode` | `figure` |
+  | foot-anchored blocks | `footer` |
+  | overlay `stamp`, `handwriting` text | `text_block` |
+  | overlay `ink_marks` pen strokes, `highlight` | `abandon` |
+
+- **Reading order.** Block draw order: column by column within a `split`, overlay marks last. A block
+  may override it with `parse_order:`, used only where the matcher check shows draw order misreads.
+- **Text.** A block's ink lines joined in draw order, exactly as drawn. Distractor text is ordinary text
+  here: a parser should read it.
+- **Boxes.** Each block's `poly` is the union of its ink boxes as four corners in pixels.
+- **Page attributes.** `page_info.page_attribute` carries document type, layout id, half and degradation
+  tier, so the evaluator's per-attribute breakdowns slice by them.
+
+### 4.3 Tables
+
+`primitives_table.py` already computes every row band and column anchor; it now records the grid as it
+draws, and the exporter writes it as the block's `html`:
+
+- header rows are ordinary rows;
+- date sub-header rows (`dedicated_row` grouping) span every column with `colspan`;
+- synthetic rows (opening and carried-forward balances) are real rows, because they are printed;
+- a row's sub-lines stay inside their parent cell;
+- `capture: false` suppresses scored-field boxes only, never the grid.
+
+### 4.4 Degraded receipts
+
+`generators/degradation/camera.py` computes the homography `m` and the padding offset, then discards
+them. It now returns both, and the exporter pushes each block's corners through them, so every `poly`
+is a true quadrilateral in the photographed frame and `page_info` carries the frame's size. Text,
+tables and reading order need no transform: they are scored from markdown.
+
+**Known gap.** The heavy tier's Augraphy `Folding` displaces pixels locally, which no homography models.
+A fiducial test measures the worst displacement. If it exceeds `fold_displacement_max_px` in
+`config/parsing_config.yml`, heavy-tier pages are excluded from layout detection scoring only, and the
+manifest records the exclusion.
+
+---
+
+## 5. Validation, evaluation and runs
+
+### 5.1 Invariants
+
+Checked by `validate` and again by `eval-set`; each failure is fail-fast with the four-part diagnostic
+(what, where, expected, recover) and nothing is written.
+
+1. Every ink record belongs to exactly one block: none orphaned, none owned twice.
+2. A block's `text` equals its ink lines joined in draw order; a table's cell texts, as a multiset, equal
+   the ink drawn inside its cells.
+3. Every scored field value appears verbatim in some block's text.
+4. Every `poly` lies within its page (degraded: within the frame).
+5. `category_map` covers every primitive and overlay type in use, and every value is in the
+   OmniDocBench vocabulary, which `config/parsing_config.yml` lists beside the pinned evaluator commit.
+
+### 5.2 Evaluator
+
+- OmniDocBench is pinned by repository URL and commit in `config/parsing_config.yml`; it is checked out
+  beside the repository, never vendored.
+- It runs locally in its own conda environment file, so its dependencies never enter the main
+  environment.
+- Formula metrics are switched off in its committed configuration; stage one needs no LaTeX toolchain.
+- **Perfect-score check.** A test-only converter turns ground truth into per-page markdown; scored by the
+  pinned evaluator it must give text edit distance 0, TEDS 1 and reading-order edit distance 0. This
+  proves the export and the evaluator agree on the format, which no invariant can.
+
+### 5.3 Matcher check (first task of stage one, and a gate)
+
+OmniDocBench matches markdown to ground-truth blocks with an algorithm tuned on papers and books. Before
+building the rest, export about a dozen pages (two layouts per type, plus degraded receipts), run MinerU,
+score, and inspect the matches. The findings fix the default block grouping and any `parse_order:`
+overrides, and are recorded in this document. If the matcher misbehaves on these layouts in a way
+grouping cannot fix, stop and revisit the design.
+
+### 5.4 Parser runs
+
+- `config/parsing_config.yml` lists each tool with its back-end, its runner (`local` or `remote`) and,
+  for local tools, its conda environment file. Initial list:
+
+  | Tool | Runner |
+  |---|---|
+  | MinerU, pipeline back-end | remote GPU |
+  | MinerU, VLM back-end | remote GPU |
+  | Docling | local (Apple Silicon) |
+  | Marker | local (Apple Silicon) |
+
+- Each tool writes one markdown file per page to
+  `../evaluation_data/predictions/<tool>/<half>/`, named as OmniDocBench expects; local and remote runs
+  are indistinguishable to scoring.
+- A new runbook, `docs/parsing_benchmark_runbook.md`, covers the remote runs.
+- A `score` step runs the evaluator per half and writes the leaderboard: per half, per document type,
+  per degradation tier, with each run's device recorded.
+- Marker's model-weight licence is read and recorded before its scores are published; Docling is MIT.
+
+### 5.5 Configuration
+
+Every key in `config/parsing_config.yml` is required; a missing or invalid key fails at startup with the
+four-part diagnostic. Keys: `evaluator` (`repo`, `commit`, `conda_env_file`, `formula_metrics: false`),
+`category_vocabulary`, `category_map`, `fold_displacement_max_px`, `tools`.
+
+### 5.6 Tests
+
+Mirroring the source tree, test first:
+
+- `tests/layout_dsl/`: block scopes per primitive, `parse_block`, `parse_category`, `parse_order`;
+- the table grid, including `colspan` sub-headers, synthetic rows and sub-lines;
+- `tests/exporters/`: the OmniDocBench writer, every invariant, the perfect-score check;
+- `tests/degradation/`: homography round trip, fold fiducial;
+- `tests/snapshot/`: the `parsing/` directory in the manifest and checksums;
+- every diagnostic through `assert_diagnostic_error`. Coverage stays at or above 80%.
+
+---
+
+## 6. Stage two: Typst spike (outline)
+
+One multi-page document with two-column flowing text, a table broken across a page, running headers and
+footers, and a captioned figure, output as a PDF with a text layer and as 300 dpi PNGs rasterised from
+it. It passes the gate when:
+
+1. block ground truth comes from Typst introspection (`typst eval` over labelled metadata, with the
+   baseline correction recorded in `docs/pipeline_backend_comparison.md`);
+2. word and line boxes come from the PDF text layer via `pypdfium2` (permissively licensed; PyMuPDF is
+   AGPL and excluded);
+3. every block's text equals the words inside its box, on every page;
+4. the tagged-PDF structure tree, if the pinned Typst writes one, agrees on order;
+5. the output passes through the stage-one exporter and the perfect-score check;
+6. two renders are byte-identical.
+
+The stage adds a digital-PDF versus image input condition, which exercises MinerU's text-layer path for
+the first time. On a no-go the stage-one leaderboard stands alone.
+
+---
+
+## 7. Stage three: new genres (outline)
+
+One genre per stage, each with its own spec. Business-adjacent genres first, because they reuse
+`content_engine`: multi-page statements, purchase orders, remittance advices, annual-report financial
+tables. Then genres needing new content: reports, then a formula-bearing genre whose formulas are
+authored in LaTeX and rendered through `mitex`, which enables CDM and the Overall score.
+
+How prose and formula content is sourced (public domain, generated on the remote server, or
+share-alike licensed) is decided in that stage's spec, because it binds the published dataset's licence.
+Porting the business layouts to Typst, giving PDF versions of the existing 165 cases from the same YAML,
+is optional within this stage.
+
+---
+
+## 8. Key files (stage one)
+
+| File | Change |
+|---|---|
+| `generators/exporters/geometry.py` | Block records, block ids on ink, table grids |
+| `generators/layout_dsl/engine.py` | Block scope per leaf primitive; `parse_*` keys |
+| `generators/layout_dsl/primitives_table.py` | Record the cell grid |
+| `generators/layout_dsl/schema.py` | Validate `parse_block`, `parse_category`, `parse_order` |
+| `generators/overlay/engine.py` | Overlay ink joins blocks by overlay type |
+| `generators/degradation/camera.py` | Return homography and offset |
+| `generators/exporters/omnidocbench.py` (new) | Ground truth writer and invariants |
+| `generators/snapshot/export.py` | Write `parsing/`, manifest, checksums, README |
+| `config/parsing_config.yml` (new) | Evaluator pin, vocabulary, category map, tools |
+| `config/generation_config.yml` | `parsing_dir` beside `geometry_dir` |
+| `docs/parsing_benchmark_runbook.md` (new) | Parser runs and scoring |
