@@ -907,7 +907,7 @@ def validate_abn(abn: str) -> bool:
     """Validate an Australian Business Number using the official checksum algorithm.
 
     Args:
-        abn: ABN string, with or without spaces (e.g. "53 004 085 616" or "53004085616").
+        abn: ABN string, with or without spaces (e.g. "62 495 580 190" or "62495580190").
 
     Returns:
         True if checksum is valid.

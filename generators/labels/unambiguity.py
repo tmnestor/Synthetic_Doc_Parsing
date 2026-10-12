@@ -10,7 +10,7 @@ Unlabelled fields (spec section 6, as ruled in the label-variation plan's Decisi
 - `abn_rival`: another 11-digit number on the page (consecutive digit groups, joined by single spaces,
   holding exactly 11 digits between them, read from every ink line and every code mark's payload) passes
   the ABN checksum. Every such window of a longer run counts, so a stray group before an ABN-shaped number
-  ('Ref 7 51 824 753 556') does not hide it. A second printing of the same ABN is not a rival: it gives
+  ('Ref 7 39 703 412 408') does not hide it. A second printing of the same ABN is not a rival: it gives
   the same answer.
 - `gst_outside_totals`: the GST value line is not inside the totals region.
 - `gst_below_total`: the GST value line is not above the total's value line.
@@ -196,7 +196,7 @@ def eleven_digit_runs(text: str) -> list[str]:
 
     A number is a window of consecutive digit groups within a run of groups joined by single spaces,
     holding exactly 11 digits between them. A group is never split, so a 16-digit transaction id or a
-    10-digit phone number holds none, while 'Ref 7 51 824 753 556' yields '51 824 753 556'.
+    10-digit phone number holds none, while 'Ref 7 39 703 412 408' yields '39 703 412 408'.
 
     Args:
         text: A drawn line or a code mark's payload.
