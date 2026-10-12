@@ -1,9 +1,16 @@
 # Document Parsing Benchmark: Design Spec
 
-> Status: approved design (13 October 2026), pending review of this written spec. It covers a
-> three-stage programme; the first implementation plan covers **stage one only**. Stages two and three
-> are outlined here so stage one's choices do not close them off, and each gets its own spec when it
-> starts.
+> Status: approved (13 October 2026). It covers a three-stage programme; the first implementation plan
+> (`docs/parsing_benchmark_stage1_plan.md`) covers **stage one only**. Stages two and three are outlined
+> here so stage one's choices do not close them off, and each gets its own spec when it starts.
+
+### Relationship to the extraction benchmark
+
+This repository is a clone of the synthetic business-document extraction generator, with shared history,
+so the extraction benchmark stays exactly as it is and nothing here can break it. The extraction
+repository is the `upstream` remote, fetch only; its later fixes are brought in by cherry-pick. Within
+this repository, parsing is the purpose, so parsing keys live in the layouts, parsing checks run in
+`validate`, and the snapshot carries the parsing ground truth.
 
 ---
 

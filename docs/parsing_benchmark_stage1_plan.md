@@ -106,11 +106,17 @@ Numbered so reviews can cite them.
 13. **Predictions are named `<image stem>.md`** in `<output_root>/predictions/<tool>/<half>/`. Task 4's
     perfect-score test proves the pinned evaluator pairs `.png` ground truth with them; if it does not, the
     pairing is fixed in the scoring script, never by renaming images.
-14. **The snapshot task waits for the snapshot branch.** `worktree-publishable-snapshot` rewrites
-    `generators/snapshot/` (manifest, README template, publication). Task 7 starts only after that branch is
-    merged to `main` and this branch is rebased onto it. Tasks 1 to 6 touch no file under
+14. **This repository is a clone of the extraction generator, and takes its fixes by cherry-pick.** It
+    shares that repository's history; the remote `upstream` fetches from it and cannot push to it. The
+    extraction repository is never edited from here. Upstream work that lands later (content, layout and
+    distractor fixes) is brought across with `git fetch upstream && git cherry-pick <sha>`. In particular,
+    the publishable-snapshot work (a rewrite of `generators/snapshot/`: manifest, README template,
+    publication) was unmerged upstream when this repository was seeded, so Task 7 starts only after those
+    commits are cherry-picked in with the suite green. Tasks 1 to 6 touch no file under
     `generators/snapshot/`; Task 6 adds a homography-returning variant beside `degrade_receipt` and leaves
-    its signature alone so the snapshot export is not edited before Task 7.
+    its signature alone so the snapshot export is not edited before Task 7. Extraction-only code (the CORD,
+    DocILE and native exporters, linking, the scoring notebook) is kept, so upstream cherry-picks touching it
+    apply cleanly; pruning it is a later, separate decision.
 15. **The writer lives in a new `generators/parsing/` package,** not `generators/exporters/` as the spec's
     key-files table has it. The exporters re-project ground truth without rendering; the parsing writer
     consumes renders, as do its config, probe and degraded mapping, so they belong together.
@@ -457,8 +463,8 @@ Tests:
 
 ### Task 7: The snapshot's `parsing/` directory
 
-Precondition (Decision 14): `worktree-publishable-snapshot` merged to `main`, and this branch rebased onto
-`main` with the suite green.
+Precondition (Decision 14): the upstream publishable-snapshot commits cherry-picked into this repository,
+with the suite green.
 
 **Files:** `config/generation_config.yml` (`eval_set.parsing_dir: parsing`);
 `generators/snapshot/config.py`; `generators/snapshot/export.py`; the manifest and README modules as they
