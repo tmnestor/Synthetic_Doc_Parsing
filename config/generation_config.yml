@@ -141,7 +141,7 @@ eval_set:
     - generator_commit
     - working_tree
     - provenance
-    # Where the data is consumed, and the machine it was made on.
+    # Where the data is consumed, and the machine it was made on. Not PROD: bank statements print it
+    # as a merchant abbreviation (a produce store), so it is scored page content.
     - LMM_POC
-    - PROD
     - /Users/
