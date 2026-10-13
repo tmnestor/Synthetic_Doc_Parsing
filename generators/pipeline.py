@@ -64,6 +64,7 @@ from generators.parsing.config import (
     layout_parse_errors,
     load_parsing_config,
 )
+from generators.parsing.omnidocbench import PageCheck
 from generators.receipt import render_receipt
 from generators.schema import field_names_for, validate_entry
 
@@ -101,7 +102,9 @@ def validate(
     entry's distractor values (drawn with every catalogue item eligible for its
     document type) pass the value validator, that every bank statement row sits in the column its
     description says and its running balance stays at or above its account's floor (config/data_pools.yml
-    bank_descriptions and bank_balance), and that the business-name grammar cannot emit a real company.
+    bank_descriptions and bank_balance), that the OmniDocBench page each plain and distractor render writes
+    keeps the parsing invariants (generators/parsing/omnidocbench.py, config/parsing_config.yml), and that
+    the business-name grammar cannot emit a real company.
 
     Errors are collected rather than raised one at a time, so a single run
     reports every problem in the corpus.
@@ -238,16 +241,27 @@ def validate(
                 config=load_label_config(),
                 measures=(varied_density,) + ((varied_drawn,) if varied_drawn is not None else ()),
             )
+            # Every plain and distractor render also writes its OmniDocBench page, which must keep the
+            # parsing invariants; each page check hands the render on to the measure it wraps first.
+            plain_page = distractor_page = None
+            if parsing_config is not None:
+                plain_page = PageCheck(parsing_config, doc_type=canonical, mode="plain", then=drawn)
+                distractor_page = PageCheck(
+                    parsing_config, doc_type=canonical, mode="distractor", then=density
+                )
             all_errors.extend(
                 check_overflow(
                     gt_data,
                     layouts,
                     renderer,
-                    measure=density,
-                    plain_measure=drawn,
+                    measure=distractor_page or density,
+                    plain_measure=plain_page or drawn,
                     labelled_varied=varied,
                 )
             )
+            for page_check in (plain_page, distractor_page):
+                if page_check is not None:
+                    all_errors.extend(page_check.errors)
             all_errors.extend(density.errors)
             all_errors.extend(varied_density.errors)
             if drawn is not None:
