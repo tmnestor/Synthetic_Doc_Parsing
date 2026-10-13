@@ -190,7 +190,7 @@ def test_a_foot_anchored_block_records_its_anchor() -> None:
 
 
 def test_blocks_inside_a_foot_anchored_container_inherit_its_anchor() -> None:
-    """Ruling R8: a plain foot-anchored stack's leaves each record `anchor: foot`; a leaf outside records None."""
+    """A block without its own anchor records its nearest anchored container's: `foot` in a foot stack."""
     recorder = draw(
         [
             {"type": "text", "content": "Body"},

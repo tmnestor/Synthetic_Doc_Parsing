@@ -14,7 +14,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from generators.parsing.config import PARSING_CONFIG_PATH, EvaluatorPin, ParsingConfig, load_parsing_config
+from generators.parsing.config import (
+    PARSING_CONFIG_PATH,
+    EvaluatorPin,
+    ParsingConfig,
+    ParsingConfigError,
+    load_parsing_config,
+)
 from scripts import omnidocbench_eval
 from scripts.omnidocbench_eval import (
     EVALUATOR_ENV,
@@ -105,6 +111,20 @@ def test_a_checkout_at_another_commit_is_refused_four_part(
     assert_diagnostic_error(message)
     assert first in message and second in message
     assert str(PARSING_CONFIG_PATH) in message and "evaluator.commit" in message
+
+
+def test_a_checkout_with_a_modified_tracked_file_is_refused_four_part(
+    tmp_path: Path, remote: tuple[Path, str, str]
+) -> None:
+    repo, first, _ = remote
+    root = tmp_path / "tools"
+    checkout = ensure_checkout(_config(repo, first), root=root)
+    (checkout / "pdf_validation.py").write_text("print('tampered')\n")
+    with pytest.raises(EvaluatorError) as caught:
+        ensure_checkout(_config(repo, first), root=root)
+    message = str(caught.value)
+    assert_diagnostic_error(message)
+    assert "pdf_validation.py" in message and str(checkout) in message
 
 
 def test_a_directory_that_is_not_a_checkout_is_refused_four_part(
@@ -298,3 +318,28 @@ def test_the_cli_prints_a_refusal_and_exits_one(
     monkeypatch.setattr(omnidocbench_eval, "ensure_checkout", refuse)
     assert omnidocbench_eval.main(["checkout", "--config", str(scratch_config(tmp_path))]) == 1
     assert_diagnostic_error(capsys.readouterr().err)
+
+
+def test_the_cli_prints_a_parsing_config_refusal_and_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(path: Path) -> ParsingConfig:
+        raise ParsingConfigError(
+            "Invalid parsing config.\n  What:     x\n  Where:    y\n  Expected: z\n  Recover:  w"
+        )
+
+    monkeypatch.setattr("generators.parsing.config.load_parsing_config", broken)
+    assert omnidocbench_eval.main(["checkout", "--config", str(scratch_config(tmp_path))]) == 1
+    assert_diagnostic_error(capsys.readouterr().err)
+
+
+def test_the_cli_refuses_a_work_dir_inside_the_repository(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = ["end2end", "--config", str(scratch_config(tmp_path)), "--gt", "p.json", "--pred", "md"]
+    inside = REPO_ROOT / "scores_scratch"
+    assert omnidocbench_eval.main([*args, "--work-dir", str(inside)]) == 1
+    err = capsys.readouterr().err
+    assert_diagnostic_error(err)
+    assert "--work-dir" in err and str(REPO_ROOT) in err
+    assert not inside.exists()

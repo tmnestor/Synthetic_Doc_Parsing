@@ -35,7 +35,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from generators.parsing.config import PARSING_CONFIG_PATH, ParsingConfig  # noqa: E402
+from generators.parsing.config import (  # noqa: E402
+    PARSING_CONFIG_PATH,
+    ParsingConfig,
+    ParsingConfigError,
+)
 
 # The conda env `envs/omnidocbench.yml` builds (its file stem), and the checkout's directory name.
 EVALUATOR_ENV = "omnidocbench"
@@ -135,6 +139,18 @@ def ensure_checkout(config: ParsingConfig, *, root: Path) -> Path:
                 f"printing {pin.commit}.",
                 recover=f"run `git -C {checkout} checkout --detach {pin.commit}`, or change evaluator.commit "
                 "deliberately and re-run the perfect-score test.",
+            )
+        dirty = _git("status", "--porcelain", "--untracked-files=no", cwd=checkout)
+        if dirty.returncode != 0 or dirty.stdout.strip():
+            raise _diagnostic(
+                "The evaluator checkout has local modifications.",
+                what=f"{checkout} is at the pinned commit {pin.commit} but tracked files differ from it:\n"
+                f"{_tail(dirty.stdout or dirty.stderr)}\nscores from a modified evaluator are not comparable.",
+                where=f"{checkout}; {PARSING_CONFIG_PATH} -> evaluator.commit",
+                expected=f"a clean checkout, e.g. `git -C {checkout} status --porcelain "
+                "--untracked-files=no` printing nothing.",
+                recover=f"run `git -C {checkout} checkout -- .` to discard the changes, or move {checkout} "
+                "aside and run `python scripts/omnidocbench_eval.py checkout` to clone it afresh.",
             )
         return checkout
 
@@ -286,6 +302,21 @@ def run_end2end(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path
     return parse_result(json.loads(source.read_text()), source=source)
 
 
+def _refuse_work_dir_in_repository(work_dir: Path) -> None:
+    """Refuse a work directory inside the repository: generated output is never written there."""
+    resolved = work_dir.resolve()
+    if resolved == REPO_ROOT or REPO_ROOT in resolved.parents:
+        raise _diagnostic(
+            "The work directory lies inside the repository.",
+            what=f"--work-dir {resolved} is under {REPO_ROOT}, and the evaluator would write its config "
+            "and results there.",
+            where="the --work-dir argument",
+            expected="a directory outside the repository, e.g. --work-dir ../evaluation_data/scores/run1",
+            recover="pass a --work-dir under eval_set.output_root (../evaluation_data) or another "
+            "directory outside the repository.",
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Command-line entry point: `checkout` or `end2end`."""
     from generators.parsing.config import load_parsing_config
@@ -303,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "end2end":
+            _refuse_work_dir_in_repository(args.work_dir)
         root = load_snapshot_config(args.config).output_root / "tools"
         checkout = ensure_checkout(load_parsing_config(PARSING_CONFIG_PATH), root=root)
         if args.command == "checkout":
@@ -311,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         scores = run_end2end(
             args.gt.resolve(), args.pred.resolve(), checkout=checkout, work_dir=args.work_dir
         )
-    except (EvaluatorError, ValueError) as exc:
+    except (EvaluatorError, ParsingConfigError, FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(

@@ -16,7 +16,7 @@ import yaml
 import generators.overlay.engine  # noqa: F401  registers every overlay drawer in OVERLAY_DRAWERS
 from generators.degradation.tiers import load_tiers
 from generators.distractors.paths import GENERATION_CONFIG_PATH, REPO_ROOT
-from generators.layout_dsl.schema import LayoutSchemaError, _err, _iter_blocks
+from generators.layout_dsl.schema import ANCHORS, LayoutSchemaError, _err, _iter_blocks
 from generators.overlay.registry import OVERLAY_DRAWERS
 
 # The eight leaf primitives and three containers that draw a block a parser can find (Decision 1). `rule`
@@ -224,10 +224,17 @@ def _load_evaluator(raw: Any, *, path: Path) -> EvaluatorPin:
 
 
 def _check_key_set(
-    mapping: dict, expected: set[str], *, path: Path, key: str, noun: str, example: str
+    mapping: dict,
+    expected: set[str],
+    *,
+    path: Path,
+    key: str,
+    noun: str,
+    example: str,
+    subset: bool = False,
 ) -> None:
-    """Refuse a map whose keys differ from `expected`; What lists both sets."""
-    missing = sorted(expected - set(mapping))
+    """Refuse a map whose keys differ from `expected`, or with `subset` stray outside it; What lists both."""
+    missing = [] if subset else sorted(expected - set(mapping))
     extra = sorted(set(mapping) - expected)
     if missing or extra:
         problems = []
@@ -240,8 +247,16 @@ def _check_key_set(
             f"and the actual set is {sorted(mapping)}.",
             path=path,
             key=key,
-            expected=f"exactly the keys {sorted(expected)}, e.g.\n{example}",
-            recover=f"add the missing and remove the extra keys of '{key}' in {path.name}.",
+            expected=(
+                f"only keys from {sorted(expected)}, e.g.\n{example}"
+                if subset
+                else f"exactly the keys {sorted(expected)}, e.g.\n{example}"
+            ),
+            recover=(
+                f"remove or correct the extra keys of '{key}' in {path.name}."
+                if subset
+                else f"add the missing and remove the extra keys of '{key}' in {path.name}."
+            ),
         )
 
 
@@ -274,6 +289,15 @@ def _load_category_map(
         key="category_map.overlays",
         noun="overlay",
         example="overlays: {stamp: text_block, ink_marks: abandon, ...}",
+    )
+    _check_key_set(
+        sections["anchors"],
+        set(ANCHORS),
+        path=path,
+        key="category_map.anchors",
+        noun="anchor",
+        example="anchors: {foot: footer}",
+        subset=True,
     )
     for section, mapping in sections.items():
         for name, category in mapping.items():

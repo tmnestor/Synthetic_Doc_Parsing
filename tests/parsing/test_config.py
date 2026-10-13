@@ -197,6 +197,17 @@ def test_a_category_map_value_outside_the_vocabulary_is_refused(tmp_path: Path, 
     refused(tmp_path, mutate, f"category_map.{section}.{key}", "paragraph", "category_vocabulary")
 
 
+def test_an_anchor_the_dsl_does_not_know_is_refused(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["category_map"]["anchors"].__setitem__("fot", "footer"),
+        "category_map.anchors",
+        "fot",
+        "extra",
+        "foot",
+    )
+
+
 def test_a_primitive_missing_from_the_map_is_refused_naming_both_sets(tmp_path: Path) -> None:
     err = refused(
         tmp_path,

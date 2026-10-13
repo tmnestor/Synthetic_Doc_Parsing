@@ -102,7 +102,10 @@ them. Images are not duplicated: each page's `page_info.image_path` points at th
 
 - **Unit.** Each leaf content primitive (`text`, `pair`, `block`, `table`, `banner`, `logo`, `barcode`,
   `qrcode`) opens one block scope; every ink record drawn inside it carries that block's id. Containers
-  (`stack`, `panel`, `split`) only position, and `rule` and `spacer` draw no text.
+  (`stack`, `panel`, `split`) only position, and `spacer` draws no text. A `rule` draws none either,
+  unless it has a `fill_char` (receipts set `rule_fill_char: "-"`; the invoice tear line uses one): it then
+  draws a line of separator glyphs through `draw_separator`, which records no ink, so stage one's ground
+  truth does not contain it.
 - **Grouping override.** A container may declare `parse_block: true`, making everything beneath it one
   block (a key-value panel a parser naturally reads as one paragraph). The default grouping is fixed by
   the matcher check (section 5.3), not decided in advance.
@@ -216,6 +219,17 @@ Reading order did not, for two reasons:
   page, the predicted order equals the ground-truth order less that table's position, and the aggregate
   equals the value the artefact predicts. Stage one runs C; whether to adopt B is decided at the matcher
   gate.
+
+**Gate notes.** Two items are left for the matcher gate.
+
+- *Unrecorded separator glyphs.* The lines of separator glyphs described in section 4.2 record no ink, so
+  a parser may transcribe them, which raises text edit distance on every receipt and on invoices with the
+  tear line. Options: record them as a textless `abandon` block, record them as text, or leave them out.
+  Decided at the matcher gate.
+- *Code primitives in a foot-anchored stack.* A barcode, logo or QR code inside a foot-anchored stack
+  categorises as `footer`, because the anchor outranks the primitive; the invoice remittance barcode is
+  one, and its text is then its caption digits. Options: let code primitives keep `figure`, or leave as
+  is. Decided at the matcher gate.
 
 ### 5.4 Parser runs
 

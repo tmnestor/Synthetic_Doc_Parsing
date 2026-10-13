@@ -336,7 +336,7 @@ def test_page_check_hands_the_render_on_then_collects_each_refusal(config: Parsi
     assert seen == [("CASE999", "layout_scratch"), ("CASE998", "layout_scratch")]
     first, second = check.errors
     assert "CASE999 / layout_scratch (distractor)" in first and "TOTAL_AMOUNT" in first
-    assert "CASE998.png / layout_scratch (distractor)" in second and "sparkline" in second
+    assert "CASE998 / layout_scratch (distractor)" in second and "sparkline" in second
     for error in check.errors:
         assert_diagnostic_error(error)
 

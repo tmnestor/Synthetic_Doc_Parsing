@@ -70,8 +70,8 @@ pinned evaluator drops the first predicted table of a page from the predicted re
 (`src/core/matching/match.py` line 714), costing one edit on every page with a table, for every tool
 alike. The evaluator runs unmodified, so the test asserts that this is the only difference, page by page,
 and that the aggregate equals the value it predicts (about 0.062 over the probe). Section 5.3 of
-`docs/parsing_benchmark_design.md` records it, with the alternative left to the matcher gate. This proves the export and the pinned evaluator agree on
-the format, and that the evaluator pairs `.png` pages with `.md` predictions. It is a slow test, skipped
+`docs/parsing_benchmark_design.md` records it, with the alternative left to the matcher gate. This proves
+the export and the pinned evaluator agree on the format, and that the evaluator pairs `.png` pages with `.md` predictions. It is a slow test, skipped
 with its reason where the env or the checkout is absent:
 
 ```bash

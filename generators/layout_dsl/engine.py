@@ -153,7 +153,8 @@ def render_blocks(blocks: list, ctx: RenderContext, y: int) -> int:
         if when is not None and not ctx.dx_gated and str(when).startswith(DX_PREFIX):
             block_ctx = replace(ctx, dx_gated=True)
         here = f"{ctx.block_path}[{position}]"
-        # A block's own anchor wins; one without records the nearest enclosing container's (Ruling R8).
+        # A block without its own anchor records the anchor of its nearest enclosing container that declares
+        # one; its own anchor wins.
         own_anchor = block.get("anchor")
         anchor = ctx.block_anchor if own_anchor is None else str(own_anchor)
         if kind in SCOPED_CONTAINERS:

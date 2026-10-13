@@ -15,6 +15,7 @@ import copy
 import html
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import NamedTuple
 
 from generators.exporters.geometry import BlockRecord, InkRecord
@@ -45,6 +46,11 @@ class PageContext(NamedTuple):
     half: str
     tier: str
     layout_scored: bool
+
+
+def page_where(case_id: str, layout_id: str, mode: str) -> str:
+    """The render a diagnostic names: `CASE_ID / layout_id (mode)`."""
+    return f"{case_id} / {layout_id} ({mode})"
 
 
 def _diagnostic(title: str, *, what: str, where: str, expected: str, recover: str) -> str:
@@ -170,7 +176,7 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
     ranked = sorted(inked, key=lambda block: (block.parse_order, block.id))
     # 1-based, as OmniDocBench numbers its own pages: its matcher reads an order of 0 as no order at all.
     order = {block.id: position for position, block in enumerate(ranked, start=1)}
-    where = f"{context.image_path} / {context.layout_id} ({context.half})"
+    where = page_where(Path(context.image_path).stem, context.layout_id, context.half)
 
     dets = []
     for block in inked:
@@ -308,7 +314,7 @@ class PageCheck:
         """
         if self.then is not None:
             self.then(case_id, layout_id, geometry)
-        where = f"{case_id} / {layout_id} ({self.mode})"
+        where = page_where(case_id, layout_id, self.mode)
         context = PageContext(f"{case_id}.png", self.doc_type, layout_id, self.mode, "none", True)
         try:
             page = build_page(geometry, context=context, config=self.config)
