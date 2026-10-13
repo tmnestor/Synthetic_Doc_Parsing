@@ -235,77 +235,94 @@ Reading order did not, for two reasons:
 (16 GB) and scored with the pinned evaluator, unmodified (option C above). The runbook records the
 commands.
 
-- *Tools.* MinerU 3.4.5, pipeline back-end (PDF-Extract-Kit-1.0 weights), on `mps`. Docling 2.120.2 on
-  `mps`, VLM pipeline with the GraniteDocling 258M preset through MLX: the local Docling environment
-  holds only those weights, so its standard pipeline (layout, OCR and TableFormer models) was not run.
+- *Tools.* MinerU 3.4.5, pipeline back-end (PDF-Extract-Kit-1.0 weights), on `mps`. Docling 2.120.2,
+  standard pipeline with its default settings: layout (Heron) and TableFormer models on `mps`, RapidOCR
+  (PP-OCRv6, torch) on the CPU.
 - *Headline scores* (`ALL_page_avg`; reading order includes the known one-edit artefact on every page
   whose first table matched):
 
   | Tool | Text edit | Table TEDS | TEDS structure-only | Table edit | Reading-order edit |
   |---|---|---|---|---|---|
   | MinerU pipeline | 0.475 | 0.439 | 0.473 | 0.386 | 0.429 |
-  | Docling (VLM) | 0.232 | 0.000 | 0.000 | 1.000 | 0.458 |
+  | Docling | 0.384 | 0.391 | 0.395 | 0.733 | 0.365 |
 
-  Docling's VLM preset emitted no table on any page and dropped most of both bank statements, so its
-  table numbers say nothing about the matcher; its text numbers are low partly because a missing table
-  is charged to the table metric only.
+- *Aside.* Docling's VLM pipeline with the GraniteDocling 258M preset (MLX, `mps`) was also run. It
+  emitted no table on any page and dropped most of both bank statements (text 0.232, TEDS 0, table edit
+  1.0, reading order 0.458); its low text edit is an artefact of a missing table being charged to the
+  table metric only. It is not the configured Docling tool and is not used below.
 
 What the matcher handles well:
 
 - *Line-level blocks, either way round.* Where a parser emits one paragraph per printed line (MinerU on
   both receipts and the invoice supplier block), blocks match one to one at edit 0. Where it emits one
   paragraph for many lines, the matcher merges consecutive ground-truth blocks into it: Docling's
-  four-line receipt totals paragraph took four blocks at edit 0, MinerU's multi-line supplier block on
-  the high-value invoice took five at edit 0, and Docling's single receipt paragraph running from the
-  transaction lines to the payment block took twenty-two at once (edit 0.22, almost all of it the item
-  table's text, which Docling wrote into the paragraph). A parser's split of one line (label left,
-  amount right) is merged back too. The default line-level grouping therefore needs no `parse_block` to
-  be fair to either style.
+  supplier paragraphs on both invoices took four and five blocks at edit 0, and Docling's single
+  paragraph for the whole top half of a receipt took twenty-two to twenty-nine blocks at once (edit 0.16
+  and 0.27, almost all of it the item table's text, which Docling wrote into the paragraph). A parser's
+  split of one line (label left, amount right) is merged back too. On the one page both a parser and
+  the matcher got right (Docling on the GST-inclusive invoice) text edit was 0.014 and TEDS 1. The
+  default line-level grouping therefore needs no `parse_block` to be fair to either style.
 - *Normalisation.* The evaluator strips spaces and punctuation before text edit distance, so separator
-  dashes that a parser transcribes (Docling does, inside its receipt paragraphs) cost nothing, nor do
-  markdown escapes such as MinerU's backslash before a currency sign, nor doubled spaces in ground truth.
-- *`<td>`-only tables* (Decision 7). A receipt item table that MinerU read correctly scored TEDS 1 and
-  structure-only TEDS 1: header-less, `<td>`-only html scores as intended. The bank statement
-  transaction tables scored 0.87 and 0.71 (structure-only 0.92 and 0.88).
+  dashes that a parser transcribes cost nothing, nor do markdown escapes such as MinerU's backslash
+  before a currency sign, nor doubled spaces in ground truth.
+- *`<td>`-only tables under TEDS* (Decision 7). A receipt item table that MinerU read correctly, given as
+  html, scored TEDS 1 and structure-only TEDS 1; an invoice item table that Docling read correctly, given
+  as a markdown pipe table with a header separator, also scored TEDS 1. Header-less, `<td>`-only ground
+  truth scores as intended against both output forms.
 
 What goes wrong, and why:
 
-- *Text next to a table is folded into it.* On both invoices MinerU read the payment-details panel and
-  the totals panel beneath the item table as extra table rows, and on the bank statements it read the
-  separate one-row totals table and the handwritten running-total note as more rows of the transaction
-  table. The matcher does not match across the table and text categories, so the folded ground-truth
-  text blocks go unmatched (edit 1 each), the totals table goes unmatched (TEDS 0) and the main table
-  loses TEDS for the extra rows (invoice tables 0.58 and 0.36). This is a parser reading, not a matcher
-  fault, and no `parse_*` key can change it, because `parse_block` refuses tables.
+- *Table edit distance depends on the output form.* The evaluator turns a markdown pipe table into html
+  with `colspan="1" rowspan="1"` on every cell, and table edit distance compares html strings, so
+  Docling's perfect invoice table scored TEDS 1 but table edit 0.50. Html emitters (MinerU) carry no such
+  attributes. Table edit distance is therefore comparable only between tools with the same output form;
+  TEDS is not affected.
+- *Text next to a table is folded into it.* Both tools read the invoice payment-details and totals
+  panels beneath the high-value invoice's item table as extra table rows (MinerU on the other invoice
+  too), and both read the bank statement's separate one-row totals table as more rows of the
+  transaction table or as loose text. Docling also folded the statement's account-holder and
+  account-number panels into the table as a spanning first row. The matcher does not match across the
+  table and text categories, so the folded ground-truth text blocks go unmatched (edit 1 each), the
+  totals table goes unmatched (TEDS 0 on every statement, both tools) and the main table loses TEDS for
+  the extra rows (high-value invoice 0.36 and 0.47). This is a parser reading, not a matcher fault, and
+  no `parse_*` key can change it, because `parse_block` refuses tables.
+- *Receipt item tables read as text.* Docling never found a table on a receipt: its layout model saw the
+  receipt as one text region, so the item table goes unmatched (TEDS 0) while its text inflates the
+  neighbouring text match.
 - *Wrapped description lines become rows.* Ground truth keeps a transaction's second description line
-  inside its parent cell (section 4.3); MinerU emits it as a row of its own, which costs structure-only
-  TEDS on every wrapped transaction.
-- *Top-of-page text classed as a page header.* MinerU classes the statement banner and the
-  account-holder and account-number panels, and the invoice contact strip (and, on one invoice, the
-  heading), as page header and leaves them out of its markdown; ground truth scores them as
-  `text_block` or `title`. This drives MinerU's text edit on the statements (0.81 and 0.83 per page).
+  inside its parent cell (section 4.3); both tools emit it as a row of its own, which costs
+  TEDS on every wrapped transaction (statement tables 0.71 to 0.88).
+- *Top-of-page text.* MinerU classes the statement banner and account panels, and the invoice contact
+  strip (and, on one invoice, the heading), as page header and leaves them out of its markdown; Docling
+  transcribes the contact strip (and, on one statement, the banner) but folds the statement account
+  panels into the table. Either way the statement account panels go unmatched, which drives text edit
+  on the statements (MinerU 0.81 and 0.83 per page, Docling 0.78 and 0.81).
+- *Overlay text split in two.* A stamp's two lines are one ground-truth block; Docling writes them as two
+  separate paragraphs with other text between them, and the matcher merges only adjacent predictions,
+  so the block matches half its text (edit 0.50 on both invoices).
 - *Leftovers are paired, not dropped.* Unmatched ground-truth blocks are paired with whatever predicted
-  text remains: a barcode's printed digits (on both receipts), a `<!-- image -->` placeholder,
-  or a stray table cell. The evaluator's table-formula rescue also turns date cells of a predicted table
-  into formula items, which then pair with unmatched statement header blocks. The edit charged is the
-  same as for an unmatched block, but the pairing is misleading when reading per-block output, and it
-  feeds the reading-order score.
-- *Code primitives.* Both receipt barcodes have digits printed beneath them; MinerU transcribed both
+  text remains: a barcode's printed digits, a `<!-- image -->` placeholder, or a stray table cell. The
+  evaluator's table-formula rescue also turns date cells of a predicted table into formula items, which
+  then pair with unmatched statement header blocks. The edit charged is the same as for an unmatched
+  block, but the pairing is misleading when reading per-block output, and it feeds the reading-order
+  score.
+- *Code primitives.* Both receipt barcodes have digits printed beneath them; MinerU transcribes both
   and Docling one. A receipt barcode is a `figure`, so those digits are spare predicted text (see the
-  previous item). No probe invoice carries the remittance barcode, but the evaluator ignores the
-  `footer` category together with whatever is matched to it (`src/core/matching/match_quick.py`, its
-  ignore list), so a foot-anchored barcode's caption digits would cost nothing either way.
+  previous item). No probe invoice carries the remittance barcode, but the evaluator ignores the `footer`
+  category together with whatever is matched to it (`src/core/matching/match_quick.py`, its ignore
+  list), so a foot-anchored barcode's caption digits would cost nothing either way.
 
 Recommendations for the owner (each to accept or reject):
 
 1. Keep line-level blocks as the default and add no `parse_block`: the matcher merges them into
    paragraph-style predictions at no cost.
-2. `parse_category: title` on the invoice 'TAX INVOICE' heading: Docling on both invoices and MinerU
-   on one render it as a markdown heading; this changes only the per-category breakdown.
+2. `parse_category: title` on the invoice 'TAX INVOICE' heading: both tools render it as a markdown
+   heading on at least one invoice; this changes only the per-category breakdown.
 3. `parse_category: header` on the invoice contact strip above the heading and on the statement banner:
-   they are running page furniture, OmniDocBench's own pages label such text `header`, which it ignores,
-   and MinerU omits them by design. The statement account-holder and account-number panels carry scored
-   fields and stay `text_block`.
+   they are running page furniture, and OmniDocBench's own pages label such text `header`, which it
+   ignores. MinerU omits them and Docling reads them, so this is neutral between tools rather than a
+   fix. The statement account-holder and account-number panels carry scored fields and stay
+   `text_block`, although both tools currently lose them.
 4. No `parse_order`: no page showed a draw-order misread; reading-order cost came from missing and
    folded blocks, not from the ground-truth order.
 5. Separator glyphs: leave them out of ground truth; normalisation makes them free.
@@ -313,9 +330,11 @@ Recommendations for the owner (each to accept or reject):
    accept the spare caption digits on receipts; recording the digits as their own `text_block` would
    reward every parser for them and is the alternative.
 7. Bank statement totals row: no layout key fixes it. Writing it as the transaction table's last row
-   instead of a table of its own would match how both a parser and a reader see it; this is a writer
-   change, not a layout key, and is the owner's call.
-8. Reading-order artefact: keep option C; the probe gave no reason to patch the evaluator.
+   instead of a table of its own would match how both tools read it; this is a writer change, not a
+   layout key, and is the owner's call.
+8. Leaderboard: lead with TEDS for tables and report table edit distance beside it with the output-form
+   caveat above.
+9. Reading-order artefact: keep option C; the probe gave no reason to patch the evaluator.
 
 Owner decision: pending.
 

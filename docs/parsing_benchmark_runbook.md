@@ -85,8 +85,9 @@ in section 5.3 of `docs/parsing_benchmark_design.md`.
 ## Local probe runs
 
 The matcher check (section 5.3) parsed the probe on an Apple silicon Mac, from existing conda envs
-`docparse-mineru` (MinerU 3.4.5) and `docparse-docling` (Docling 2.120.2), with model weights already
-cached, so Hugging Face is switched off. Raw output goes under `raw_predictions/<tool>/probe/`; each
+`docparse-mineru` (MinerU 3.4.5) and `docparse-docling` (Docling 2.120.2), with model weights held
+locally (Docling's standard weights are downloaded once, below), so Hugging Face is switched off for the
+runs. Raw output goes under `raw_predictions/<tool>/probe/`; each
 page's markdown is then copied to `predictions/<tool>/probe/<image stem>.md`. Unlike the rest of this
 runbook, these commands run from `eval_set.output_root`, not the repository root.
 
@@ -100,15 +101,35 @@ for f in raw_predictions/mineru_pipeline/probe/*/auto/*.md; do
 done
 ```
 
-Docling, VLM pipeline with the GraniteDocling preset through MLX, on `mps` (the env holds only those
-weights; its standard pipeline would first need its layout, OCR and table models downloaded into
-`DOCLING_ARTIFACTS_PATH`):
+Docling's standard pipeline needs its layout, TableFormer and RapidOCR weights. The env sets
+`DOCLING_ARTIFACTS_PATH=<weights dir>/docling-artifacts`; download them there once (the
+download only adds folders: `docling-project--docling-layout-heron`, its `-onnx` twin,
+`docling-project--docling-models` and `RapidOcr`):
+
+```bash
+conda run -n docparse-docling docling-tools models download layout tableformer rapidocr \
+    --rapidocr-backend-lang torch:chinese -o <weights dir>/docling-artifacts
+```
+
+The `torch:chinese` set is the PP-OCRv6 checkpoint the pipeline asks for; it reads Latin text too.
+Docling, standard pipeline with default settings: layout and TableFormer on `mps`, RapidOCR (torch)
+on the CPU:
 
 ```bash
 env DOCLING_DEVICE=mps HF_HUB_OFFLINE=1 conda run -n docparse-docling \
     docling convert parsing_probe --from image --to md --to json --image-export-mode placeholder \
-    --pipeline vlm --vlm-model granite_docling --output raw_predictions/docling/probe
+    --output raw_predictions/docling/probe
 \cp -f raw_predictions/docling/probe/*.md predictions/docling/probe/
+```
+
+Docling's VLM pipeline (GraniteDocling preset through MLX, weights already in the same folder) was run
+as an aside under its own name, `docling_granite_vlm`; it is not the configured Docling tool:
+
+```bash
+env DOCLING_DEVICE=mps HF_HUB_OFFLINE=1 conda run -n docparse-docling \
+    docling convert parsing_probe --from image --to md --to json --image-export-mode placeholder \
+    --pipeline vlm --vlm-model granite_docling --output raw_predictions/docling_granite_vlm/probe
+\cp -f raw_predictions/docling_granite_vlm/probe/*.md predictions/docling_granite_vlm/probe/
 ```
 
 Each is then scored with `end2end` above, `--gt parsing_probe/probe.json`, into
