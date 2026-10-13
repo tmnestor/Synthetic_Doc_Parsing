@@ -192,6 +192,8 @@ class RenderContext:
             a circular import, since the engine's dispatch table imports them.
         block_path: Where the blocks this context walks sit in the layout, e.g. `body` or
             `body[3].children`; the walker appends each block's position to name the block it scopes.
+        block_anchor: The `anchor:` of the nearest enclosing container that declares one (e.g. `foot`), or
+            None; a block with no anchor of its own records this one.
     """
 
     draw: ImageDraw.ImageDraw
@@ -205,6 +207,7 @@ class RenderContext:
     ink_recorder: BoxRecorder | None = None
     dx_gated: bool = False
     block_path: str = "body"
+    block_anchor: str | None = None
 
     def within(self, region: Region) -> "RenderContext":
         """Return a copy of this context scoped to a different region.

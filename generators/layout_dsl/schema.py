@@ -573,6 +573,46 @@ def _validate_block(
             known_fields=known_fields,
             key_path=key_path,
         )
+        if block.get("parse_block") is True:
+            _refuse_tables_beneath(block, layout_path=layout_path, key_path=key_path)
+
+
+def _refuse_tables_beneath(block: dict, *, layout_path: str, key_path: str) -> None:
+    """Refuse a table at any depth beneath a `parse_block: true` container.
+
+    The container's block owns all ink drawn beneath it, but a table needs a block of its own to declare
+    its columns and cells, so the two cannot combine.
+
+    Args:
+        block: The container, carrying `parse_block: true`.
+        layout_path: Path to the layout YAML.
+        key_path: The container's dotted path.
+
+    Raises:
+        LayoutSchemaError: A table sits beneath the container.
+    """
+    children = block.get("children")
+    if block.get("type") == "split" and isinstance(children, list):
+        nested: Iterator[tuple[dict, str]] = (
+            pair
+            for column, blocks in enumerate(children)
+            for pair in _iter_blocks(blocks, f"{key_path}.children[{column}]")
+        )
+    else:
+        nested = _iter_blocks(children, f"{key_path}.children")
+    for child, child_path in nested:
+        if child.get("type") == "table":
+            raise _err(
+                f"a table sits beneath the {block.get('type')} at {key_path}, which sets parse_block: true; "
+                "the container's one parsed block would swallow the table, which needs a block of its own "
+                "for its columns and cells.",
+                layout_path=layout_path,
+                key_path=child_path,
+                expected="a table outside any parse_block container, e.g. beside it in the body:\n"
+                "              - {type: stack, parse_block: true, children: [...]}\n"
+                "              - {type: table, rows: ..., columns: [...], frame: ruled, grouping: none}",
+                recover=f"set parse_block: false on {key_path}, or move the table out of it.",
+            )
 
 
 def _validate_parse_keys(block: dict, *, layout_path: str, key_path: str) -> None:

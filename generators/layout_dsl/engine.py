@@ -153,14 +153,17 @@ def render_blocks(blocks: list, ctx: RenderContext, y: int) -> int:
         if when is not None and not ctx.dx_gated and str(when).startswith(DX_PREFIX):
             block_ctx = replace(ctx, dx_gated=True)
         here = f"{ctx.block_path}[{position}]"
+        # A block's own anchor wins; one without records the nearest enclosing container's (Ruling R8).
+        own_anchor = block.get("anchor")
+        anchor = ctx.block_anchor if own_anchor is None else str(own_anchor)
         if kind in SCOPED_CONTAINERS:
-            block_ctx = replace(block_ctx, block_path=f"{here}.children")
+            block_ctx = replace(block_ctx, block_path=f"{here}.children", block_anchor=anchor)
 
         try:
-            if block.get("anchor") == "foot":
+            if own_anchor == "foot":
                 # Drawn upward from the bottom margin; fails fast if it would meet the body above.
                 y = foot_origin(block, block_ctx, y, drawer, at=f"{ctx.layout_id}.body[{position}]")
-            with _block_scope(block, str(kind), ctx, path=here):
+            with _block_scope(block, str(kind), ctx, path=here, anchor=anchor):
                 y = drawer(block, block_ctx, y)
         except _DSL_ERRORS as err:
             # Each nesting level prepends its own segment as the error unwinds, so
@@ -170,7 +173,9 @@ def render_blocks(blocks: list, ctx: RenderContext, y: int) -> int:
     return y
 
 
-def _block_scope(block: dict, kind: str, ctx: RenderContext, *, path: str) -> AbstractContextManager[None]:
+def _block_scope(
+    block: dict, kind: str, ctx: RenderContext, *, path: str, anchor: str | None
+) -> AbstractContextManager[None]:
     """Return the block scope a block draws inside, or a no-op when it opens none.
 
     A leaf always opens one, a container only with `parse_block: true`; with no ink recorder there is
@@ -181,6 +186,7 @@ def _block_scope(block: dict, kind: str, ctx: RenderContext, *, path: str) -> Ab
         kind: Its primitive name.
         ctx: The walker's context, carrying the ink recorder.
         path: The block's path, e.g. `body[3].children[1]`.
+        anchor: The block's own `anchor:`, else the nearest enclosing container's, else None.
 
     Returns:
         A context manager to draw the block inside.
@@ -190,12 +196,11 @@ def _block_scope(block: dict, kind: str, ctx: RenderContext, *, path: str) -> Ab
         kind in SCOPED_LEAVES or (kind in SCOPED_CONTAINERS and block.get("parse_block") is True)
     ):
         return nullcontext()
-    anchor = block.get("anchor")
     category = block.get("parse_category")
     return recorder.block_scope(
         kind,
         path=path,
-        anchor=None if anchor is None else str(anchor),
+        anchor=anchor,
         parse_category=None if category is None else str(category),
         parse_order=int(block.get("parse_order", 0)),
     )

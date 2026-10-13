@@ -189,6 +189,45 @@ def test_a_foot_anchored_block_records_its_anchor() -> None:
     assert owners(recorder) == [0, 1, 1]
 
 
+def test_blocks_inside_a_foot_anchored_container_inherit_its_anchor() -> None:
+    """Ruling R8: a plain foot-anchored stack's leaves each record `anchor: foot`; a leaf outside records None."""
+    recorder = draw(
+        [
+            {"type": "text", "content": "Body"},
+            {"type": "stack", "anchor": "foot", "children": TWO_TEXTS},
+        ]
+    )
+    assert recorder.block_records() == [
+        BlockRecord(0, "text", "body[0]", None, None, 0, None),
+        BlockRecord(1, "text", "body[1].children[0]", "foot", None, 0, None),
+        BlockRecord(2, "text", "body[1].children[1]", "foot", None, 0, None),
+    ]
+
+
+def test_the_anchor_is_inherited_through_nested_containers_and_a_parse_block() -> None:
+    """The nearest enclosing anchor reaches a nested parsed block and a leaf beneath a plain container."""
+    nested = [
+        {"type": "panel", "parse_block": True, "children": [TWO_TEXTS[0]]},
+        {"type": "split", "children": [[TWO_TEXTS[1]], [{"type": "text", "content": "Right"}]]},
+    ]
+    recorder = draw([{"type": "stack", "anchor": "foot", "children": nested}])
+    assert [(b.kind, b.path, b.anchor) for b in recorder.block_records()] == [
+        ("panel", "body[0].children[0]", "foot"),
+        ("text", "body[0].children[1].children[0][0]", "foot"),
+        ("text", "body[0].children[1].children[1][0]", "foot"),
+    ]
+
+
+def test_a_real_invoice_footer_records_its_anchor() -> None:
+    """On a real layout's distractor render the footer band's blocks carry `anchor: foot`."""
+    entry = entry_per_layout("invoice")["tax_invoice_standard"]
+    geometry: dict = {}
+    render_entry("invoice", entry, distractors=True, geometry_out=geometry)
+    inked = {record.block for record in geometry["ink"]}
+    assert any(b.anchor == "foot" and b.id in inked for b in geometry["blocks"])
+    assert any(b.anchor is None for b in geometry["blocks"])
+
+
 def test_a_gated_off_block_records_nothing() -> None:
     """A block whose `when:` key is absent is never drawn, so it opens no scope."""
     recorder = draw([{**LEAVES["text"], "when": "PAYER_NAME"}, {"type": "text", "content": "Shown"}])
