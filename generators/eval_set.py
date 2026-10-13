@@ -67,6 +67,7 @@ _REQUIRED_KEYS: dict[str, str] = {
         "degraded: degraded}"
     ),
     "geometry_dir": "geometry_dir: geometry",
+    "parsing_dir": "parsing_dir: parsing",
     "document_types": "document_types: [bank_statements, invoices, receipts] (keys of the top-level "
     "document_types block)",
     "csv_name": "csv_name: ground_truth.csv",

@@ -20,6 +20,7 @@ key, so an extraction that disagrees with it misread the page.
 | `$labelled_varied_dir/` | The distractor pages with the labels beside BUSINESS_ABN, GST_AMOUNT and TOTAL_AMOUNT varied or removed (section 4). Distractor against labelled varied isolates the label effect. |
 | `$degraded_dir/` | Each distractor receipt photographed at $tier_count severity tiers: $tier_list. Receipts only, because receipts are the documents people photograph; statements and invoices arrive as clean PDFs or printouts. |
 | `$geometry_dir/` | The bounding box of every scored field on the three clean halves, one JSON line per image. |
+| `$parsing_dir/` | Parsing ground truth: every image of every half as an OmniDocBench page (section 8). |
 | `tools/` | A verifier, a preflight check and a scoring notebook (sections 5 and 6). |
 | `MANIFEST.json`, `SHA256SUMS` | What the snapshot holds, and the SHA-256 of every file (section 6). |
 
@@ -85,8 +86,8 @@ $style_table
 
 ## 5. Running a model and scoring it
 
-- **Give the model the images only.** The answer key, the sidecar and the geometry stay with the scorer.
-  Ask for the fields of section 2, in the formats of section 2.
+- **Give the model the images only.** The answer key, the sidecar, the geometry and the parsing pages
+  stay with the scorer. Ask for the fields of section 2, in the formats of section 2.
 - **Clean halves:** join on the filename, `CASE001_invoice.png` and so on, which is the same in all three
   clean halves. Filenames name the case and the document type, never the visual template.
 - **Degraded half:** filenames carry the tier suffix (`CASE001_receipt_$light_suffix.png`). Strip the
@@ -141,3 +142,23 @@ Two scores are comparable only when both were computed on this snapshot. Another
 different documents, not merely a different copy of these, even where its filenames coincide with these.
 Record the snapshot's name, `$snapshot_dir`, beside every score, and re-run a model on this snapshot
 rather than reuse a score from another.
+
+## 8. Parsing ground truth
+
+`$parsing_dir/` holds a second answer key, for parsing a whole page rather than reading named fields:
+$parsing_files, one per half. Each is a JSON list in the OmniDocBench ground-truth format, one page per
+image of its half, sorted by `page_info.image_path`. That path is the image's path relative to this
+directory (for example `$plain_dir/CASE001_invoice.png`), so the files hold wherever the snapshot is
+unpacked. Each page lists its blocks under `layout_dets`: category, polygon, reading order, and the text
+(a table as HTML). `page_info.page_attribute` names the page's document type, its layout as an opaque
+key (`invoice_layout_2` and so on, the same key for every page drawn from one layout), its half, its
+degradation tier (`none` on a clean half) and `layout_scored`.
+
+Score parsing output with the OmniDocBench evaluator, $evaluator_repository, at commit
+`$evaluator_commit`, whose format these pages follow. The metrics that apply are text edit distance,
+table TEDS (with table edit distance beside it) and reading-order edit distance. No page carries a
+formula, so no formula metric applies, and OmniDocBench's overall score, which includes one, is not
+reported.
+
+Every page of the three clean halves counts for layout detection (its `layout_scored` is true); in
+`$degraded_dir/`, $layout_tiers.$excluded_tiers

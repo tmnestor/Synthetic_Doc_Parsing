@@ -296,6 +296,8 @@ def test_the_sidecar_is_read_by_nothing_that_reaches_the_ground_truth() -> None:
 
 _LEAKS = re.compile(r'LABEL_|label_styles|labelled_varied|unlabelled|"(styles|refusals|style|wording)"\s*:')
 _STYLE_CELL = re.compile(r'(^|[,"])(labelled|variant|unlabelled)([,"]|$)')
+# A parsing page names its own half twice by design: its `half` attribute and its image's directory.
+_HALF_NAMED = re.compile(r'"half": "labelled_varied"|"image_path": "labelled_varied_\d{8}/')
 
 
 def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Path) -> None:
@@ -305,7 +307,8 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
     The snapshot's own labelled varied sidecar is metadata beside the ground truth, and its README,
     MANIFEST.json and the PROVENANCE.json beside it document the snapshot, naming the labelled varied
     half (its style counts, or its density metrics) by design; none of the four is scanned. Every other
-    file the export writes is."""
+    file the export writes is, the parsing pages with only their own half's name in `half` and
+    `image_path` set aside."""
     from generators.snapshot.export import export_snapshot
     from tests.eval_export_tools import clean_state
 
@@ -337,8 +340,12 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
         and f.name not in {SIDECAR_NAME, "README.md", "MANIFEST.json", "PROVENANCE.json"}
     ]
     assert len(scanned) >= 5 and any(f.parent.name == "derived" for f in scanned), scanned
+    (parsing_dir,) = (tmp_path / "out").glob(f"*/{data['eval_set']['parsing_dir']}")
+    assert len(list(parsing_dir.glob("*.json"))) == 4, parsing_dir
     for path in scanned:
         for number, line in enumerate(path.read_text().splitlines(), 1):
+            if path.parent == parsing_dir:
+                line = _HALF_NAMED.sub("", line)
             assert not _LEAKS.search(line), (path, number, line[:200])
             assert not _STYLE_CELL.search(line), (path, number, line[:200])
 

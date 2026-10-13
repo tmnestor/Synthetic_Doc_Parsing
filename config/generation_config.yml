@@ -93,7 +93,8 @@ derived_formats:
 # plain (no distractors), distractor (the same pages with them), labelled_varied (those pages with their
 # ABN, GST and total labels varied, plus label_styles.jsonl) and degraded (each distractor receipt at
 # every receipt_degradation tier). The three clean halves share generic {case}_{document_type}.png names
-# and byte-identical ground truth; <geometry_dir>/ holds their scored-field boxes. output_root is
+# and byte-identical ground truth; <geometry_dir>/ holds their scored-field boxes and <parsing_dir>/
+# every half's OmniDocBench parsing ground truth. output_root is
 # resolved against the repository root, must lie outside it and must already exist. A snapshot of the
 # same name is replaced. Every key is required; the export fails fast on any omission.
 eval_set:
@@ -105,6 +106,9 @@ eval_set:
     labelled_varied: labelled_varied
     degraded: degraded
   geometry_dir: geometry
+  # The snapshot's parsing ground truth: <parsing_dir>/<half prefix>.json, one OmniDocBench page per
+  # image of that half (config/parsing_config.yml names the evaluator and the tiers scored for layout).
+  parsing_dir: parsing
   # config/extraction_schema.yml declares exactly these three document types, the whole corpus.
   document_types: [bank_statements, invoices, receipts]
   csv_name: ground_truth.csv

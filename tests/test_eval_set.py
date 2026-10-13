@@ -54,6 +54,7 @@ REQUIRED_KEYS = [
     "snapshot_dir_prefix",
     "half_prefixes",
     "geometry_dir",
+    "parsing_dir",
     "document_types",
     "csv_name",
     "jsonl_name",
@@ -257,14 +258,15 @@ def test_write_jsonl_preserves_field_order(tmp_path: Path) -> None:
 
 
 def test_export_creates_dated_half_directories(export: SnapshotSummary) -> None:
-    """One directory per declared half prefix, plus the geometry and tools directories and the README,
-    manifest and checksum files, inside the dated snapshot.
+    """One directory per declared half prefix, plus the geometry, parsing and tools directories and the
+    README, manifest and checksum files, inside the dated snapshot.
 
     Expected names are derived from the configured prefixes, so renaming a half does not require editing
     a list here.
     """
     expected = {f"{EVAL_CFG['half_prefixes'][half]}_{STAMP}" for half in HALVES} | {
         EVAL_CFG["geometry_dir"],
+        EVAL_CFG["parsing_dir"],
         "tools",
         "README.md",
         "MANIFEST.json",

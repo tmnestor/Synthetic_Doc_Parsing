@@ -8,6 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from generators.labels.keys import LABEL_STYLES
+from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
 from generators.snapshot.config import HALVES
 from generators.snapshot.export import SHIPPED_NOTEBOOK, SnapshotSummary
 from generators.snapshot.manifest import (
@@ -43,6 +44,7 @@ PUBLIC_KEYS = (
     "halves",
     "label_refusal_counts",
     "label_style_counts",
+    "parsing",
     "snapshot_date",
     "snapshot_dir",
 )
@@ -98,6 +100,28 @@ def test_the_manifest_says_what_the_snapshot_holds_and_nothing_about_how_it_was_
     assert manifest["snapshot_date"] == f"{STAMP[:4]}-{STAMP[4:6]}-{STAMP[6:]}"
     assert manifest["snapshot_dir"] == export.path.name
     assert FAKE_STATE.commit not in (export.path / MANIFEST_NAME).read_text()
+
+
+def test_the_parsing_files_are_hashed_and_described(export: SnapshotSummary) -> None:
+    """The four parsing files are in the files map and SHA256SUMS like every other file, and the
+    manifest names them, the evaluator they target and the tiers scored for layout."""
+    manifest = _manifest(export)
+    sums = (export.path / CHECKSUMS_NAME).read_text()
+    parsing = load_parsing_config(PARSING_CONFIG_PATH)
+    expected = {half: f"parsing/{half}.json" for half in HALVES}
+    for path in expected.values():
+        assert manifest["files"][path] == sha256_file(export.path / path), path
+        assert f"{manifest['files'][path]}  {path}\n" in sums, path
+    assert manifest["parsing"] == {
+        "dir": "parsing",
+        "evaluator": {
+            "commit": parsing.evaluator.commit,
+            "repository": parsing.evaluator.repo.removesuffix(".git"),
+        },
+        "fold_displacement_max_px": parsing.fold_displacement_max_px,
+        "layout_scored_tiers": list(parsing.layout_scored_tiers),
+        "pages": expected,
+    }
 
 
 def test_the_provenance_record_sits_beside_the_snapshot(export: SnapshotSummary) -> None:

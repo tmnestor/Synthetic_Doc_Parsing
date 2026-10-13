@@ -77,6 +77,16 @@ def test_one_flipped_byte_in_an_image_fails(copy: Path) -> None:
     assert result.returncode == 1 and relative in result.stderr
 
 
+def test_one_flipped_byte_in_a_parsing_file_fails(copy: Path) -> None:
+    target = copy / "parsing" / "degraded.json"
+    data = bytearray(target.read_bytes())
+    data[len(data) // 2] ^= 0x01
+    target.write_bytes(bytes(data))
+    assert verify(copy) == ["changed file: parsing/degraded.json"]
+    result = _run(copy)
+    assert result.returncode == 1 and "parsing/degraded.json" in result.stderr
+
+
 def test_a_dirty_snapshot_verifies_on_its_own_and_ships_no_patch(
     dirty_export: tuple[SnapshotSummary, Path], tmp_path: Path
 ) -> None:

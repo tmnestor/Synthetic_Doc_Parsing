@@ -3,7 +3,8 @@ snapshot its provenance record names.
 
 The README is published with the snapshot to readers who never see the repository, so it says what the
 data is and how to use it, never how it was produced. Every count and date in it is filled from the
-manifest (without its `files` map, since the README is itself one of the files hashed). The field
+manifest (without its `files` map, since the README is itself one of the files hashed), and so are the
+parsing files, the evaluator commit they target and the tiers that count for layout detection. The field
 definitions come from the required `field_descriptions:` block of `config/extraction_schema.yml`
 (Decision 13). The commits since the latest earlier snapshot go into the provenance record, not the
 README (Decision 14).
@@ -197,6 +198,45 @@ def _fill(template: str, values: dict[str, str]) -> str:
         ) from err
 
 
+def _joined(names: list[str]) -> str:
+    """`a`, `a and b`, `a, b and c`."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _layout_tiers(tiers: list[str], scored: list[str], fold_max_px: int) -> tuple[str, str]:
+    """Say which degradation tiers count for layout detection, and why any other does not.
+
+    Args:
+        tiers: Every degradation tier's name, in declared order.
+        scored: The tiers whose pages count for layout detection.
+        fold_max_px: The largest fold displacement a scored tier may show, in pixels.
+
+    Returns:
+        (the clause naming the scored tiers, the sentence on the tiers left out, with a leading space,
+        or empty when none is).
+    """
+    counted = [name for name in tiers if name in scored]
+    left_out = [name for name in tiers if name not in scored]
+    if not left_out:
+        return "every degradation tier counts for layout detection", ""
+    if not counted:
+        clause = "no degradation tier counts for layout detection"
+    else:
+        noun, verb = ("tier", "counts") if len(counted) == 1 else ("tiers", "count")
+        clause = f"only the {_joined(counted)} {noun} {verb} for layout detection"
+    noun, verb, its, moves = (
+        ("tier", "does", "its fold", "moves")
+        if len(left_out) == 1
+        else ("tiers", "do", "their folds", "move")
+    )
+    excluded = (
+        f" The {_joined(left_out)} {noun} {verb} not: {its} {moves} ink by more than {fold_max_px} pixels, "
+        "further than a block's polygon can follow, so those pages are scored for text, tables and reading "
+        "order only."
+    )
+    return clause, excluded
+
+
 def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
     """Generate the README from the manifest (without its `files` map).
 
@@ -232,6 +272,13 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
         for field, styles in per_field.items()
     ]
     tiers = manifest["degradation_tiers"]
+    parsing = manifest["parsing"]
+    layout_tiers, excluded_tiers = _layout_tiers(
+        [tier["name"] for tier in tiers],
+        parsing["layout_scored_tiers"],
+        parsing["fold_displacement_max_px"],
+    )
+    parsing_files = [f"`{parsing['pages'][half]}`" for half in HALVES]
     values = {
         "snapshot_dir": manifest["snapshot_dir"],
         "snapshot_date": manifest["snapshot_date"],
@@ -251,5 +298,11 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
         "field_count": str(len(descriptions)),
         "field_table": _table(["Field", "Document types", "Definition"], field_rows),
         "style_table": _table(["Document type", "Field", *LABEL_STYLES], style_rows),
+        "parsing_dir": parsing["dir"],
+        "parsing_files": _joined(parsing_files),
+        "evaluator_repository": parsing["evaluator"]["repository"],
+        "evaluator_commit": parsing["evaluator"]["commit"],
+        "layout_tiers": layout_tiers,
+        "excluded_tiers": excluded_tiers,
     }
     return _fill(TEMPLATE_PATH.read_text(), values)

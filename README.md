@@ -44,10 +44,10 @@ python -m generators.pipeline derive
 
 # Export the deliverable: one dated snapshot, ../evaluation_data/snapshot_<YYYYMMDD>/, ready to
 # upload as is. Four paired halves of 165 images each (plain, distractor, labelled_varied, degraded),
-# the clean halves' geometry, the tools, a README generated from MANIFEST.json, and SHA256SUMS. What
-# produced it (commit, input hashes, any working-tree patch) goes beside it, in
-# snapshot_<YYYYMMDD>.provenance/, which is never uploaded. Run validate first. A snapshot of the
-# same date is replaced.
+# the clean halves' geometry, every half's OmniDocBench parsing ground truth, the tools, a README
+# generated from MANIFEST.json, and SHA256SUMS. What produced it (commit, input hashes, any
+# working-tree patch) goes beside it, in snapshot_<YYYYMMDD>.provenance/, which is never uploaded.
+# Run validate first. A snapshot of the same date is replaced.
 python -m generators.pipeline eval-set
 
 # Check a snapshot against its own manifest (standard library only; also runs on the receiving host).
@@ -64,7 +64,7 @@ today's date:
 ```
 snapshot_<YYYYMMDD>/
   README.md                    generated from the manifest, for a reader with no repository access
-  MANIFEST.json                date, halves, counts, tiers, label-style counts, every SHA-256
+  MANIFEST.json                date, halves, counts, tiers, label-style counts, parsing files, every SHA-256
   SHA256SUMS                   the same hashes, for `shasum -a 256 -c SHA256SUMS`
   tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
   plain_<YYYYMMDD>/            165 images, 3 types, ground_truth.csv and .jsonl
@@ -72,6 +72,8 @@ snapshot_<YYYYMMDD>/
   labelled_varied_<YYYYMMDD>/  the same again, labels varied, plus label_styles.jsonl
   degraded_<YYYYMMDD>/         55 distractor receipts x 3 tiers, their own ground truth
   geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl (scored boxes)
+  parsing/                     plain.json, distractor.json, labelled_varied.json, degraded.json: one
+                               OmniDocBench page per image, for the evaluator commit the README names
 snapshot_<YYYYMMDD>.provenance/
   PROVENANCE.json              commit, dirty flag and changes, input hashes, library versions, metrics,
                                MANIFEST.json's own SHA-256, and the earlier snapshot it follows

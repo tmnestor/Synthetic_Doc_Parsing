@@ -611,8 +611,9 @@ def eval_set(
     labelled varied halves (every case of every type under the same generic filenames, with
     byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
     `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
-    label_styles.jsonl, the scored-field geometry of the three clean halves, the tools, a README
-    generated from the manifest, MANIFEST.json and SHA256SUMS. The snapshot says nothing about how it
+    label_styles.jsonl, the scored-field geometry of the three clean halves, every half's OmniDocBench
+    parsing ground truth, the tools, a README generated from the manifest, MANIFEST.json and SHA256SUMS.
+    The snapshot says nothing about how it
     was produced and is refused if it names a term under `eval_set.forbidden_terms`; that is written
     beside it, in `<snapshot dir>.<provenance_suffix>/` (PROVENANCE.json, and working_tree.patch when
     the tree was modified, which is recorded rather than refused). A tree changed during the export is
@@ -621,6 +622,7 @@ def eval_set(
     """
     from generators.degradation.tiers import TierConfigError
     from generators.drawn_fields import DrawnFieldsError
+    from generators.parsing.config import ParsingConfigError
     from generators.snapshot.config import HALVES
     from generators.snapshot.export import SnapshotError, export_snapshot
     from generators.snapshot.repo_state import RepoStateError
@@ -632,6 +634,7 @@ def eval_set(
         SnapshotError,
         TierConfigError,
         DrawnFieldsError,
+        ParsingConfigError,
     )
     try:
         summary = export_snapshot(config)

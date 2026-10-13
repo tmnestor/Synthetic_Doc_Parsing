@@ -6,6 +6,7 @@ render's checks passed (the export refuses on any failure, so a published snapsh
 density reports show every render was measured), and the snapshot verifying against its own manifest.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -40,6 +41,17 @@ def test_the_full_corpus_exports_four_halves_of_165(full: SnapshotSummary) -> No
     for half in CLEAN:
         assert full.counts[half] == {"bank_statement": 55, "invoice": 55, "receipt": 55}, half
     assert full.counts["degraded"] == {"receipt": 165}
+
+
+def test_every_parsing_file_holds_165_pages(full: SnapshotSummary) -> None:
+    """One OmniDocBench page per image of each half, every one checked before the export published."""
+    for half in HALVES:
+        pages = json.loads((full.path / "parsing" / f"{half}.json").read_text())
+        assert len(pages) == 165, half
+        paths = [page["page_info"]["image_path"] for page in pages]
+        assert paths == sorted(
+            f"{full.half_dirs[half].name}/{p.name}" for p in full.half_dirs[half].glob("*.png")
+        )
 
 
 def test_the_eval_format_baseline_holds_on_the_plain_half(full: SnapshotSummary) -> None:

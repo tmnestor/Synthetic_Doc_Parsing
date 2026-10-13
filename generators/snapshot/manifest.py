@@ -2,8 +2,8 @@
 
 The snapshot is published as is, to readers who never see the repository, so its manifest says what the
 snapshot holds and nothing about how it was produced: each half's directory and counts, the degradation
-tiers, the ground-truth and geometry names, the label-style and refusal counts from the sidecar, and the
-SHA-256 of every file except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is POSIX and
+tiers, the ground-truth and geometry names, the label-style and refusal counts from the sidecar, the
+parsing files with the evaluator commit they target and the tiers scored for layout, and the SHA-256 of every file except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is POSIX and
 relative to the snapshot root. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads
 (Decision 10).
 
@@ -203,6 +203,16 @@ def describe_snapshot(summary: SnapshotSummary) -> dict:
         "halves": {half: directory.name for half, directory in summary.half_dirs.items()},
         "label_refusal_counts": refusal_counts,
         "label_style_counts": style_counts,
+        "parsing": {
+            "dir": summary.parsing.directory,
+            "evaluator": {
+                "commit": summary.parsing.evaluator_commit,
+                "repository": summary.parsing.evaluator_repository,
+            },
+            "fold_displacement_max_px": summary.parsing.fold_displacement_max_px,
+            "layout_scored_tiers": list(summary.parsing.layout_scored_tiers),
+            "pages": dict(summary.parsing.pages),
+        },
         "snapshot_date": _snapshot_date(summary),
         "snapshot_dir": summary.path.name,
     }

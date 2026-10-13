@@ -21,12 +21,18 @@ from generators import abn_register
 from generators.degradation import degrade_receipt, load_tiers, tier_seed
 from generators.drawn_fields import DrawnFieldsCheck
 from generators.exporters.eval_projection import load_extraction_schema
+from generators.labels.config import load_label_config
+from generators.labels.render import render_labelled_varied
 from generators.labels.sidecar import SIDECAR_NAME
+from generators.loader import load_ground_truth, load_layout_registry
 from generators.overflow_check import LABELLED_VARIED_MODE
+from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
+from generators.parsing.degraded import degraded_page
+from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.schema import field_names_for
 from generators.snapshot import export as export_module
 from generators.snapshot.config import HALVES, load_snapshot_config, resolve_output_root
-from generators.snapshot.export import SnapshotError, SnapshotSummary, export_snapshot
+from generators.snapshot.export import SnapshotError, SnapshotSummary, export_snapshot, opaque_layout_keys
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.snapshot.git_tools import EXPECTED_STATUS, apply_to_clone, tree_files
@@ -47,6 +53,7 @@ SCHEMA = load_extraction_schema()
 CLEAN = ("plain", "distractor", "labelled_varied")
 TIERS = load_tiers(CONFIG_PATH)
 TYPE_KEYS = {"bank_statement": "bank_statements", "invoice": "invoices", "receipt": "receipts"}
+PARSING = load_parsing_config(PARSING_CONFIG_PATH)
 
 
 def _listing(root: Path) -> dict[str, bytes]:
@@ -75,6 +82,7 @@ def test_the_shipped_config_loads() -> None:
     assert config.output_root == (REPO_ROOT / "../evaluation_data").resolve()
     assert config.half_prefixes == {half: half for half in HALVES}
     assert config.snapshot_dir_prefix == "snapshot" and config.geometry_dir == "geometry"
+    assert config.parsing_dir == "parsing"
 
 
 def _bad(key: str, value: object) -> Callable[[dict], None]:
@@ -92,6 +100,8 @@ def _bad(key: str, value: object) -> Callable[[dict], None]:
         ("snapshot_dir_prefix", "", "eval_set.snapshot_dir_prefix"),
         ("geometry_dir", "..", "eval_set.geometry_dir"),
         ("geometry_dir", ["geometry"], "eval_set.geometry_dir"),
+        ("parsing_dir", "nested/parsing", "eval_set.parsing_dir"),
+        ("parsing_dir", "", "eval_set.parsing_dir"),
         ("csv_name", "nested/ground_truth.csv", "eval_set.csv_name"),
         ("jsonl_name", 3, "eval_set.jsonl_name"),
         ("document_types", "receipts", "eval_set.document_types"),
@@ -122,6 +132,18 @@ def test_a_mistyped_or_empty_key_is_refused(tmp_path: Path, key: str, value: obj
         load_snapshot_config(path)
     assert_diagnostic_error(err.value)
     assert named in str(err.value) and str(path.resolve()) in str(err.value)
+
+
+def test_a_missing_parsing_dir_is_refused(tmp_path: Path) -> None:
+    def drop(config: dict) -> None:
+        del config["eval_set"]["parsing_dir"]
+
+    path = scratch_config(tmp_path, mutate=drop)
+    with pytest.raises(ValueError) as err:
+        load_snapshot_config(path)
+    assert_diagnostic_error(err.value)
+    message = str(err.value)
+    assert f"{path.resolve()} -> eval_set.parsing_dir" in message and "parsing_dir: parsing" in message
 
 
 def test_a_stale_block_holding_only_superseded_keys_is_told_so(tmp_path: Path) -> None:
@@ -248,6 +270,7 @@ def test_the_file_set_is_exactly_the_layout(export: SnapshotSummary) -> None:
     stamp_dirs = {f"{half}_{STAMP}" for half in HALVES}
     expected = set(stamp_dirs) | {"geometry", "geometry/plain.jsonl", "geometry/distractor.jsonl"}
     expected |= {"geometry/labelled_varied.jsonl", f"labelled_varied_{STAMP}/{SIDECAR_NAME}"}
+    expected |= {"parsing", *(f"parsing/{half}.json" for half in HALVES)}
     expected |= {"README.md", "MANIFEST.json", "SHA256SUMS", "tools", "tools/verify_snapshot.py"}
     expected |= {"tools/check_extractions_match_gt.py", "tools/score_extractions.ipynb"}
     for half in HALVES:
@@ -272,6 +295,140 @@ def test_geometry_holds_scored_boxes_only_under_generic_filenames(export: Snapsh
             assert row["boxes"], row["image_file"]
             for key in row["boxes"]:
                 assert re.sub(r"\[\d+\]$", "", key) in scored, (half, row["image_file"], key)
+
+
+def _pages(export: SnapshotSummary, half: str) -> list[dict]:
+    return json.loads((export.path / "parsing" / f"{half}.json").read_text())
+
+
+def test_four_parsing_files_hold_one_page_per_image_of_their_half(export: SnapshotSummary) -> None:
+    """Each page's image_path is relative to the snapshot root, so the files hold wherever it is unpacked."""
+    for half in HALVES:
+        directory = export.half_dirs[half]
+        pages = _pages(export, half)
+        paths = [page["page_info"]["image_path"] for page in pages]
+        assert paths == sorted(f"{directory.name}/{p.name}" for p in directory.glob("*.png")), half
+        for page in pages:
+            info = page["page_info"]
+            assert (export.path / info["image_path"]).is_file()
+            with Image.open(export.path / info["image_path"]) as image:
+                assert (info["width"], info["height"]) == image.size, info["image_path"]
+            attribute = info["page_attribute"]
+            assert attribute["half"] == half
+            if half == "degraded":
+                assert attribute["tier"] in {tier.name for tier in TIERS}
+                assert attribute["layout_scored"] is (attribute["tier"] in PARSING.layout_scored_tiers)
+            else:
+                assert attribute["tier"] == "none" and attribute["layout_scored"] is True
+
+
+def _renders(case_id: str, dtype: str) -> tuple[dict, dict[str, dict], str, str, str]:
+    """Render one case again as the export renders it: (entry, half -> geometry, layout id, the opaque
+    layout key the snapshot publishes for it, canonical type).
+
+    The key is worked out here by its rule (`<doc_type>_layout_<n>`, n from 1 over the type's sorted
+    layout ids) rather than through `opaque_layout_keys`, so the two derivations check each other."""
+    from generators.pipeline import _RENDERERS
+
+    config = yaml.safe_load(CONFIG_PATH.read_text())["document_types"][dtype]
+    entry = load_ground_truth(REPO_ROOT / config["ground_truth"])[case_id]
+    layout_id = str(entry["layout"])
+    registry = load_layout_registry(REPO_ROOT / config["layouts"])
+    layout = registry[layout_id]
+    renderer = _RENDERERS[dtype]
+    canonical = SCHEMA.resolve_doc_type(dtype)
+    geometries: dict[str, dict] = {"plain": {}, "distractor": {}, "labelled_varied": {}}
+    fresh = {**entry, "case_id": case_id}
+    renderer(dict(fresh), layout, distractors=False, geometry_out=geometries["plain"])
+    renderer(dict(fresh), layout, distractors=True, geometry_out=geometries["distractor"])
+    render_labelled_varied(
+        renderer,
+        dict(fresh),
+        layout,
+        doc_type=canonical,
+        config=load_label_config(),
+        geometry_out=geometries["labelled_varied"],
+    )
+    layout_key = f"{canonical}_layout_{sorted(registry).index(layout_id) + 1}"
+    return entry, geometries, layout_id, layout_key, canonical
+
+
+def test_every_parsing_page_is_built_from_its_render_and_passes_check_page(export: SnapshotSummary) -> None:
+    """Each clean page is `build_page` of the render that shipped, each degraded page `degraded_page` of
+    the distractor render, and every one keeps the invariants `check_page` checks."""
+    shipped = {page["page_info"]["image_path"]: page for half in HALVES for page in _pages(export, half)}
+    checked = 0
+    for name in sorted(p.name for p in export.half_dirs["plain"].glob("*.png")):
+        case_id, doc_type = name.removesuffix(".png").split("_", 1)
+        entry, geometries, layout_id, layout_key, canonical = _renders(case_id, TYPE_KEYS[doc_type])
+        for half in CLEAN:
+            path = f"{export.half_dirs[half].name}/{name}"
+            context = PageContext(path, canonical, layout_key, half, "none", True)
+            assert shipped[path] == build_page(geometries[half], context=context, config=PARSING), path
+            where = page_where(case_id, layout_id, half)
+            assert check_page(shipped[path], geometries[half], where=where, config=PARSING) == [], path
+            checked += 1
+        if canonical != "receipt":
+            continue
+        distractor = Image.open(export.half_dirs["distractor"] / name).convert("RGB")
+        for index, tier in enumerate(TIERS):
+            path = f"{export.half_dirs['degraded'].name}/{name.removesuffix('.png')}_{tier.suffix}.png"
+            page = shipped[path]
+            where = page_where(case_id, layout_id, f"degraded {tier.name}")
+            assert check_page(page, geometries["distractor"], where=where, config=PARSING) == [], path
+            if tier.name in PARSING.layout_scored_tiers:  # heavy is not bit-reproducible (Decision 1)
+                _, expected = degraded_page(
+                    distractor,
+                    geometries["distractor"],
+                    tier=tier,
+                    seed=tier_seed(int(entry["degradation_seed"]), index),
+                    image_path=path,
+                    doc_type=canonical,
+                    layout_id=layout_key,
+                    config=PARSING,
+                )
+                assert page == expected, path
+            checked += 1
+    assert checked == len(shipped)
+
+
+def test_opaque_layout_keys_count_from_one_over_sorted_ids() -> None:
+    assert opaque_layout_keys("invoice", ["zeta_form", "alpha_form"]) == {
+        "alpha_form": "invoice_layout_1",
+        "zeta_form": "invoice_layout_2",
+    }
+
+
+def test_no_parsing_file_names_a_layout_or_a_bank(export: SnapshotSummary) -> None:
+    """A published page carries the opaque layout key, never a layout id nor the real bank some bank
+    layouts imitate (the README test's rule, applied to the parsing files).
+
+    Everything a page says about itself is scanned. Its `text` and `html` are set aside: they transcribe
+    what the image prints, and a bank statement prints its bank's name."""
+    registries = {
+        name: yaml.safe_load((REPO_ROOT / "config" / "layouts" / f"{name}.yml").read_text())["layouts"]
+        for name in ("bank_statements", "invoices", "receipts")
+    }
+
+    def described(page: dict) -> dict:
+        dets = [{k: v for k, v in det.items() if k not in ("text", "html")} for det in page["layout_dets"]]
+        return {**page, "layout_dets": dets}
+
+    texts = {
+        half: json.dumps([described(page) for page in _pages(export, half)]).lower() for half in HALVES
+    }
+    for name, registry in registries.items():
+        for layout_id in registry:
+            for half, text in texts.items():
+                assert layout_id not in text, (half, layout_id)
+                if name == "bank_statements":
+                    assert not re.search(rf"\b{layout_id.split('_')[0]}\b", text), (half, layout_id)
+    keys = {
+        page["page_info"]["page_attribute"]["layout_id"] for half in HALVES for page in _pages(export, half)
+    }
+    assert keys and all(
+        re.fullmatch(r"(bank_statement|invoice|receipt)_layout_\d+", key) for key in keys
+    ), keys
 
 
 def test_nothing_leaks_into_the_snapshot(export: SnapshotSummary) -> None:
@@ -343,7 +500,7 @@ def test_a_mid_export_failure_leaves_no_staging_directory(
     def broken(*args: object, **kwargs: object) -> None:
         raise RuntimeError("invented interruption")
 
-    monkeypatch.setattr(export_module, "degrade_receipt", broken)
+    monkeypatch.setattr(export_module, "degraded_page", broken)
     with pytest.raises(RuntimeError, match="invented interruption"):
         _export(config)
     assert _entries(root) == []
@@ -527,6 +684,29 @@ def test_a_drawn_field_failure_on_a_labelled_varied_render_refuses(
     assert _entries(root) == []
 
 
+def test_a_parsing_page_breaking_an_invariant_refuses_the_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad page is collected like any other failed check, and nothing is published."""
+    checked: list[str] = []
+
+    def failing(page: dict, geometry: dict, *, where: str, config: object) -> list[str]:
+        checked.append(where)
+        return [f"{where}: invented parsing invariant failure"] if "degraded" in where else []
+
+    monkeypatch.setattr(export_module, "check_page", failing)
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    with pytest.raises(SnapshotError) as err:
+        _export(config)
+    assert_diagnostic_error(err.value)
+    message = str(err.value)
+    assert "while rendering" in message and "invented parsing invariant failure" in message
+    assert f"{len(TIERS)} check failure(s)" in message
+    assert len(checked) == len(CLEAN) + len(TIERS)
+    assert _entries(root) == []
+
+
 def _seed_earlier(root: Path) -> Path:
     stale = root / f"snapshot_{STAMP}" / "stale.txt"
     stale.parent.mkdir()
@@ -565,7 +745,7 @@ def test_a_failed_run_leaves_the_earlier_snapshot_intact(
     def broken(*args: object, **kwargs: object) -> None:
         raise RuntimeError("invented interruption")
 
-    monkeypatch.setattr(export_module, "degrade_receipt", broken)
+    monkeypatch.setattr(export_module, "degraded_page", broken)
     with pytest.raises(RuntimeError, match="invented interruption"):
         _export(config)
     assert stale.read_text() == "earlier"

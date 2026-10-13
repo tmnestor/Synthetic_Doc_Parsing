@@ -91,6 +91,9 @@ Numbered so reviews can cite them.
 9. **Page attributes.** `page_info.page_attribute` carries `language: en` plus this corpus's own keys:
    `doc_type`, `layout_id`, `half`, `tier` (`none` for clean halves) and `layout_scored` (Decision 11).
    OmniDocBench's `data_source` and `layout` vocabularies describe other genres and are not used.
+   In the snapshot, `layout_id` carries an opaque key, `<doc_type>_layout_<n>` (n from 1 over the type's
+   sorted layout ids), since the published snapshot names no template and some layout ids name a real
+   bank; the probe keeps the real ids.
 10. **The evaluator is pinned, not vendored, and runs from its own env.** `config/parsing_config.yml` names
     the repository URL and commit; `scripts/omnidocbench_eval.py` clones it once into
     `<output_root>/tools/OmniDocBench` at that commit and refuses a checkout at any other commit.

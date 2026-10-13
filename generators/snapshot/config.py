@@ -33,6 +33,7 @@ SUPERSEDED_KEYS = {
 _NAME_KEYS = {
     "snapshot_dir_prefix": "snapshot_dir_prefix: snapshot",
     "geometry_dir": "geometry_dir: geometry",
+    "parsing_dir": "parsing_dir: parsing",
     "provenance_suffix": "provenance_suffix: provenance",
 }
 
@@ -49,6 +50,7 @@ class SnapshotConfig:
         snapshot_dir_prefix: The snapshot directory's name before its date stamp.
         half_prefixes: Half (one of `HALVES`) -> its directory name before the date stamp.
         geometry_dir: The name of the snapshot's geometry directory.
+        parsing_dir: The name of the snapshot's parsing ground-truth directory.
         document_types: Keys of the top-level `document_types` block to export, in order.
         csv_name: The ground-truth CSV file name written into each half.
         jsonl_name: The ground-truth JSONL file name written into each half.
@@ -62,6 +64,7 @@ class SnapshotConfig:
     snapshot_dir_prefix: str
     half_prefixes: dict[str, str]
     geometry_dir: str
+    parsing_dir: str
     document_types: tuple[str, ...]
     csv_name: str
     jsonl_name: str
@@ -235,6 +238,7 @@ def load_snapshot_config(config_path: Path) -> SnapshotConfig:
         snapshot_dir_prefix=str(cfg["snapshot_dir_prefix"]),
         half_prefixes=halves,
         geometry_dir=str(cfg["geometry_dir"]),
+        parsing_dir=str(cfg["parsing_dir"]),
         document_types=tuple(str(dtype) for dtype in cfg["document_types"]),
         csv_name=str(cfg["csv_name"]),
         jsonl_name=str(cfg["jsonl_name"]),

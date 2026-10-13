@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from generators.exporters.eval_projection import load_extraction_schema
+from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
 from generators.snapshot import readme as readme_module
 from generators.snapshot.export import SnapshotSummary
 from generators.snapshot.config import load_snapshot_config
@@ -38,6 +39,7 @@ SECTIONS = (
     "## 5. Running a model and scoring it",
     "## 6. Verifying what you downloaded",
     "## 7. Comparing scores",
+    "## 8. Parsing ground truth",
 )
 
 
@@ -82,6 +84,50 @@ def test_the_readme_says_nothing_about_how_the_snapshot_was_produced(export: Sna
     terms = load_snapshot_config(REPO_ROOT / "config" / "generation_config.yml").forbidden_terms
     assert terms, "no forbidden terms are declared, so this test proves nothing"
     assert find_forbidden(export.path, terms) == []
+
+
+def _section(text: str, heading: str) -> str:
+    return text[text.index(heading) :].split("\n## ", 1)[0]
+
+
+def test_the_parsing_section_names_the_files_the_evaluator_and_the_scored_tiers(
+    export: SnapshotSummary,
+) -> None:
+    """The section is generated from the manifest, which takes the evaluator and tiers from the parsing
+    configuration."""
+    parsing = load_parsing_config(PARSING_CONFIG_PATH)
+    manifest = _manifest(export)
+    text = _readme(export)
+    section = _section(text, "## 8. Parsing ground truth")
+    for path in manifest["parsing"]["pages"].values():
+        assert f"`{path}`" in section, path
+    assert "| `parsing/` |" in text
+    assert f"`{parsing.evaluator.commit}`" in section
+    assert parsing.evaluator.repo.removesuffix(".git") in section
+    for metric in ("text edit distance", "TEDS", "table edit distance", "reading-order edit distance"):
+        assert metric in section, metric
+    assert "overall" in section
+    scored = " and ".join(parsing.layout_scored_tiers)
+    assert f"the {scored} tiers count for layout detection" in section
+    tiers = [tier["name"] for tier in manifest["degradation_tiers"]]
+    excluded = [name for name in tiers if name not in parsing.layout_scored_tiers]
+    assert excluded == ["heavy"]
+    assert (
+        "The heavy tier does not: its fold moves ink by more than "
+        f"{parsing.fold_displacement_max_px} pixels"
+    ) in section
+
+
+def test_the_parsing_section_follows_the_manifest(export: SnapshotSummary) -> None:
+    """Every tier scored for layout: the section says so, and names no tier left out."""
+    manifest = _manifest(export)
+    names = [tier["name"] for tier in manifest["degradation_tiers"]]
+    manifest["parsing"]["layout_scored_tiers"] = names
+    manifest["parsing"]["evaluator"]["commit"] = "f" * 40
+    section = _section(render_readme(manifest, schema=SCHEMA), "## 8. Parsing ground truth")
+    assert f"`{'f' * 40}`" in section
+    assert "every degradation tier counts for layout detection" in section
+    assert "does not:" not in section
 
 
 def test_the_readme_describes_the_prediction_format(export: SnapshotSummary) -> None:

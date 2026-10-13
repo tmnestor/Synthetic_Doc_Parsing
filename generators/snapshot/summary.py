@@ -8,6 +8,27 @@ from generators.snapshot.repo_state import RepoState
 
 
 @dataclass(frozen=True)
+class ParsingSummary:
+    """The snapshot's parsing ground truth, as the manifest and the README describe it.
+
+    Attributes:
+        directory: The parsing directory's name inside the snapshot.
+        pages: Half -> its parsing file, relative to the snapshot root.
+        evaluator_repository: The evaluator's repository, as a web address.
+        evaluator_commit: The evaluator commit the pages target.
+        layout_scored_tiers: The degradation tiers whose pages count for layout detection.
+        fold_displacement_max_px: The largest fold displacement a tier scored for layout may show.
+    """
+
+    directory: str
+    pages: dict[str, str]
+    evaluator_repository: str
+    evaluator_commit: str
+    layout_scored_tiers: tuple[str, ...]
+    fold_displacement_max_px: int
+
+
+@dataclass(frozen=True)
 class SnapshotSummary:
     """What one export produced, for the command's report and the manifest.
 
@@ -25,6 +46,7 @@ class SnapshotSummary:
         geometry_dir: The name of the snapshot's geometry directory.
         csv_name: The ground-truth CSV file name in each half.
         jsonl_name: The ground-truth JSONL file name in each half.
+        parsing: The parsing ground truth written beside the halves.
         manifest_sha256: The SHA-256 of the published MANIFEST.json (empty until it is written).
         provenance_dir: The provenance directory written beside the snapshot (None until it is).
     """
@@ -40,6 +62,7 @@ class SnapshotSummary:
     geometry_dir: str
     csv_name: str
     jsonl_name: str
+    parsing: ParsingSummary
     manifest_sha256: str = ""
     provenance_dir: Path | None = None
 

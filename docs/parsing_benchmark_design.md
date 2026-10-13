@@ -97,6 +97,9 @@ a `parsing/` directory beside `geometry/`, named by a new key beside `geometry_d
 `config/generation_config.yml`, holding one JSON file per half: `plain.json`, `distractor.json`,
 `labelled_varied.json`, `degraded.json`. `MANIFEST.json`, `SHA256SUMS` and the generated README cover
 them. Images are not duplicated: each page's `page_info.image_path` points at the half's existing image.
+Since the snapshot names no template, and some layout ids name the real bank they imitate, a published
+page's `page_attribute.layout_id` is an opaque key, `<doc_type>_layout_<n>` with n counting from 1 over
+the type's sorted layout ids; the probe, which is never published, keeps the real ids.
 
 ### 4.2 Blocks
 

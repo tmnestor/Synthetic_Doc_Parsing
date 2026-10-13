@@ -8,13 +8,18 @@
                                  plus label_styles.jsonl (one row per image, sorted by image_file)
     degraded_<YYYYMMDD>/         each distractor receipt photographed at every declared tier
     geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl: scored boxes
+    parsing/                     plain.json, distractor.json, labelled_varied.json, degraded.json:
+                                 one OmniDocBench page per image of each half, sorted by image_path
     tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
     README.md                    generated from the manifest (generators/snapshot/readme.py)
     MANIFEST.json, SHA256SUMS    what the snapshot holds and every file's SHA-256 (snapshot/manifest.py)
 
-(directory names from `eval_set.half_prefixes` and `eval_set.geometry_dir`). The three clean halves
-share filenames and byte-identical ground truth, so pairing them is a direct join; degraded filenames
-carry their tier suffix and their own receipt-only ground truth.
+(directory names from `eval_set.half_prefixes`, `eval_set.geometry_dir` and `eval_set.parsing_dir`).
+The three clean halves share filenames and byte-identical ground truth, so pairing them is a direct
+join; degraded filenames carry their tier suffix and their own receipt-only ground truth. A parsing
+page's `image_path` is its image's path relative to the snapshot root, so the parsing files hold
+wherever the snapshot is unpacked, and its `layout_id` is an opaque key (`opaque_layout_keys`), never
+the layout's own id.
 
 The snapshot is published as is, so nothing in it says how it was produced. That is written beside it,
 in `<snapshot dir>.<eval_set.provenance_suffix>/`, which is never uploaded::
@@ -25,8 +30,8 @@ in `<snapshot dir>.<eval_set.provenance_suffix>/`, which is never uploaded::
 
 The order is fixed, and each step refuses before the next begins:
 
-1. The configuration and the README's field descriptions are checked and the output root resolved
-   (Decisions 3 and 13).
+1. The configuration, the parsing configuration and the README's field descriptions are checked and the
+   output root resolved (Decisions 3 and 13).
 2. The repository state is read: the commit, every changed or untracked path, and the patch. A modified
    tree is not refused (Decision 4, revised 9 October 2026); it is recorded.
 3. The cheap checks run on every entry and layout before anything is drawn: the entry schema, the bank
@@ -37,9 +42,11 @@ The order is fixed, and each step refuses before the next begins:
    staging directory `<root>/.<snapshot_dir_prefix>_<YYYYMMDD>.partial`. The density bounds are checked
    on every distractor and labelled varied render, the drawn-field guard on every plain and labelled
    varied render; overlay and unambiguity refusals are raised inside the renderers. Plain renders are
-   measured, never bounded. Every failure is collected, and any refuses the export as one.
-5. Ground truth, sidecar, geometry and tools are written; then the README, from the manifest without
-   its `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
+   measured, never bounded. Every render's OmniDocBench page is built from that render's own records
+   (`build_page`; a degraded page carries its polygons through the camera warp, `degraded_page`) and
+   checked (`check_page`). Every failure is collected, and any refuses the export as one.
+5. Ground truth, sidecar, geometry, parsing pages and tools are written; then the README, from the
+   manifest without its `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
 6. Every file name and non-image file in the staging directory is scanned for `eval_set.forbidden_terms`;
    one hit refuses the export. The provenance record (and the patch, when the tree was modified) is
    written into its own staging directory beside the snapshot's.
@@ -57,7 +64,7 @@ partial snapshot behind.
 
 import json
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -68,7 +75,7 @@ from PIL import Image
 from generators.bank_ledger import BankLedgerError, check_statement
 from generators.common import FitError
 from generators.content_engine import load_pools
-from generators.degradation import Tier, degrade_receipt, load_tiers, tier_seed
+from generators.degradation import Tier, load_tiers, tier_seed
 from generators.distractors.config import load_distractor_config
 from generators.distractors.density import DensityCheck, DensityReport, density_report
 from generators.distractors.paths import DISTRACTORS_PATH
@@ -92,6 +99,9 @@ from generators.layout_dsl.schema import LayoutSchemaError, validate_layout
 from generators.loader import REPO_ROOT, load_ground_truth, load_layout_registry
 from generators.overflow_check import LABELLED_VARIED_MODE, render_modes
 from generators.overlay.verify import OverlayError
+from generators.parsing.config import PARSING_CONFIG_PATH, ParsingConfig, load_parsing_config
+from generators.parsing.degraded import degraded_page
+from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.schema import field_names_for, validate_entry
 from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config
 from generators.snapshot.manifest import (
@@ -109,11 +119,18 @@ from generators.snapshot.manifest import (
 from generators.snapshot.publication import find_forbidden, refusal
 from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange, read_repo_state
-from generators.snapshot.summary import SnapshotSummary
+from generators.snapshot.summary import ParsingSummary, SnapshotSummary
 
 # The three halves rendered directly (the fourth, degraded, is made from the distractor render).
 CLEAN_HALVES = HALVES[:3]
 PLAIN, DISTRACTOR, LABELLED_VARIED, DEGRADED = HALVES
+
+# The tier of a clean half's parsing page (Decision 9), every one of which counts for layout detection.
+_CLEAN_TIER = "none"
+
+# The opaque layout key a published parsing page carries in place of the layout id, which may name a real
+# bank: `<document type>_layout_<n>`.
+_LAYOUT_KEY = "{doc_type}_layout_{n}"
 
 # The suffix of the staging directory beside the destination; it is a contract with the spec.
 _STAGING_SUFFIX = ".partial"
@@ -147,6 +164,7 @@ class _TypePlan:
     varied_drawn: DrawnFieldsCheck
     density: DensityCheck
     varied_density: DensityCheck
+    layout_keys: dict[str, str]
 
 
 @dataclass
@@ -157,11 +175,32 @@ class _Rendered:
     degraded_documents: list[dict] = field(default_factory=list)
     geometry: dict[str, list[dict]] = field(default_factory=lambda: {h: [] for h in CLEAN_HALVES})
     sidecar_rows: list[dict] = field(default_factory=list)
+    pages: dict[str, list[dict]] = field(default_factory=lambda: {h: [] for h in HALVES})
     density: dict[str, dict[str, DensityReport]] = field(
         default_factory=lambda: {h: {} for h in CLEAN_HALVES}
     )
     counts: dict[str, dict[str, int]] = field(default_factory=lambda: {h: {} for h in HALVES})
     failures: list[str] = field(default_factory=list)
+
+
+def opaque_layout_keys(doc_type: str, layout_ids: Iterable[str]) -> dict[str, str]:
+    """Map each layout id of one document type to the opaque key the snapshot publishes.
+
+    The snapshot names no template, and some layout ids name the real bank they imitate, so a published
+    parsing page's `layout_id` is `<doc_type>_layout_<n>`, n counting from 1 over the type's layout ids
+    in sorted order.
+
+    Args:
+        doc_type: The extraction-schema document type (`receipt`, ...).
+        layout_ids: Every layout id in the type's registry.
+
+    Returns:
+        Layout id -> its opaque key.
+    """
+    return {
+        layout_id: _LAYOUT_KEY.format(doc_type=doc_type, n=n)
+        for n, layout_id in enumerate(sorted(layout_ids), start=1)
+    }
 
 
 def _repo_path(value: str) -> Path:
@@ -333,6 +372,7 @@ def _plan_type(
         varied_density=DensityCheck(
             bounds, doc_type=canonical, config_path=DISTRACTORS_PATH, render=LABELLED_VARIED_MODE
         ),
+        layout_keys=opaque_layout_keys(canonical, layouts),
     )
 
 
@@ -366,6 +406,7 @@ def _render_type(
     half_dirs: dict[str, Path],
     tiers: list[Tier],
     label_config: LabelConfig,
+    parsing_config: ParsingConfig,
     out: _Rendered,
 ) -> None:
     """Render one type's cases into the staging halves, checking every render and collecting failures."""
@@ -423,6 +464,13 @@ def _render_type(
             out.geometry[half].append(_geometry_record(case_id, filename, geometry))
             out.density[half][filename] = density_report(geometry["ink"], int(geometry["height"]))
             out.counts[half][plan.canonical] += 1
+            image_path = f"{half_dirs[half].name}/{filename}"
+            layout_key = plan.layout_keys[layout_id]
+            context = PageContext(image_path, plan.canonical, layout_key, half, _CLEAN_TIER, True)
+            page = build_page(geometry, context=context, config=parsing_config)
+            where_page = page_where(case_id, layout_id, half)
+            out.failures.extend(check_page(page, geometry, where=where_page, config=parsing_config))
+            out.pages[half].append(page)
         out.documents.append({"filename": filename, "fields": projected})
         out.sidecar_rows.append(
             sidecar_row(
@@ -437,11 +485,27 @@ def _render_type(
 
         if plan.canonical != _DEGRADED_TYPE:
             continue
-        # Decision 7: the degraded half photographs the distractor receipt.
+        # Decision 7: the degraded half photographs the distractor receipt, and its page carries the
+        # distractor render's polygons through the same warp.
         seed = int(entry["degradation_seed"])
         for index, tier in enumerate(tiers):
             variant = f"{filename.removesuffix('.png')}_{tier.suffix}.png"
-            degrade_receipt(distractor, tier, tier_seed(seed, index)).save(half_dirs[DEGRADED] / variant)
+            frame, page = degraded_page(
+                distractor,
+                distractor_geometry,
+                tier=tier,
+                seed=tier_seed(seed, index),
+                image_path=f"{half_dirs[DEGRADED].name}/{variant}",
+                doc_type=plan.canonical,
+                layout_id=plan.layout_keys[layout_id],
+                config=parsing_config,
+            )
+            frame.save(half_dirs[DEGRADED] / variant)
+            where_page = page_where(case_id, layout_id, f"{DEGRADED} {tier.name}")
+            out.failures.extend(
+                check_page(page, distractor_geometry, where=where_page, config=parsing_config)
+            )
+            out.pages[DEGRADED].append(page)
             out.degraded_documents.append({"filename": variant, "fields": projected})
             out.counts[DEGRADED][plan.canonical] = out.counts[DEGRADED].get(plan.canonical, 0) + 1
 
@@ -468,6 +532,34 @@ def _write_geometry(config: SnapshotConfig, staging: Path, out: _Rendered) -> No
         rows = sorted(out.geometry[half], key=lambda row: row["image_file"])
         text = "".join(json.dumps(row) + "\n" for row in rows)
         (geometry_dir / f"{config.half_prefixes[half]}.jsonl").write_text(text)
+
+
+def _write_parsing(config: SnapshotConfig, staging: Path, out: _Rendered) -> dict[str, str]:
+    """Write one parsing file per half, pages sorted by image_path; return half -> its relative path."""
+    parsing_dir = staging / config.parsing_dir
+    parsing_dir.mkdir()
+    written = {}
+    for half in HALVES:
+        relative = f"{config.parsing_dir}/{config.half_prefixes[half]}.json"
+        pages = sorted(out.pages[half], key=lambda page: page["page_info"]["image_path"])
+        (staging / relative).write_text(json.dumps(pages, indent=1, ensure_ascii=False) + "\n")
+        written[half] = relative
+    return written
+
+
+def _parsing_summary(
+    config: SnapshotConfig, parsing: ParsingConfig, pages: dict[str, str]
+) -> ParsingSummary:
+    """What the manifest and the README say about the parsing files."""
+    return ParsingSummary(
+        directory=config.parsing_dir,
+        pages=pages,
+        # The address a reader opens, without the clone suffix.
+        evaluator_repository=parsing.evaluator.repo.removesuffix(".git"),
+        evaluator_commit=parsing.evaluator.commit,
+        layout_scored_tiers=parsing.layout_scored_tiers,
+        fold_displacement_max_px=parsing.fold_displacement_max_px,
+    )
 
 
 def _write_tools(staging: Path) -> None:
@@ -549,10 +641,12 @@ def export_snapshot(
         SnapshotError: A check failed, the staging path is occupied, or the repository changed during
             the export.
         TierConfigError: The receipt_degradation block is missing or malformed.
+        ParsingConfigError: config/parsing_config.yml is missing or invalid.
     """
     config = load_snapshot_config(config_path)
     schema = load_extraction_schema()
     load_field_descriptions(schema)  # refused now, before anything is drawn, not at the README
+    parsing_config = load_parsing_config(PARSING_CONFIG_PATH)
     if renderers is None:
         from generators.pipeline import _RENDERERS
 
@@ -607,7 +701,14 @@ def export_snapshot(
             directory.mkdir()
         out = _Rendered()
         for plan in ready:
-            _render_type(plan, half_dirs=half_dirs, tiers=tiers, label_config=label_config, out=out)
+            _render_type(
+                plan,
+                half_dirs=half_dirs,
+                tiers=tiers,
+                label_config=label_config,
+                parsing_config=parsing_config,
+                out=out,
+            )
             out.failures.extend(plan.plain_drawn.errors + plan.density.errors)
             out.failures.extend(plan.varied_density.errors + plan.varied_drawn.errors)
         if out.failures:
@@ -617,6 +718,7 @@ def export_snapshot(
         rows = sorted(out.sidecar_rows, key=lambda row: row["image_file"])
         write_sidecar(half_dirs[LABELLED_VARIED], rows)
         _write_geometry(config, staging, out)
+        parsing_pages = _write_parsing(config, staging, out)
         _write_tools(staging)
 
         staged = SnapshotSummary(
@@ -631,6 +733,7 @@ def export_snapshot(
             geometry_dir=config.geometry_dir,
             csv_name=config.csv_name,
             jsonl_name=config.jsonl_name,
+            parsing=_parsing_summary(config, parsing_config, parsing_pages),
         )
         # The README is generated from the manifest without its files, then every file is hashed.
         description = describe_snapshot(staged)
@@ -680,4 +783,4 @@ def export_snapshot(
     )
 
 
-__all__ = ["RepoStateError", "SnapshotError", "SnapshotSummary", "export_snapshot"]
+__all__ = ["RepoStateError", "SnapshotError", "SnapshotSummary", "export_snapshot", "opaque_layout_keys"]
