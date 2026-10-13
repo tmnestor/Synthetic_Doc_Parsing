@@ -474,7 +474,7 @@ _anz_holder_rows: &anz_holder_rows
 # list already declares) because legacy passes no recorder to any of them.
 _anz_standard_body: &anz_standard_body
   - {type: banner, from_layout: logo_text, height: 120, color: "#0061B5", text_y: 30,
-     role: header, bold: true}
+     role: header, bold: true, parse_category: header}
   - {type: spacer, height: 40}  # Legacy hard-jumps to y=140 after the bar; margin(100) + 40 = 140.
   - *anz_holder_rows
   - {type: spacer, height: 5}  # line_height(24)=33 -> legacy's real 38px (y += 38).
@@ -494,6 +494,7 @@ _anz_standard_body: &anz_standard_body
     columns: *anz_txn_columns
   - type: table
     rows: bank_transaction_totals
+    parse_join: previous_table  # Written as the transaction table's last row (design section 5.3).
     frame: plain
     grouping: none
     header: false
@@ -504,7 +505,7 @@ _anz_standard_body: &anz_standard_body
 _anz_modern_body: &anz_modern_body
   # See anz_standard_body's identical comments.
   - {type: banner, from_layout: logo_text, height: 120, color: "#0061B5", text_y: 30,
-     role: header, bold: true}
+     role: header, bold: true, parse_category: header}
   - {type: spacer, height: 40}  # Legacy hard-jumps to y=140 after the bar; margin(100) + 40 = 140.
   - *anz_holder_rows  # See anz_standard_body.
   - {type: spacer, height: 8}  # line_height(22)=30 -> legacy's real 38px (y += 38).
@@ -524,6 +525,7 @@ _anz_modern_body: &anz_modern_body
     columns: *anz_txn_columns
   - type: table
     rows: bank_transaction_totals
+    parse_join: previous_table  # Written as the transaction table's last row (design section 5.3).
     frame: plain
     grouping: none
     header: false

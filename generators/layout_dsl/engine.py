@@ -204,6 +204,7 @@ def _block_scope(
         anchor=anchor,
         parse_category=None if category is None else str(category),
         parse_order=int(block.get("parse_order", 0)),
+        join=block.get("parse_join"),
     )
 
 

@@ -53,6 +53,8 @@ class BlockRecord(NamedTuple):
         parse_category: The block's `parse_category:`, or None.
         parse_order: The block's `parse_order:`, 0 when absent.
         columns: A table's column count; None for every other kind.
+        join: A table's `parse_join:` (`previous_table`: its rows are written as more rows of the nearest
+            table drawn before it), or None.
     """
 
     id: int
@@ -62,6 +64,7 @@ class BlockRecord(NamedTuple):
     parse_category: str | None
     parse_order: int
     columns: int | None
+    join: str | None = None
 
 
 class InkRecord(NamedTuple):
@@ -137,6 +140,7 @@ class BoxRecorder:
         anchor: str | None,
         parse_category: str | None,
         parse_order: int,
+        join: str | None,
     ) -> Iterator[None]:
         """Attribute every line of ink drawn inside to one block.
 
@@ -150,6 +154,7 @@ class BoxRecorder:
             anchor: The block's `anchor:`, or None.
             parse_category: The block's `parse_category:`, or None.
             parse_order: The block's `parse_order:`, 0 when absent.
+            join: A table's `parse_join:`, or None.
 
         Yields:
             None, once the block (if any) is open.
@@ -158,7 +163,9 @@ class BoxRecorder:
             yield
             return
         block_id = len(self._blocks)
-        self._blocks.append(BlockRecord(block_id, kind, path, anchor, parse_category, parse_order, None))
+        self._blocks.append(
+            BlockRecord(block_id, kind, path, anchor, parse_category, parse_order, None, join)
+        )
         self._open_block = block_id
         try:
             yield

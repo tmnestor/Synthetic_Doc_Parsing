@@ -3,7 +3,8 @@
 Every key is required and the YAML is the single source of truth: this module holds no default for any of
 them. A missing or invalid key fails fast with a four-part diagnostic (What, Where, Expected, Recover).
 `layout_parse_errors` checks, for `validate`, that every `parse_category` a layout body declares is in the
-configured vocabulary; the layout schema itself does not know the vocabulary.
+configured vocabulary (the layout schema itself does not know the vocabulary), and that every table with
+`parse_join: previous_table` has a table drawn before it in the same layout to join.
 """
 
 import re
@@ -503,7 +504,10 @@ def load_parsing_config(path: Path) -> ParsingConfig:
 
 
 def layout_parse_errors(layouts: dict, *, layout_path: str, config: ParsingConfig) -> list[str]:
-    """Check every `parse_category` a layout body declares is in the configured vocabulary.
+    """Check every `parse_category` a layout body declares, and every `parse_join`.
+
+    A category must be in the configured vocabulary. A table joined to the previous table needs a table
+    before it in draw order: the body is walked as the layout engine draws it, a split column by column.
 
     Args:
         layouts: Layout id to layout mapping, as `load_layout_registry` returns.
@@ -511,13 +515,18 @@ def layout_parse_errors(layouts: dict, *, layout_path: str, config: ParsingConfi
         config: The validated parsing configuration.
 
     Returns:
-        One four-part diagnostic per offending block; empty when every declared category is valid.
+        One four-part diagnostic per offending block; empty when every declared key is valid.
     """
     errors: list[str] = []
     for layout_id, layout in layouts.items():
         if not isinstance(layout, dict):
             continue
+        table_seen = False
         for block, key_path in _iter_blocks(layout.get("body"), f"{layout_id}.body"):
+            if block.get("type") == "table":
+                if "parse_join" in block and not table_seen:
+                    errors.append(_orphan_join(layout_path, key_path))
+                table_seen = True
             category = block.get("parse_category")
             if category is None or category in config.category_vocabulary:
                 continue
@@ -531,3 +540,18 @@ def layout_parse_errors(layouts: dict, *, layout_path: str, config: ParsingConfi
             )
             errors.append(str(error))
     return errors
+
+
+def _orphan_join(layout_path: str, key_path: str) -> str:
+    """Word the refusal for a joined table with no table drawn before it."""
+    error: LayoutSchemaError = _err(
+        "parse_join: previous_table is set on a table with no table drawn before it in this layout, so its "
+        "rows have no table to join.",
+        layout_path=layout_path,
+        key_path=f"{key_path}.parse_join",
+        expected="the joined table drawn after another table, e.g.\n"
+        "              - {type: table, rows: ..., columns: [...]}\n"
+        "              - {type: table, rows: ..., columns: [...], parse_join: previous_table}",
+        recover="remove parse_join from this table, or move it after the table its rows belong to.",
+    )
+    return str(error)

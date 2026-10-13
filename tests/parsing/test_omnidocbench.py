@@ -225,6 +225,110 @@ def test_a_block_kind_with_no_category_fails_four_part(config: ParsingConfig) ->
     assert_diagnostic_error(raised.value)
 
 
+# --- parse_join: previous_table --------------------------------------------------------------------------
+
+
+def joined_geometry() -> dict:
+    """A three-column table, a text block, then a two-column table joined to the first.
+
+    The joined table's label (its column 0) lies over the first table's Details column and its amount (its
+    column 1) over the Amount column, so each lands in the column its ink overlaps, not the one its index
+    names. Its second row draws only an amount, wrapped over two lines.
+    """
+    blocks = [
+        BlockRecord(0, "table", "body[0]", None, None, 0, 3),
+        BlockRecord(1, "text", "body[1]", None, None, 0, None),
+        BlockRecord(2, "table", "body[2]", None, None, 0, 2, "previous_table"),
+    ]
+    ink = [
+        line("Date", (20, 10, 60, 24), 0, Cell(0, 0, 1)),
+        line("Details", (120, 10, 190, 24), 0, Cell(0, 1, 1)),
+        line("Amount", (300, 10, 370, 24), 0, Cell(0, 2, 1)),
+        line("09/11/2034", (20, 30, 110, 44), 0, Cell(1, 0, 1)),
+        line("Quokka Supplies", (120, 30, 260, 44), 0, Cell(1, 1, 1)),
+        line("45.10", (320, 30, 370, 44), 0, Cell(1, 2, 1)),
+        line("Brought to account", (20, 60, 200, 74), 1),
+        line("Period totals", (130, 90, 250, 104), 2, Cell(0, 0, 1)),
+        line("45.10", (320, 90, 370, 104), 2, Cell(0, 1, 1)),
+        line("Net", (330, 110, 370, 124), 2, Cell(1, 1, 1)),
+        line("86.03", (330, 126, 370, 140), 2, Cell(1, 1, 1)),
+    ]
+    return {"width": 400, "height": 200, "ink": ink, "blocks": blocks, "texts": {}}
+
+
+JOINED_HTML = (
+    "<table>"
+    "<tr><td>Date</td><td>Details</td><td>Amount</td></tr>"
+    "<tr><td>09/11/2034</td><td>Quokka Supplies</td><td>45.10</td></tr>"
+    "<tr><td></td><td>Period totals</td><td>45.10</td></tr>"
+    "<tr><td></td><td></td><td>Net 86.03</td></tr>"
+    "</table>"
+)
+
+
+def test_a_joined_table_is_written_as_rows_of_the_table_before_it(config: ParsingConfig) -> None:
+    """Exact page: the joined table has no entry of its own; its rows close the first table's html, each
+    cell in the column its ink overlaps; its ink widens the first table's poly; reading order skips it."""
+    built = build_page(joined_geometry(), context=CONTEXT, config=config)
+    assert built["layout_dets"] == [
+        det("table", [20, 10, 370, 10, 370, 140, 20, 140], 1, 0, html=JOINED_HTML),
+        det("text_block", [20, 60, 200, 60, 200, 74, 20, 74], 2, 1, text="Brought to account"),
+    ]
+
+
+def test_a_joined_page_keeps_every_invariant(config: ParsingConfig) -> None:
+    """The joined table's ink is owned, celled within its own declared columns, and its text is read."""
+    page = joined_geometry()
+    page["texts"] = {"TOTAL_AMOUNT": "86.03", "SUPPLIER_NAME": "Quokka Supplies"}
+    assert errors_for(page, config) == []
+
+
+def test_a_joined_table_still_has_its_cells_checked(config: ParsingConfig) -> None:
+    """Joining does not loosen invariant 2: a joined line outside its own declared columns is refused."""
+    page = joined_geometry()
+    page["ink"].append(line("Stray", (200, 150, 240, 164), 2, Cell(2, 2, 1)))
+    (error,) = errors_for(page, config)
+    assert "Stray" in error and "2 columns" in error and "body[2]" in error
+
+
+def test_a_joined_cell_overlapping_no_column_goes_to_the_nearest_centre() -> None:
+    """A cell in the gap between two columns lands in the column whose centre is nearest, not the one whose
+    edge is nearest: here 5px from Details' edge but nearer Amount's centre."""
+    page = joined_geometry()
+    blocks = page["blocks"]
+    ink = [r for r in page["ink"] if r.block == 0] + [line("Note", (265, 150, 290, 164), 2, Cell(0, 0, 1))]
+    assert table_html(blocks[0], ink, [blocks[2]]).endswith(
+        "<tr><td></td><td></td><td>Note</td></tr></table>"
+    )
+
+
+def test_a_join_skips_an_inkless_table_and_follows_a_chain(config: ParsingConfig) -> None:
+    """The rows go to the nearest earlier table that was written: an inkless table between is passed over,
+    and a second joined table appends to the same target after the first."""
+    page = joined_geometry()
+    page["blocks"][1] = BlockRecord(1, "table", "body[1]", None, None, 0, 3)
+    page["ink"] = [record for record in page["ink"] if record.block != 1]
+    page["blocks"].append(BlockRecord(3, "table", "body[3]", None, None, 0, 1, "previous_table"))
+    page["ink"].append(line("End", (20, 150, 60, 164), 3, Cell(0, 0, 1)))
+    built = build_page(page, context=CONTEXT, config=config)
+    (table,) = built["layout_dets"]
+    assert table["anno_id"] == 0 and table["order"] == 1
+    assert table["html"] == JOINED_HTML.replace(
+        "</table>", "<tr><td>End</td><td></td><td></td></tr></table>"
+    )
+
+
+def test_a_join_with_no_table_written_before_it_fails_four_part(config: ParsingConfig) -> None:
+    """A joined table drawn before any written table has nowhere to put its rows."""
+    page = joined_geometry()
+    page["blocks"][0] = page["blocks"][0]._replace(kind="text", columns=None)
+    page["ink"] = [record._replace(cell=None) if record.block == 0 else record for record in page["ink"]]
+    with pytest.raises(ValueError, match="previous_table") as raised:
+        build_page(page, context=CONTEXT, config=config)
+    assert_diagnostic_error(raised.value)
+    assert "body[2]" in str(raised.value) and WHERE in str(raised.value)
+
+
 # --- check_page ------------------------------------------------------------------------------------------
 
 
@@ -447,7 +551,14 @@ def test_every_real_table_is_written_as_a_rectangular_grid(
         for row in rows:
             spans = [int(span or 1) for span in re.findall(r'<td(?: colspan="(\d+)")?>', row)]
             assert sum(spans) == n, (layout_id, row)
-        ink = [r for r in geometry_out["ink"] if r.block == anno_id and not r.mark]
+        # A table joined to this one (parse_join) writes its rows here, so its ink is this table's too.
+        owners = {anno_id}
+        for later in geometry_out["blocks"][anno_id + 1 :]:
+            if later.kind == "table" and later.id not in tables:
+                if later.join is None:
+                    break
+                owners.add(later.id)
+        ink = [r for r in geometry_out["ink"] if r.block in owners and not r.mark]
         header = resolve_param(
             spec, layout, "table_header", layout_id=layout_id, layout_path="<layout>", block_key="header"
         )

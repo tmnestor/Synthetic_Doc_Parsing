@@ -129,6 +129,18 @@ def test_parse_keys_are_carried_onto_the_block() -> None:
     assert recorder.block_records() == [BlockRecord(0, "text", "body[0]", None, "title", -1, None)]
 
 
+def test_parse_join_is_carried_onto_a_table_block() -> None:
+    """A table's `parse_join` is recorded on its block; every other block records none."""
+    recorder = draw(
+        [table(), table(parse_join="previous_table", capture=False)],
+        layout=table_layout(),
+        entry=BANK_ENTRY,
+    )
+    first, second = recorder.block_records()
+    assert (first.kind, first.join) == ("table", None)
+    assert (second.kind, second.join) == ("table", "previous_table")
+
+
 @pytest.mark.parametrize("container", ["stack", "panel"])
 def test_a_container_without_parse_block_yields_one_block_per_child(container: str) -> None:
     """A plain container records no block; each child records its own, at its nested path."""

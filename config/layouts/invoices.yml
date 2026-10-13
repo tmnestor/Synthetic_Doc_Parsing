@@ -217,7 +217,7 @@ _invoice_letterhead: &invoice_letterhead
       - {type: spacer, height: 24, when: DX_EMAIL}
 
 _invoice_title: &invoice_title
-  {type: text, content: "TAX INVOICE", role: header, bold: true, line_advance: 80}
+  {type: text, content: "TAX INVOICE", role: header, bold: true, line_advance: 80, parse_category: title}
 
 _invoice_rule: &invoice_rule {type: rule, color: "#CCCCCC"}
 
@@ -682,7 +682,8 @@ _trade_title: &trade_title
   type: split
   widths: [1100, 600]
   children:
-    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#B5400B", line_advance: 80}
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#B5400B",
+         line_advance: 80, parse_category: title}
     - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
          budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
       - {type: text, content: "Customer No: {DX_CUSTOMER_NUMBER}", align: right,
@@ -868,7 +869,8 @@ _professional_parties: &professional_parties
   type: split
   widths: [1100, 600]
   children:
-    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#14213D", line_advance: 72}
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, color: "#14213D",
+         line_advance: 72, parse_category: title}
       - *invoice_bill_to
       - *invoice_payer_name
       - *invoice_payer_address
@@ -1015,7 +1017,7 @@ _wholesale_seller: &wholesale_seller
       - {type: text, content: "{DX_ACCREDITATION}", color: gray, budget: DISTRACTOR_WIDE, line_advance: 40,
          when: DX_ACCREDITATION}
     - - {type: text, content: "TAX INVOICE", role: header, bold: true, align: right, color: "#333333",
-         line_advance: 72}
+         line_advance: 72, parse_category: title}
       - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
          budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
       - {type: text, content: "Customer account: {DX_CUSTOMER_NUMBER}", align: right,
@@ -1158,7 +1160,8 @@ _subscription_header: &subscription_header
          when: DX_FREECALL}
       - {type: text, content: "Email: {DX_EMAIL}", budget: DISTRACTOR_WIDE, line_advance: 40,
          when: DX_EMAIL}
-    - - {type: text, content: "TAX INVOICE", role: header, bold: true, align: right, line_advance: 72}
+    - - {type: text, content: "TAX INVOICE", role: header, bold: true, align: right,
+         line_advance: 72, parse_category: title}
       - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", align: right, bold: true,
          budget: DISTRACTOR_META, line_advance: 40, when: DX_INVOICE_NUMBER}
       - {type: text, content: "Account No: {DX_CUSTOMER_NUMBER}", align: right,

@@ -9,7 +9,7 @@ BOX = (10, 20, 30, 40)
 
 def scope(recorder: BoxRecorder, kind: str = "text", *, path: str = "body[0]", **extra):
     """Open a block scope with an unranked, unanchored, uncategorised block unless `extra` says otherwise."""
-    params = {"anchor": None, "parse_category": None, "parse_order": 0, **extra}
+    params = {"anchor": None, "parse_category": None, "parse_order": 0, "join": None, **extra}
     return recorder.block_scope(kind, path=path, **params)
 
 
@@ -40,6 +40,17 @@ def test_a_scope_records_one_block_and_stamps_its_ink() -> None:
         BlockRecord(1, "text", "body[1]", None, None, 0, None),
     ]
     assert [record.block for record in recorder.ink_records()] == [0, 1]
+
+
+def test_a_scope_records_a_table_join() -> None:
+    """A table's join is recorded last, after its column count; a block built without one has none."""
+    recorder = BoxRecorder(100, 100)
+    with scope(recorder, "table", path="body[3]", join="previous_table"):
+        recorder.set_table_columns(5)
+    assert recorder.block_records() == [
+        BlockRecord(0, "table", "body[3]", None, None, 0, 5, "previous_table")
+    ]
+    assert BlockRecord(1, "table", "body[4]", None, None, 0, 5).join is None
 
 
 def test_a_scope_opened_inside_a_scope_creates_no_block() -> None:

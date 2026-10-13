@@ -124,6 +124,15 @@ Numbered so reviews can cite them.
     consumes renders, as do its config, probe and degraded mapping, so they belong together.
 16. **`config/parsing_config.yml` carries two keys the spec's list omits:** `textless_categories`
     (Decision 4) and `layout_scored_tiers` (Decision 11). Both are required like the rest.
+17. **A table may join the table before it.** `parse_join: previous_table`, accepted on `table` blocks only,
+    writes the table's rows as more rows of the nearest table written before it in draw order: no
+    `layout_dets` entry of its own, its ink widening that table's `poly`, each of its cells in the column
+    whose horizontal span best overlaps the cell's ink, so every row keeps that table's N columns. A join
+    with no table before it is refused four-part, by `validate` and again by the writer. The statement
+    totals table carries it (section 5.3 of the design, recommendation 7).
+18. **The matcher gate passed.** On 13 October 2026 the owner said go and accepted all nine
+    recommendations of the design's section 5.3; its decision table records how each is realised and
+    where. Only recommendations 2, 3 and 7 change the layouts or the writer.
 
 ## Review Focus
 
@@ -516,7 +525,9 @@ Interfaces:
   writes `<output_root>/leaderboard_<YYYYMMDD>.md` and `.csv`: rows per tool, columns per half for text
   edit distance, table TEDS and reading-order edit distance, then breakdowns per document type and per
   degradation tier, plus the device each run used (read from a `run.json` the runner writes). Overall is
-  shown as 'n/a (no formulas in stage one)'.
+  shown as 'n/a (no formulas in stage one)'. Tables lead with TEDS, and table edit distance is reported
+  beside it with the caveat that it compares html strings, so it is comparable only between tools with
+  the same output form (design section 5.3, recommendation 8).
 
 The runbook covers: building each env; the remote MinerU run (environment on the remote server, how model
 weights reach it if it has no public network access, the exact commands for both back-ends, copying images
@@ -540,5 +551,8 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
 
 ## Stage 1 outcome
 
-Filled in when Task 8 is done: the matcher findings, the tiers scored for layout, the evaluator commit, the
-first leaderboard's location, and what stage two should know.
+- *Matcher findings.* Line-level blocks match fairly against both paragraph and line-style parsers, and
+  the gate passed with the grouping changes listed in the design's section 5.3 (Decision 18).
+
+The rest is filled in when Task 8 is done: the tiers scored for layout, the evaluator commit, the first
+leaderboard's location, and what stage two should know.

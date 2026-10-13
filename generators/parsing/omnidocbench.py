@@ -4,8 +4,9 @@ A render's `geometry_out` carries every line of ink it drew, each naming its blo
 its cell, and every block it opened. `build_page` turns those into one OmniDocBench page: a `layout_dets`
 entry per block that drew ink, its `poly` the union of its ink boxes, its category by the precedence of
 Decision 5, its reading order by Decision 6, and its `text` (Decision 3) or, for a table, its `html`
-(Decision 7). `check_page` checks the five invariants of the design's section 5.1 against the records the
-page was built from, and `map_polys` re-projects every `poly` onto a new frame (a degraded photograph).
+(Decision 7), with the rows of any table joined to it (Decision 17). `check_page` checks the five
+invariants of the design's section 5.1 against the records the page was built from, and `map_polys`
+re-projects every `poly` onto a new frame (a degraded photograph).
 
 OmniDocBench's own field names (`layout_dets`, `poly`, `category_type`, `page_info`, ...) are contract
 constants, not configuration.
@@ -14,7 +15,7 @@ constants, not configuration.
 import copy
 import html
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -102,8 +103,93 @@ def _poly(boxes: list[tuple[int, int, int, int]]) -> list[int]:
     return [left, top, right, top, right, bottom, left, bottom]
 
 
-def table_html(block: BlockRecord, ink: list[InkRecord]) -> str:
-    """Write a table block's grid as HTML (Decision 7).
+class _Grid(NamedTuple):
+    """A table block's drawn cells.
+
+    Attributes:
+        rows: Row to column to the cell's lines, in draw order.
+        spans: Row to span, for a row whose one cell spans the table (a date sub-header).
+        extents: (row, column) to the cell's ink x-extent, (left, right).
+    """
+
+    rows: dict[int, dict[int, list[str]]]
+    spans: dict[int, int]
+    extents: dict[tuple[int, int], tuple[int, int]]
+
+
+def _grid(block: BlockRecord, ink: list[InkRecord]) -> _Grid:
+    """Gather a table block's lines by cell; a mark, or a line with no cell in the columns, is left out."""
+    n = block.columns or 0
+    grid = _Grid({}, {}, {})
+    for record in ink:
+        if record.block != block.id or record.mark or record.cell is None:
+            continue
+        cell = record.cell
+        if not 0 <= cell.column < n:
+            continue
+        grid.rows.setdefault(cell.row, {}).setdefault(cell.column, []).append(record.text)
+        if cell.span > 1:
+            grid.spans[cell.row] = cell.span
+        left, right = grid.extents.get((cell.row, cell.column), (record.box[0], record.box[2]))
+        grid.extents[(cell.row, cell.column)] = (min(left, record.box[0]), max(right, record.box[2]))
+    return grid
+
+
+def _column_edges(grid: _Grid) -> dict[int, tuple[int, int]]:
+    """Each column's horizontal span: the union of its cells' ink x-extents, spanning rows aside."""
+    edges: dict[int, tuple[int, int]] = {}
+    for (row, column), (left, right) in grid.extents.items():
+        if row in grid.spans:
+            continue
+        low, high = edges.get(column, (left, right))
+        edges[column] = (min(low, left), max(high, right))
+    return edges
+
+
+def _placed(joined: _Grid, edges: dict[int, tuple[int, int]], n: int) -> _Grid:
+    """Re-grid a joined table's cells onto the target's columns.
+
+    Each cell goes to the target column whose horizontal span best overlaps the cell's ink x-extent (ties,
+    and cells overlapping no column, go to the column whose centre is nearest); two cells landing in one
+    column are joined in their own column order. A spanning row spans the target's N columns.
+    """
+
+    def column_for(extent: tuple[int, int]) -> int:
+        left, right = extent
+
+        def fit(column: int) -> tuple[int, int]:
+            low, high = edges[column]
+            return max(0, min(right, high) - max(left, low)), -abs((left + right) - (low + high))
+
+        return max(sorted(edges), key=fit)
+
+    placed = _Grid({}, {row: n for row in joined.spans}, {})
+    for row, cells in joined.rows.items():
+        for column, lines in sorted(cells.items()):
+            target = 0 if row in joined.spans else column_for(joined.extents[(row, column)])
+            placed.rows.setdefault(row, {}).setdefault(target, []).extend(lines)
+    return placed
+
+
+def _rows_html(grid: _Grid, n: int) -> list[str]:
+    """Write a grid's rows, 0 to its last drawn row, as `<tr>` of N `<td>` or one spanning `<td>`."""
+    parts = []
+    for row in range(max(grid.rows, default=-1) + 1):
+        cells = grid.rows.get(row, {})
+        parts.append("<tr>")
+        if row in grid.spans:
+            text = " ".join(" ".join(lines) for _, lines in sorted(cells.items()))
+            parts.append(f'<td colspan="{grid.spans[row]}">{html.escape(text, quote=False)}</td>')
+        else:
+            for column in range(n):
+                text = " ".join(cells.get(column, []))
+                parts.append(f"<td>{html.escape(text, quote=False)}</td>")
+        parts.append("</tr>")
+    return parts
+
+
+def table_html(block: BlockRecord, ink: list[InkRecord], joined: Sequence[BlockRecord] = ()) -> str:
+    """Write a table block's grid as HTML (Decision 7), and the rows of any table joined to it.
 
     Every row the table drew is one `<tr>` of `<td>`; no `<thead>` or `<th>`. A cell's text is its lines
     joined by one space in draw order (a two-line header label, a sub-line after its main text). A row
@@ -112,46 +198,71 @@ def table_html(block: BlockRecord, ink: list[InkRecord]) -> str:
     Ink without a cell, or in a cell outside the declared columns, has no place in the grid and is left
     out too: `check_page` refuses it.
 
+    A joined table's rows (Decision 17) follow, in draw order, each still N cells wide: each of its cells
+    sits in this table's column whose horizontal span (the union of the ink x-extents of that column's
+    cells) best overlaps the cell's own ink.
+
     Args:
         block: The table block, carrying its declared column count.
-        ink: The page's ink records; only this block's are read.
+        ink: The page's ink records; only this block's, and the joined blocks', are read.
+        joined: The tables whose rows this one takes (`parse_join: previous_table`), in draw order.
 
     Returns:
         The table as one line of HTML, its text escaped.
     """
     n = block.columns or 0
-    rows: dict[int, dict[int, list[str]]] = {}
-    spans: dict[int, int] = {}
-    for record in ink:
-        if record.block != block.id or record.mark or record.cell is None:
-            continue
-        cell = record.cell
-        if not 0 <= cell.column < n:
-            continue
-        rows.setdefault(cell.row, {}).setdefault(cell.column, []).append(record.text)
-        if cell.span > 1:
-            spans[cell.row] = cell.span
-    parts = ["<table>"]
-    for row in range(max(rows, default=-1) + 1):
-        cells = rows.get(row, {})
-        parts.append("<tr>")
-        if row in spans:
-            text = " ".join(" ".join(lines) for _, lines in sorted(cells.items()))
-            parts.append(f'<td colspan="{spans[row]}">{html.escape(text, quote=False)}</td>')
-        else:
-            for column in range(n):
-                text = " ".join(cells.get(column, []))
-                parts.append(f"<td>{html.escape(text, quote=False)}</td>")
-        parts.append("</tr>")
+    grid = _grid(block, ink)
+    edges = _column_edges(grid)
+    parts = ["<table>", *_rows_html(grid, n)]
+    for extra in joined:
+        parts.extend(_rows_html(_placed(_grid(extra, ink), edges, n), n))
     parts.append("</table>")
     return "".join(parts)
+
+
+def _join_targets(
+    blocks: list[BlockRecord], owned: dict[int, list[InkRecord]], where: str
+) -> dict[int, int]:
+    """Map each inked joined table to the table that takes its rows (Decision 17).
+
+    The target is the nearest table drawn before it that is written: inkless tables are passed over, and a
+    joined table's own target serves the next join, so a chain of joins appends to one table.
+
+    Raises:
+        ValueError: A joined table has no written table before it, or one whose columns drew nothing.
+    """
+    targets: dict[int, int] = {}
+    last: int | None = None
+    for block in blocks:
+        if block.kind != "table" or not owned.get(block.id):
+            continue
+        if block.join is None:
+            last = block.id
+            continue
+        if last is None or not _column_edges(_grid(blocks[last], owned[last])):
+            raise ValueError(
+                _diagnostic(
+                    "A joined table has no table to join.",
+                    what=f"table block {block.id} at {block.path} sets parse_join: {block.join}, but no "
+                    "table with drawn columns was written before it on this page, so its rows have nowhere "
+                    "to go.",
+                    where=f"{where}, block {block.path} -> parse_join",
+                    expected="a table drawn, with ink in its columns, before the joined one, e.g. the "
+                    "transaction table above a one-row totals table.",
+                    recover="remove parse_join from the table in its layout YAML, or move the table after "
+                    "the table its rows belong to.",
+                )
+            )
+        targets[block.id] = last
+    return targets
 
 
 def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -> dict:
     """Build one OmniDocBench page from a render's `geometry_out`.
 
     One `layout_dets` entry per block that drew ink, in draw order (Decision 4: a block with none is
-    left out). `anno_id` is the block's draw sequence and `order` its 1-based position after a stable sort
+    left out), except a table joined to the table before it (Decision 17), whose rows and ink are that
+    table's. `anno_id` is the block's draw sequence and `order` its 1-based position after a stable sort
     by `(parse_order, draw sequence)` (Decision 6). A table carries `html`; a block in a textless category
     carries nothing; every other block carries `text`, its non-mark lines joined by one space.
 
@@ -164,7 +275,8 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
         The page as OmniDocBench's JSON structure.
 
     Raises:
-        ValueError: A block that drew ink has a kind no category map covers and no `parse_category`.
+        ValueError: A block that drew ink has a kind no category map covers and no `parse_category`, or
+            a joined table has no table written before it.
     """
     ink: list[InkRecord] = geometry["ink"]
     blocks: list[BlockRecord] = geometry["blocks"]
@@ -172,18 +284,22 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
     for record in ink:
         if record.block is not None:
             owned.setdefault(record.block, []).append(record)
-    inked = [block for block in blocks if owned.get(block.id)]
+    where = page_where(Path(context.image_path).stem, context.layout_id, context.half)
+    targets = _join_targets(blocks, owned, where)
+    joined: dict[int, list[BlockRecord]] = {}
+    for block_id, target in targets.items():
+        joined.setdefault(target, []).append(blocks[block_id])
+    inked = [block for block in blocks if owned.get(block.id) and block.id not in targets]
     ranked = sorted(inked, key=lambda block: (block.parse_order, block.id))
     # 1-based, as OmniDocBench numbers its own pages: its matcher reads an order of 0 as no order at all.
     order = {block.id: position for position, block in enumerate(ranked, start=1)}
-    where = page_where(Path(context.image_path).stem, context.layout_id, context.half)
 
     dets = []
     for block in inked:
         category = _category(block, config)
         if category is None:
             raise ValueError(_unmapped(block, where))
-        records = owned[block.id]
+        records = owned[block.id] + [r for extra in joined.get(block.id, []) for r in owned[extra.id]]
         det: dict = {
             "category_type": category,
             "poly": _poly([record.box for record in records]),
@@ -194,7 +310,7 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
             "line_with_spans": [],
         }
         if block.kind == "table":
-            det["html"] = table_html(block, ink)
+            det["html"] = table_html(block, ink, joined.get(block.id, []))
         elif category not in config.textless_categories:
             det["text"] = " ".join(record.text for record in records if not record.mark)
         dets.append(det)

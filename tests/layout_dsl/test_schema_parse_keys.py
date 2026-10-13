@@ -130,3 +130,58 @@ def test_a_category_outside_the_vocabulary_is_reported_four_part() -> None:
     assert "alpha.body[0].children[0].parse_category" in errors[0]
     assert "layouts.yml" in errors[0]
     assert "title" in errors[0], "Expected should list the vocabulary"
+
+
+# --- parse_join ------------------------------------------------------------------------------------------
+
+
+def test_a_table_accepts_parse_join_previous_table() -> None:
+    """A table may join its rows to the table drawn before it."""
+    check_body([table(), table(parse_join="previous_table")])
+
+
+@pytest.mark.parametrize("block", [text(), pair(), banner(), container("stack")])
+def test_parse_join_is_refused_on_a_block_that_is_not_a_table(block: dict) -> None:
+    """Only a table has rows to join; the refusal names the one primitive that accepts the key."""
+    err = reject_body(
+        [table(), {**block, "parse_join": "previous_table"}], "parse_join", "table", "Recover"
+    )
+    assert "[1].parse_join" in str(err)
+
+
+@pytest.mark.parametrize("bad", ["next_table", "previous", "", 1, True, None, ["previous_table"]])
+def test_parse_join_takes_only_previous_table(bad: object) -> None:
+    """The key is an enum of one value; anything else is refused, naming the value allowed."""
+    err = reject_body([table(), table(parse_join=bad)], "parse_join", "previous_table", "Recover")
+    assert "[1].parse_join" in str(err)
+
+
+def test_a_join_after_a_table_passes_the_layout_check() -> None:
+    """A table joined to one drawn earlier, even one inside an earlier split column, is accepted."""
+    config = load_parsing_config(CONFIG_PATH)
+    split = {"type": "split", "children": [[text()], [table()]]}
+    layouts = {"alpha": {"body": [split, text(), table(parse_join="previous_table")]}}
+    assert layout_parse_errors(layouts, layout_path="layouts.yml", config=config) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "join_path"),
+    [
+        ([text(), table(parse_join="previous_table")], "alpha.body[1].parse_join"),
+        # The only other table is drawn after the join, so it cannot take the joined rows.
+        ([table(parse_join="previous_table"), table()], "alpha.body[0].parse_join"),
+        (
+            [{"type": "stack", "children": [table(parse_join="previous_table")]}],
+            "alpha.body[0].children[0].parse_join",
+        ),
+    ],
+)
+def test_a_join_with_no_table_drawn_before_it_is_reported_four_part(body: list, join_path: str) -> None:
+    """A join needs a table earlier in draw order to append its rows to."""
+    config = load_parsing_config(CONFIG_PATH)
+    errors = layout_parse_errors({"alpha": {"body": body}}, layout_path="layouts.yml", config=config)
+    assert len(errors) == 1
+    assert_diagnostic_error(errors[0])
+    assert join_path in errors[0]
+    assert "layouts.yml" in errors[0]
+    assert "previous_table" in errors[0]

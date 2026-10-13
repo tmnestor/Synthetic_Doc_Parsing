@@ -223,7 +223,12 @@ def apply_overlay(
         _composite(image, drawing, ctx)
         # Each drawn site is one block, after every body block in draw order.
         with recorder.block_scope(
-            f"overlay:{kind}", path=site.block_path, anchor=None, parse_category=None, parse_order=0
+            f"overlay:{kind}",
+            path=site.block_path,
+            anchor=None,
+            parse_category=None,
+            parse_order=0,
+            join=None,
         ):
             for line in drawing.text_ink:
                 recorder.record_ink(line.box, "distractor", text=line.text, size=line.size, bold=line.bold)

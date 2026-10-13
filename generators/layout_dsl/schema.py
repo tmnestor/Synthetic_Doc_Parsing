@@ -187,8 +187,12 @@ PRIMITIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 _CONTAINERS = ("panel", "split", "stack")
-# Parsing ground-truth keys every block accepts; `parse_block` is added for a container only.
+# Parsing ground-truth keys every block accepts; `parse_block` is added for a container only, and
+# `parse_join` for a table only.
 _PARSE_KEYS = frozenset({"parse_category", "parse_order"})
+# The values `parse_join` takes: `previous_table` writes the table's rows as more rows of the nearest table
+# drawn before it.
+PARSE_JOINS = ("previous_table",)
 # The one container `anchor:` value: drawn upward from the bottom margin (primitives_container.foot_origin).
 ANCHORS = ("foot",)
 
@@ -473,9 +477,21 @@ def _validate_block(
             "one parsed block).",
             recover="remove parse_block from this block, or move it to the enclosing container.",
         )
+    if "parse_join" in block and kind != "table":
+        # Named before the generic unknown-key check: only a table has rows to join to another.
+        raise _err(
+            f"'{kind}' block sets parse_join, which only 'table' accepts.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_join",
+            expected="parse_join on a block of type table, e.g.\n"
+            "              - {type: table, rows: ..., columns: [...], parse_join: previous_table}",
+            recover="remove parse_join from this block.",
+        )
     allowed = set(required) | set(optional) | _PARSE_KEYS | {"type", "when"}
     if kind in _CONTAINERS:
         allowed.add("parse_block")
+    if kind == "table":
+        allowed.add("parse_join")
     unknown = sorted(set(block) - allowed)
     if unknown:
         raise _err(
@@ -642,6 +658,17 @@ def _validate_parse_keys(block: dict, *, layout_path: str, key_path: str) -> Non
             key_path=f"{key_path}.parse_block",
             expected="parse_block: true or parse_block: false.",
             recover="set parse_block to true or false, or remove it.",
+        )
+    if "parse_join" in block and (
+        not isinstance(block["parse_join"], str) or block["parse_join"] not in PARSE_JOINS
+    ):
+        raise _err(
+            f"parse_join is {block['parse_join']!r}, not one of {list(PARSE_JOINS)}.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_join",
+            expected=f"one of {list(PARSE_JOINS)}, e.g. parse_join: previous_table (the table's rows are "
+            "written as more rows of the nearest table drawn before it).",
+            recover="set parse_join to previous_table, or remove it.",
         )
 
 

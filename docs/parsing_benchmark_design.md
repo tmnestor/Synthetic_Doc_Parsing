@@ -129,6 +129,9 @@ them. Images are not duplicated: each page's `page_info.image_path` points at th
 
 - **Reading order.** Block draw order: column by column within a `split`, overlay marks last. A block
   may override it with `parse_order:`, used only where the matcher check shows draw order misreads.
+- **Joined tables.** A `table` may declare `parse_join: previous_table` (the key's one value, refused on
+  any other primitive): its rows are written as the last rows of the nearest table written before it, as
+  section 4.3 describes. The bank statement totals table carries it (section 5.3, recommendation 7).
 - **Text.** A block's ink lines joined in draw order, exactly as drawn. Distractor text is ordinary text
   here: a parser should read it.
 - **Boxes.** Each block's `poly` is the union of its ink boxes as four corners in pixels.
@@ -144,7 +147,11 @@ draws, and the exporter writes it as the block's `html`:
 - date sub-header rows (`dedicated_row` grouping) span every column with `colspan`;
 - synthetic rows (opening and carried-forward balances) are real rows, because they are printed;
 - a row's sub-lines stay inside their parent cell;
-- `capture: false` suppresses scored-field boxes only, never the grid.
+- `capture: false` suppresses scored-field boxes only, never the grid;
+- a table with `parse_join: previous_table` has no block of its own in the page: its rows follow the
+  nearest earlier table's, each of its cells in that table's column whose horizontal span (the union of
+  the column's cell ink) best overlaps the cell's ink, so every row still has that table's N columns, and
+  its ink widens that table's `poly`. A join with no table before it is refused four-part.
 
 ### 4.4 Degraded receipts
 
@@ -311,32 +318,58 @@ What goes wrong, and why:
   previous item). No probe invoice carries the remittance barcode, but the evaluator ignores the `footer`
   category together with whatever is matched to it (`src/core/matching/match_quick.py`, its ignore
   list), so a foot-anchored barcode's caption digits would cost nothing either way.
+- *Ignored categories are matched first.* At the pinned commit the quick matcher
+  (`src/core/matching/match_quick.py`) first pairs every ground-truth line in an ignored category
+  (`header`, `footer`, `page_number` and the caption and footnote categories) with every prediction
+  whose normalised edit distance to it is below 0.25, and removes those predictions before the scored
+  blocks are matched. An ignored line therefore costs nothing itself but can take a prediction that
+  belongs to a scored block close to it. This bears on any `header` or `footer` category. Measured on
+  the probe with the evaluator's own normalisation: the statement banner is at least 0.95 from every
+  scored line; the closest footer line (an invoice's website line in the foot band) is 0.32 from the
+  nearest scored line (the contact email line); the page-number footer is 0.75 or more from every
+  scored line. No footer line on the probe is within 0.25 of a scored line, but the website line's
+  margin is small, because the business domain recurs across lines.
 
 Recommendations for the owner (each to accept or reject):
 
 1. Keep line-level blocks as the default and add no `parse_block`: the matcher merges them into
-   paragraph-style predictions at no cost.
+   paragraph-style predictions at no cost (accepted).
 2. `parse_category: title` on the invoice 'TAX INVOICE' heading: both tools render it as a markdown
-   heading on at least one invoice; this changes only the per-category breakdown.
+   heading on at least one invoice; this changes only the per-category breakdown (accepted).
 3. `parse_category: header` on the invoice contact strip above the heading and on the statement banner:
    they are running page furniture, and OmniDocBench's own pages label such text `header`, which it
    ignores. MinerU omits them and Docling reads them, so this is neutral between tools rather than a
    fix. The statement account-holder and account-number panels carry scored fields and stay
-   `text_block`, although both tools currently lose them.
+   `text_block`, although both tools currently lose them (accepted for the statement banner; withdrawn
+   for the invoice contact strip, see below).
 4. No `parse_order`: no page showed a draw-order misread; reading-order cost came from missing and
-   folded blocks, not from the ground-truth order.
-5. Separator glyphs: leave them out of ground truth; normalisation makes them free.
+   folded blocks, not from the ground-truth order (accepted).
+5. Separator glyphs: leave them out of ground truth; normalisation makes them free (accepted).
 6. Code primitives: keep `figure` for receipts and `footer` for the foot-anchored invoice barcode, and
    accept the spare caption digits on receipts; recording the digits as their own `text_block` would
-   reward every parser for them and is the alternative.
+   reward every parser for them and is the alternative (accepted).
 7. Bank statement totals row: no layout key fixes it. Writing it as the transaction table's last row
-   instead of a table of its own would match how both tools read it; this is a writer change, not a
-   layout key, and is the owner's call.
+   instead of a table of its own would match how both tools read it; it needs a writer change, which
+   no existing layout key makes, and is the owner's call (accepted).
 8. Leaderboard: lead with TEDS for tables and report table edit distance beside it with the output-form
-   caveat above.
-9. Reading-order artefact: keep option C; the probe gave no reason to patch the evaluator.
+   caveat above (accepted).
+9. Reading-order artefact: keep option C; the probe gave no reason to patch the evaluator (accepted).
 
-Owner decision: pending.
+#### Owner decision, 13 October 2026
+
+Go. All nine recommendations accepted.
+
+| No. | Recommendation | Decision | How it is realised | Where |
+|---|---|---|---|---|
+| 1 | Line-level blocks, no `parse_block` | Accepted | No change: line-level grouping is the default (plan Decision 1) | None |
+| 2 | `title` on the 'TAX INVOICE' heading | Accepted | `parse_category: title` on the heading `text` block of every invoice layout | `config/layouts/invoices.yml`: `_invoice_title`, `_trade_title`, `_professional_parties`, `_wholesale_seller`, `_subscription_header`; `tests/parsing/test_layout_parse_keys.py` |
+| 3 | `header` on the invoice contact strip and the statement banner | Accepted for the statement banner; withdrawn for the invoice contact strip after implementation | `parse_category: header` on the statement `banner`. The contact strip stays `text_block`: the quick matcher removes every prediction within normalised edit distance 0.25 of an ignored line (see *Ignored categories are matched first* above), and the contact email line and the scored PayID line on the same business domain are 0.24 apart, so a `header` contact email swallowed the PayID prediction for every parser and the perfect-score check failed | `config/layouts/bank_statements.yml`: the `banner` in `_anz_standard_body` and `_anz_modern_body`; `tests/parsing/test_layout_parse_keys.py` (the banner is a `header`; no invoice block is) |
+| 4 | No `parse_order` | Accepted | No change: draw order stands | None |
+| 5 | Separator glyphs left out | Accepted | No change: rule fill glyphs stay unrecorded (section 4.2) | None |
+| 6 | Code primitives keep `figure`, or `footer` when foot-anchored | Accepted | No change: the category precedence of plan Decision 5 stands | None |
+| 7 | Statement totals joined to the transaction table | Accepted | New table key `parse_join: previous_table` (plan Decision 17; sections 4.2 and 4.3), set on the totals table | `generators/layout_dsl/schema.py`, `generators/parsing/config.py` (`layout_parse_errors`), `generators/exporters/geometry.py` (`BlockRecord.join`), `generators/parsing/omnidocbench.py`; `config/layouts/bank_statements.yml`: the `bank_transaction_totals` table in `_anz_standard_body` and `_anz_modern_body`; `tests/parsing/test_omnidocbench.py`, `tests/parsing/test_layout_parse_keys.py`, `tests/layout_dsl/test_schema_parse_keys.py` |
+| 8 | Leaderboard leads with TEDS, table edit distance beside it with the output-form caveat | Accepted | Carried into the first leaderboard | Plan Task 8, `scripts/score_parsing.py` |
+| 9 | Evaluator left unpatched (option C) | Accepted | No change: the perfect-score test keeps asserting the reading-order artefact | `tests/parsing/test_perfect_score.py` |
 
 ### 5.4 Parser runs
 
@@ -368,7 +401,8 @@ four-part diagnostic. Keys: `evaluator` (`repo`, `commit`, `conda_env_file`, `fo
 
 Mirroring the source tree, test first:
 
-- `tests/layout_dsl/`: block scopes per primitive, `parse_block`, `parse_category`, `parse_order`;
+- `tests/layout_dsl/`: block scopes per primitive, `parse_block`, `parse_category`, `parse_order`,
+  `parse_join`;
 - the table grid, including `colspan` sub-headers, synthetic rows and sub-lines;
 - `tests/exporters/`: the OmniDocBench writer, every invariant, the perfect-score check;
 - `tests/degradation/`: homography round trip, fold fiducial;
@@ -418,7 +452,7 @@ is optional within this stage.
 | `generators/exporters/geometry.py` | Block records, block ids on ink, table grids |
 | `generators/layout_dsl/engine.py` | Block scope per leaf primitive; `parse_*` keys |
 | `generators/layout_dsl/primitives_table.py` | Record the cell grid |
-| `generators/layout_dsl/schema.py` | Validate `parse_block`, `parse_category`, `parse_order` |
+| `generators/layout_dsl/schema.py` | Validate `parse_block`, `parse_category`, `parse_order`, `parse_join` |
 | `generators/overlay/engine.py` | Overlay ink joins blocks by overlay type |
 | `generators/degradation/camera.py` | Return homography and offset |
 | `generators/exporters/omnidocbench.py` (new) | Ground truth writer and invariants |
