@@ -278,13 +278,14 @@ def _check_weight_variables(conda: str, env: str, contract: ToolContract) -> Non
         )
         if done.returncode != 0 or not done.stdout.strip():
             raise _diagnostic(
-                "The tool's env does not say where its weights are.",
-                what=f"{variable} is not set in the conda env {env!r}, so {contract.executable} cannot find "
-                "its weights (runs are offline, so nothing is downloaded instead).",
+                "The tool's environment does not say where its weights are.",
+                what=f"{variable} is not set in the environment the conda env {env!r} runs in, so "
+                f"{contract.executable} cannot find its weights (runs are offline, so nothing is downloaded).",
                 where=f"the conda env {env!r} -> {variable}",
                 expected=f"`conda run -n {env} printenv {variable}` printing the path, e.g. "
                 f"{variable}=<weights dir>",
-                recover=f"conda env config vars set -n {env} {variable}=<path to the weights>",
+                recover=f"add `export {variable}=<path to the weights>` to the shell profile, or run "
+                f"`conda env config vars set -n {env} {variable}=<path to the weights>`, then run again.",
             )
 
 

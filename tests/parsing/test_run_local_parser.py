@@ -113,6 +113,7 @@ def test_an_env_without_its_weight_variable_is_refused(
         )
     assert_diagnostic_error(caught.value)
     message = str(caught.value)
+    assert f"export {variable}=" in message
     assert f"conda env config vars set -n {env_name(tool)} {variable}=" in message
     assert [call["argv"][-2:] for call in calls(conda)] == [["printenv", variable]]
     assert not (tmp_path / "out" / "raw_predictions" / name / "plain").exists()

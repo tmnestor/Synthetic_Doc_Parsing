@@ -132,8 +132,9 @@ does not set it. Below, `<weights dir>` stands for the directory the machine kee
 | `docparse-docling` | `DOCLING_ARTIFACTS_PATH` | `conda env config vars set -n docparse-docling DOCLING_ARTIFACTS_PATH=<weights dir>/docling-artifacts` |
 | `marker` | none | |
 
-A variable exported by the shell profile also reaches the env through `conda run`, which is how the
-scoring machine provides them; setting them in the env makes the env self-sufficient. Marker's weights,
+Either way works: a variable exported by the shell profile (`export <variable>=<path>`) reaches the env
+through `conda run`, which inherits the caller's environment, and is how the scoring machine provides
+them today; setting it in the env makes the env self-sufficient. Marker's weights,
 and anything else the tools fetch from the Hugging Face hub, sit in the hub cache, `$HF_HOME/hub` (by
 default `~/.cache/huggingface/hub`).
 
