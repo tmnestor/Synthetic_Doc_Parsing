@@ -160,6 +160,14 @@ them. It now returns both, and the exporter pushes each block's corners through 
 is a true quadrilateral in the photographed frame and `page_info` carries the frame's size. Text,
 tables and reading order need no transform: they are scored from markdown.
 
+**Cropped blocks.** The warp can carry part of a receipt past the frame's edge. A block whose mapped
+`poly` leaves the frame has each corner clipped to the frame (corner order kept) and is marked
+`ignore: true`, keeping its text or table; a block wholly inside is unchanged. The evaluator drops
+`ignore: true` blocks before matching, so no parser is scored on text the photograph cut off, and every
+`poly` lies within the frame. Invariant 3 still searches every block, ignored or not, since a scored value
+in a cropped block was still drawn. On the full corpus (13 October 2026) this ignores 10 blocks on 4 of
+the 165 degraded pages: 2 moderate and 2 heavy.
+
 **Known gap.** The heavy tier's Augraphy `Folding` displaces pixels locally, which no homography models.
 A fiducial test measures the worst displacement. If it exceeds `fold_displacement_max_px` in
 `config/parsing_config.yml`, heavy-tier pages are excluded from layout detection scoring only, and the

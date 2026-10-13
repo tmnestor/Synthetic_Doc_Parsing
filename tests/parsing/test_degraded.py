@@ -15,6 +15,7 @@ from PIL import Image
 
 from generators.degradation import Tier, degrade_receipt_mapped, load_tiers, tier_seed
 from generators.degradation.camera import homography_transform
+from generators.exporters.geometry import BlockRecord, InkRecord
 from generators.loader import load_ground_truth
 from generators.parsing import degraded as degraded_module
 from generators.parsing.config import PARSING_CONFIG_PATH, ParsingConfig, load_parsing_config
@@ -106,6 +107,90 @@ def test_a_degraded_page_is_the_clean_page_with_its_polys_mapped(
         assert attributes["layout_scored"] is (tier.name in parsing_config.layout_scored_tiers)
         assert attributes["doc_type"] == "receipt" and attributes["layout_id"] == layout_id
         assert page["page_info"]["image_path"] == f"{case_id}_receipt_{tier.suffix}.png"
+
+
+def test_a_block_mapped_half_off_the_frame_is_clipped_and_ignored(
+    monkeypatch: pytest.MonkeyPatch, parsing_config: ParsingConfig
+) -> None:
+    """A camera warp that pushes one block past the frame's right edge: that block's corners are clipped
+    to the frame in their order and it is ignored, keeping its text; the block wholly inside is unchanged."""
+    geometry = {
+        "width": 100,
+        "height": 80,
+        "ink": [
+            InkRecord("text", (10, 10, 60, 20), False, "Invented Half Line", 12, False, 0, None),
+            InkRecord("text", (10, 40, 30, 50), False, "Whole", 12, False, 1, None),
+        ],
+        "blocks": [
+            BlockRecord(0, "text", "body[0]", None, None, 0, None),
+            BlockRecord(1, "text", "body[1]", None, None, 0, None),
+        ],
+        "texts": {},
+    }
+    shift = np.array([[1.0, 0.0, 150.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    def warped(image: Image.Image, tier: Tier, seed: int) -> tuple[Image.Image, np.ndarray]:
+        return Image.new("RGB", (200, 100), "white"), shift
+
+    monkeypatch.setattr(degraded_module, "degrade_receipt_mapped", warped)
+    _, page = degraded_page(
+        Image.new("RGB", (100, 80), "white"),
+        geometry,
+        tier=TIERS[0],
+        seed=0,
+        image_path="invented_receipt_light.png",
+        doc_type="receipt",
+        layout_id="invented_layout",
+        config=parsing_config,
+    )
+    cropped, whole = page["layout_dets"]
+    assert cropped["poly"] == [160.0, 10.0, 200.0, 10.0, 200.0, 20.0, 160.0, 20.0]
+    assert cropped["ignore"] is True and cropped["text"] == "Invented Half Line"
+    assert whole["poly"] == [160.0, 40.0, 180.0, 40.0, 180.0, 50.0, 160.0, 50.0]
+    assert whole["ignore"] is False and whole["text"] == "Whole"
+    assert check_page(page, geometry, where="invented", config=parsing_config) == []
+
+
+def test_a_real_receipt_cropped_by_the_camera_ignores_exactly_its_cropped_blocks(
+    parsing_config: ParsingConfig,
+) -> None:
+    """The first receipt (by case id) whose heavy photograph crops blocks off the frame: exactly the
+    blocks whose mapped poly leaves the frame are ignored, each clipped to it, and the page keeps every
+    invariant."""
+    case_id, index = "CASE008", 2
+    entry = {**load_ground_truth(REPO_ROOT / "ground_truth" / "receipts.yml")[case_id], "case_id": case_id}
+    layout_id = str(entry["layout"])
+    geometry: dict = {}
+    image = renderer_for("receipt")(
+        entry, layouts_for("receipt")[layout_id], distractors=True, geometry_out=geometry
+    )
+    tier = TIERS[index]
+    assert tier.name == "heavy"
+    seed = tier_seed(int(entry["degradation_seed"]), index)
+    frame, page = degraded_page(
+        image,
+        geometry,
+        tier=tier,
+        seed=seed,
+        image_path=f"{case_id}_receipt_{tier.suffix}.png",
+        doc_type="receipt",
+        layout_id=layout_id,
+        config=parsing_config,
+    )
+    _, m = degrade_receipt_mapped(image, tier, seed)
+    context = PageContext("clean.png", "receipt", layout_id, "distractor", "none", True)
+    clean = build_page(geometry, context=context, config=parsing_config)
+    to_frame = homography_transform(m)
+    off = set()
+    for det in clean["layout_dets"]:
+        mapped = to_frame(det["poly"])
+        xs, ys = mapped[0::2], mapped[1::2]
+        if not all(0 <= x <= frame.width for x in xs) or not all(0 <= y <= frame.height for y in ys):
+            off.add(det["anno_id"])
+    assert len(off) == 3, off
+    assert {det["anno_id"] for det in page["layout_dets"] if det["ignore"]} == off
+    where = f"{case_id} / {layout_id} ({DEGRADED_HALF} {tier.name})"
+    assert check_page(page, geometry, where=where, config=parsing_config) == []
 
 
 def test_layout_scored_follows_the_configured_list(

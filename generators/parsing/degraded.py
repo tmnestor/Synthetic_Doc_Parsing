@@ -6,6 +6,11 @@ builds the clean page from the render's records and pushes every `poly` through 
 applied, on a page the frame's size. Text, tables and reading order are scored from markdown and need no
 transform.
 
+The warp can carry part of a receipt past the frame's edge, so the photograph crops it. A block whose
+mapped `poly` leaves the frame has each corner clipped to the frame and is marked `ignore: true`; it
+keeps its text. The evaluator drops ignored blocks before matching, so no parser is scored on text the
+photograph cut off, and every `poly` lies on the page.
+
 Augraphy's ink and paper phases run on the flat page before the warp. A fold displaces pixels locally,
 which no homography models; `fold_displacement_px` measures how far, on a page of fiducial dots, so a
 tier whose fold moves ink further than `fold_displacement_max_px` is kept out of `layout_scored_tiers`
@@ -58,7 +63,8 @@ def degraded_page(
         config: The validated parsing configuration.
 
     Returns:
-        The degraded frame, and its page: the clean page's blocks with every `poly` mapped onto the frame,
+        The degraded frame, and its page: the clean page's blocks with every `poly` mapped onto the frame
+        (a block the frame crops clipped to it and ignored, `clip_to_frame`),
         `page_info` the frame's size, `half` degraded, `tier` the tier's name and `layout_scored` whether
         the tier is listed in `layout_scored_tiers`.
 
@@ -70,7 +76,35 @@ def degraded_page(
     scored = tier.name in config.layout_scored_tiers
     context = PageContext(image_path, doc_type, layout_id, DEGRADED_HALF, tier.name, scored)
     page = build_page(geometry, context=context, config=config)
-    return frame, map_polys(page, homography_transform(m), width=frame.width, height=frame.height)
+    mapped = map_polys(page, homography_transform(m), width=frame.width, height=frame.height)
+    return frame, clip_to_frame(mapped)
+
+
+def clip_to_frame(page: dict) -> dict:
+    """Clip every block that leaves the page to it, and mark that block ignored.
+
+    Each corner is clamped to `[0, width] x [0, height]` on its own. Clamping is monotone in each
+    coordinate, so the corners keep their order (top left, top right, bottom right, bottom left). A block
+    wholly inside the page is left unchanged; a clipped block keeps its text or table.
+
+    Args:
+        page: A page whose polys are on the frame (`map_polys` wrote it); changed in place.
+
+    Returns:
+        The same page.
+    """
+    width, height = page["page_info"]["width"], page["page_info"]["height"]
+    for det in page["layout_dets"]:
+        poly = det["poly"]
+        xs, ys = poly[0::2], poly[1::2]
+        if all(0 <= x <= width for x in xs) and all(0 <= y <= height for y in ys):
+            continue
+        clipped = []
+        for x, y in zip(xs, ys, strict=True):
+            clipped += [min(max(x, 0.0), float(width)), min(max(y, 0.0), float(height))]
+        det["poly"] = clipped
+        det["ignore"] = True
+    return page
 
 
 def _dots(size: tuple[int, int]) -> list[tuple[int, int]]:
