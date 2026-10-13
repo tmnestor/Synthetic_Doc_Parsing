@@ -24,7 +24,7 @@ from generators.common import (
     left_draw_x,
     load_font,
 )
-from generators.exporters.geometry import BoxRecorder
+from generators.exporters.geometry import BoxRecorder, Cell
 from generators.layout_budgets import field_budget
 from generators.layout_dsl.context import RenderContext
 from generators.layout_dsl.defaults import resolve_param
@@ -100,6 +100,16 @@ def _label_anchor(column: dict) -> dict:
     if "label_x" in column:
         return {"x": column["label_x"]}
     return column
+
+
+def _mark_cell(ctx: RenderContext, cell: Cell | None) -> None:
+    """Mark the ink drawn from now on as drawn in `cell` (None once the table's cells are done).
+
+    Cells go through `ctx.ink_recorder`, which `capture: false` leaves in place, so a table that records no
+    scored boxes still records its grid.
+    """
+    if ctx.ink_recorder is not None:
+        ctx.ink_recorder.set_cell(cell)
 
 
 def _resolve_row_height(block: dict, ctx: RenderContext) -> int:
@@ -380,6 +390,8 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
         )
     )
     columns = block["columns"]
+    if ctx.ink_recorder is not None:
+        ctx.ink_recorder.set_table_columns(len(columns))
     dividers = resolve_param(
         block,
         ctx.layout,
@@ -454,6 +466,9 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
         deferred_synthetic = rows[0]
         rows = rows[1:]
 
+    # Every row the table draws (header, date sub-header, synthetic and data alike), counted from 0, so
+    # each line of ink can name its cell.
+    drawn_row = 0
     if resolve_param(
         block,
         ctx.layout,
@@ -480,7 +495,9 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
             header_rule_gap=header_rule_gap,
             family=family,
             advance=advance,
+            cell_row=drawn_row,
         )
+        drawn_row += 1
 
     table_body_start = y
     total_rows = len(rows)
@@ -496,6 +513,8 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
                 ctx.draw.rectangle(
                     [(ctx.region.x, y), (ctx.region.right, y + row_height - fill_inset)], fill=fill_color
                 )
+            # The date sub-header is one cell spanning the table (Decision 7).
+            _mark_cell(ctx, Cell(drawn_row, 0, len(columns)))
             draw_text_left(
                 ctx.draw,
                 str(row.get("date", "")),
@@ -506,6 +525,7 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
             )
             previous_date = row.get("date")
             y += row_height
+            drawn_row += 1
 
             if deferred_synthetic is not None:
                 y = _draw_row(
@@ -524,7 +544,9 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
                     cell_line_spacing=cell_line_spacing,
                     first_row=first_row,
                     is_new_group=False,
+                    cell_row=drawn_row,
                 )
+                drawn_row += 1
                 first_row = False
                 deferred_synthetic = None
 
@@ -545,12 +567,15 @@ def draw_table(block: dict, ctx: RenderContext, y: int) -> int:
             cell_line_spacing=cell_line_spacing,
             first_row=first_row,
             is_new_group=is_new_group,
+            cell_row=drawn_row,
         )
+        drawn_row += 1
         if grouping == "inline" and not synthetic:
             previous_date = row.get("date")
         if not synthetic:
             index += 1
         first_row = False
+    _mark_cell(ctx, None)
 
     if frame == "bordered":
         # Mirrors the legacy renderers' one-shot outer box + column dividers,
@@ -584,6 +609,7 @@ def _draw_header(
     header_rule_gap: int,
     family: str,
     advance: int,
+    cell_row: int,
 ) -> int:
     """Draw the column-header row in the table's frame.
 
@@ -627,6 +653,8 @@ def _draw_header(
 
     A column may position its label independently of its own cells with
     `label_x`/`label_align` — see `_label_anchor`.
+
+    Each label is one cell of row `cell_row`, its lines included, in its column's position.
     """
     font = load_font(size, family=family, bold=bold)
     ink = ctx.ink(ctx.ink_role())
@@ -642,7 +670,8 @@ def _draw_header(
     elif frame == "filled":
         ctx.draw.rectangle([(ctx.region.x, y), (ctx.region.right, y + fill_height)], fill=fill_color)
 
-    for column in columns:
+    for column_index, column in enumerate(columns):
+        _mark_cell(ctx, Cell(cell_row, column_index, 1))
         x = column_x(_label_anchor(column), ctx)
         lines = str(column["label"]).split("\n")
         if label_inset_y is not None:
@@ -707,10 +736,14 @@ def _draw_row(
     family: str,
     inset_y: int,
     cell_line_spacing: str,
+    cell_row: int,
     first_row: bool = False,
     is_new_group: bool = True,
 ) -> int:
     """Draw one row; `index` is None for synthetic rows, which are not recorded.
+
+    `cell_row` is the row's position among every row the table draws; each cell's ink, and each
+    sub-line's, is marked as drawn in that row and its column.
 
     `is_last` marks the final row in the table's own row list — real or
     synthetic — which is where a column's `last_row_field`, if any, records
@@ -780,7 +813,7 @@ def _draw_row(
     bold_font = load_font(size, family=family, bold=True)
     bottom = y + row_height  # Floor: every unbudgeted cell is exactly one row tall.
 
-    for column in columns:
+    for column_index, column in enumerate(columns):
         if column["key"] == "date" and _date_is_redundant(grouping, is_new_group):
             continue
         x = column_x(column, ctx)
@@ -832,6 +865,7 @@ def _draw_row(
             else None
         )
 
+        _mark_cell(ctx, Cell(cell_row, column_index, 1))
         cell_bottom = _draw_cell(
             ctx.draw,
             text,
@@ -855,7 +889,7 @@ def _draw_row(
         )
         bottom = max(bottom, cell_bottom)
 
-    bottom += _draw_sub_lines(row, columns, ctx, y, index)
+    bottom += _draw_sub_lines(row, columns, ctx, y, index, cell_row=cell_row)
 
     if frame == "bordered" and not first_row and (grouping != "inline" or is_new_group):
         draw_separator_line(ctx.draw, ctx.region.x, ctx.region.right, y, color="black")
@@ -863,7 +897,9 @@ def _draw_row(
     return bottom
 
 
-def _draw_sub_lines(row: dict, columns: list, ctx: RenderContext, y: int, index: int | None) -> int:
+def _draw_sub_lines(
+    row: dict, columns: list, ctx: RenderContext, y: int, index: int | None, *, cell_row: int
+) -> int:
     """Draw each column's sub-line, if it has data this row, and report its height.
 
     A column may carry `sub_line: {key, role, color, offset_y, height}` to
@@ -898,6 +934,8 @@ def _draw_sub_lines(row: dict, columns: list, ctx: RenderContext, y: int, index:
         y: The row's own start y, before any wrapping advance.
         index: The row's ground-truth index, or None for a synthetic row
             (whose sub-line, if any, records nothing).
+        cell_row: The row's position among every row the table draws; a sub-line's ink is marked as
+            drawn in that row and the declaring column's cell.
 
     Returns:
         The extra height claimed by the tallest sub_line drawn this row (0 if
@@ -908,7 +946,7 @@ def _draw_sub_lines(row: dict, columns: list, ctx: RenderContext, y: int, index:
             values' boxes cannot be measured on a single line.
     """
     extra = 0
-    for column in columns:
+    for column_index, column in enumerate(columns):
         sub_line = column.get("sub_line")
         if sub_line is None:
             continue
@@ -982,6 +1020,7 @@ def _draw_sub_lines(row: dict, columns: list, ctx: RenderContext, y: int, index:
             font = load_font(fitted.size, family=family)
         line_y = y + offset_y
         draw_x = left_draw_x(font, text, x)
+        _mark_cell(ctx, Cell(cell_row, column_index, 1))
         draw_text_left(ctx.draw, text, x, line_y, font, fill=color, ink=ink)
         if ctx.recorder is not None:
             for field, (start, end) in records.items():

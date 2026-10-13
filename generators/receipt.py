@@ -47,8 +47,8 @@ def render_receipt(
             distractor render, whose label sites print their own wording. A choice requires
             `distractors=True`.
         geometry_out: Optional dict (opt-in); when given, populated in place
-            with {"width", "height", "boxes", "texts", "ink", "labels", "regions"}: each captured field's
-            normalised bounding box on the rendered page, and every drawn
+            with {"width", "height", "boxes", "texts", "ink", "blocks", "labels", "regions"}:
+            each captured field's normalised bounding box on the rendered page, and every drawn
             line's and mark's pixel ink with its role (internal; not exported).
         ink_out: Optional list (opt-in); when given, extended in place with
             the same ink records, for a caller that needs the ink without the
@@ -108,6 +108,7 @@ def render_receipt(
         geometry_out["regions"] = recorder.regions()
         # Ink stays in pixels: cropping the bottom moves no drawn line.
         geometry_out["ink"] = recorder.ink_records()
+        geometry_out["blocks"] = recorder.block_records()
     if recorder is not None and ink_out is not None:
         ink_out.extend(recorder.ink_records())
     return image

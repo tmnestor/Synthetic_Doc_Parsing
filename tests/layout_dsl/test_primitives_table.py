@@ -197,6 +197,7 @@ def draw_row(row: dict, columns: list, *, index: int | None = 0, is_last: bool =
         "family": FAMILY,
         "inset_y": 0,
         "cell_line_spacing": "row_height",
+        "cell_row": 0,
     }
     params.update(kwargs)
     bottom = _draw_row(row, columns, ctx, Y0, index=index, is_last=is_last, **params)
@@ -1194,6 +1195,7 @@ def test_rule_above_does_not_draw_before_an_invalid_bold_spec_raises() -> None:
             family=FAMILY,
             inset_y=0,
             cell_line_spacing="row_height",
+            cell_row=0,
         )
     assert_diagnostic_error(exc_info.value)
     assert "nope" in str(exc_info.value)

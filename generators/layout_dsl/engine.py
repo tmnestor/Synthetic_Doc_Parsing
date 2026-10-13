@@ -1,6 +1,7 @@
 """The walker: dispatch each block in a layout body to its primitive drawer."""
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 
 from PIL import ImageDraw
@@ -51,6 +52,12 @@ PRIMITIVE_DRAWERS: dict[str, Drawer] = {
     "qrcode": draw_qrcode,
     "logo": draw_logo,
 }
+
+# The primitives a parser finds as blocks (the parsing configuration's `category_map.primitives` keys). Each
+# leaf opens a block scope around its own drawing; a container opens one only when it declares
+# `parse_block: true`, so its children's ink joins one block. `rule` and `spacer` draw no block.
+SCOPED_LEAVES = frozenset({"text", "pair", "block", "table", "banner", "logo", "barcode", "qrcode"})
+SCOPED_CONTAINERS = frozenset({"panel", "split", "stack"})
 
 
 class EngineError(RuntimeError):
@@ -145,18 +152,53 @@ def render_blocks(blocks: list, ctx: RenderContext, y: int) -> int:
         block_ctx = ctx
         if when is not None and not ctx.dx_gated and str(when).startswith(DX_PREFIX):
             block_ctx = replace(ctx, dx_gated=True)
+        here = f"{ctx.block_path}[{position}]"
+        if kind in SCOPED_CONTAINERS:
+            block_ctx = replace(block_ctx, block_path=f"{here}.children")
 
         try:
             if block.get("anchor") == "foot":
                 # Drawn upward from the bottom margin; fails fast if it would meet the body above.
                 y = foot_origin(block, block_ctx, y, drawer, at=f"{ctx.layout_id}.body[{position}]")
-            y = drawer(block, block_ctx, y)
+            with _block_scope(block, str(kind), ctx, path=here):
+                y = drawer(block, block_ctx, y)
         except _DSL_ERRORS as err:
             # Each nesting level prepends its own segment as the error unwinds, so
             # the final path reads outermost-first: body[2].children[0].
             _tag_path(err, f"[{position}]({kind})")
             raise
     return y
+
+
+def _block_scope(block: dict, kind: str, ctx: RenderContext, *, path: str) -> AbstractContextManager[None]:
+    """Return the block scope a block draws inside, or a no-op when it opens none.
+
+    A leaf always opens one, a container only with `parse_block: true`; with no ink recorder there is
+    nothing to attribute. A scope opened inside another adds no block (see `BoxRecorder.block_scope`).
+
+    Args:
+        block: The block about to be drawn.
+        kind: Its primitive name.
+        ctx: The walker's context, carrying the ink recorder.
+        path: The block's path, e.g. `body[3].children[1]`.
+
+    Returns:
+        A context manager to draw the block inside.
+    """
+    recorder = ctx.ink_recorder
+    if recorder is None or not (
+        kind in SCOPED_LEAVES or (kind in SCOPED_CONTAINERS and block.get("parse_block") is True)
+    ):
+        return nullcontext()
+    anchor = block.get("anchor")
+    category = block.get("parse_category")
+    return recorder.block_scope(
+        kind,
+        path=path,
+        anchor=None if anchor is None else str(anchor),
+        parse_category=None if category is None else str(category),
+        parse_order=int(block.get("parse_order", 0)),
+    )
 
 
 def render_body(

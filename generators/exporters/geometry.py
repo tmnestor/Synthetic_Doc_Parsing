@@ -11,14 +11,57 @@ can be measured and the page read back; the string each box was drawn from, so
 each label site drew; and the box of each declared region (the totals block). Ink,
 drawn strings, labels and regions stay internal: `as_dict()`, and so every export,
 carries the scored field boxes only.
+
+Each line of ink also says which block drew it and, inside a table, which cell, so a page can be
+written as parsing ground truth: the layout engine and the overlay open a block scope around each
+block they draw (`block_scope`), and a table marks each cell before drawing it (`set_cell`).
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import NamedTuple
 
 from generators.distractors.keys import DX_PREFIX
 
 # What a drawn line or mark is: a scored value, a distractor, or any other printed text.
 INK_ROLES = ("scored", "distractor", "text")
+
+
+class Cell(NamedTuple):
+    """The table cell a line of ink was drawn in.
+
+    Attributes:
+        row: The drawn row, counted from 0 over every row the table draws (header, date sub-header,
+            synthetic and data rows alike).
+        column: The column's index in the table's `columns:` list.
+        span: 1, or the table's column count for a date sub-header row, which spans the table.
+    """
+
+    row: int
+    column: int
+    span: int
+
+
+class BlockRecord(NamedTuple):
+    """One block a parser can find on the page: a scoped primitive or an overlay site.
+
+    Attributes:
+        id: The block's draw sequence, from 0; ink records name their block by it.
+        kind: The primitive's name (`text`, `table`, `stack`, ...), or `overlay:<type>` for an overlay site.
+        path: Where the block sits, e.g. `body[3].children[1]` or `<layout_id>.overlay[0]`.
+        anchor: The block's `anchor:` (e.g. `foot`), or None.
+        parse_category: The block's `parse_category:`, or None.
+        parse_order: The block's `parse_order:`, 0 when absent.
+        columns: A table's column count; None for every other kind.
+    """
+
+    id: int
+    kind: str
+    path: str
+    anchor: str | None
+    parse_category: str | None
+    parse_order: int
+    columns: int | None
 
 
 class InkRecord(NamedTuple):
@@ -34,6 +77,8 @@ class InkRecord(NamedTuple):
             nothing.
         size: A text line's font size in points (above zero); 0 for a mark.
         bold: Whether a text line is drawn in the bold weight; False for a mark.
+        block: The id of the block whose scope was open when the line was drawn, or None outside any.
+        cell: The table cell the line was drawn in, or None outside a table's cells.
     """
 
     role: str
@@ -42,6 +87,8 @@ class InkRecord(NamedTuple):
     text: str
     size: int
     bold: bool
+    block: int | None = None
+    cell: Cell | None = None
 
 
 class BoxRecorder:
@@ -77,6 +124,84 @@ class BoxRecorder:
         self._ink: list[InkRecord] = []
         self._labels: dict[str, tuple[str, tuple[int, int, int, int] | None]] = {}
         self._regions: dict[str, tuple[int, int, int, int]] = {}
+        self._blocks: list[BlockRecord] = []
+        self._open_block: int | None = None
+        self._cell: Cell | None = None
+
+    @contextmanager
+    def block_scope(
+        self,
+        kind: str,
+        *,
+        path: str,
+        anchor: str | None,
+        parse_category: str | None,
+        parse_order: int,
+    ) -> Iterator[None]:
+        """Attribute every line of ink drawn inside to one block.
+
+        The outermost open scope owns the ink: a scope opened while another is open creates no block,
+        and its ink joins the outer one. The scope closes on exit, an exception included, and closing it
+        clears the current cell.
+
+        Args:
+            kind: The primitive's name, or `overlay:<type>` for an overlay site.
+            path: Where the block sits, e.g. `body[3].children[1]`.
+            anchor: The block's `anchor:`, or None.
+            parse_category: The block's `parse_category:`, or None.
+            parse_order: The block's `parse_order:`, 0 when absent.
+
+        Yields:
+            None, once the block (if any) is open.
+        """
+        if self._open_block is not None:
+            yield
+            return
+        block_id = len(self._blocks)
+        self._blocks.append(BlockRecord(block_id, kind, path, anchor, parse_category, parse_order, None))
+        self._open_block = block_id
+        try:
+            yield
+        finally:
+            self._open_block = None
+            self._cell = None
+
+    def set_table_columns(self, columns: int) -> None:
+        """Declare the open table block's column count.
+
+        Args:
+            columns: The number of columns the table declares.
+
+        Raises:
+            ValueError: No block is open, or the open block is not a table.
+        """
+        if self._open_block is None:
+            msg = (
+                f"A table declared {columns} columns but no block is open. Remediation: draw tables through "
+                f"render_blocks, which opens a block scope around each table it draws."
+            )
+            raise ValueError(msg)
+        block = self._blocks[self._open_block]
+        if block.kind != "table":
+            msg = (
+                f"A table declared {columns} columns inside the open block {block.path} of kind "
+                f"'{block.kind}', not 'table'. Remediation: take parse_block off the container around the "
+                f"table, so the table records a block of its own."
+            )
+            raise ValueError(msg)
+        self._blocks[self._open_block] = block._replace(columns=columns)
+
+    def set_cell(self, cell: Cell | None) -> None:
+        """Mark every line of ink recorded from now on as drawn in `cell`, until the next call.
+
+        Args:
+            cell: The table cell about to be drawn, or None once the table's cells are done.
+        """
+        self._cell = cell
+
+    def block_records(self) -> list[BlockRecord]:
+        """Return every block opened on this page, in draw order (its id is its position)."""
+        return list(self._blocks)
 
     def record(self, field: str, box: tuple[int, int, int, int], *, text: str) -> None:
         """Record one field's pixel box, normalised to the page, and the string drawn in it.
@@ -170,7 +295,16 @@ class BoxRecorder:
             )
             raise ValueError(msg)
         self._ink.append(
-            InkRecord(role, (int(left), int(top), int(right), int(bottom)), mark, text, int(size), bold)
+            InkRecord(
+                role,
+                (int(left), int(top), int(right), int(bottom)),
+                mark,
+                text,
+                int(size),
+                bold,
+                self._open_block,
+                self._cell,
+            )
         )
 
     def record_label(self, field: str, text: str, box: tuple[int, int, int, int] | None) -> None:

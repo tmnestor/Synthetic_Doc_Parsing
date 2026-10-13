@@ -221,10 +221,14 @@ def apply_overlay(
         )
         drawing = drawer(block, ctx)
         _composite(image, drawing, ctx)
-        for line in drawing.text_ink:
-            recorder.record_ink(line.box, "distractor", text=line.text, size=line.size, bold=line.bold)
-        for box in drawing.mark_ink:
-            recorder.record_ink(box, "distractor", text="", size=0, bold=False, mark=True)
+        # Each drawn site is one block, after every body block in draw order.
+        with recorder.block_scope(
+            f"overlay:{kind}", path=site.block_path, anchor=None, parse_category=None, parse_order=0
+        ):
+            for line in drawing.text_ink:
+                recorder.record_ink(line.box, "distractor", text=line.text, size=line.size, bold=line.bold)
+            for box in drawing.mark_ink:
+                recorder.record_ink(box, "distractor", text="", size=0, bold=False, mark=True)
         marks.extend(drawing.marks)
     return OverlayResult(marks=tuple(marks))
 

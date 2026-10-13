@@ -221,9 +221,13 @@ def draw_split(block: dict, ctx: RenderContext, y: int) -> int:
         regions = ctx.region.divide_widths([int(w) for w in widths], gap=gap)
     else:
         regions = ctx.region.divide(len(columns), gap=gap)
+    # `children` holds one block list per column, so a child's path names its column too:
+    # body[2].children[1][0] is the first block of the second column.
     ends = [
-        render_children(child_blocks, ctx.within(region), y)
-        for child_blocks, region in zip(columns, regions, strict=True)
+        render_children(
+            child_blocks, replace(ctx.within(region), block_path=f"{ctx.block_path}[{column}]"), y
+        )
+        for column, (child_blocks, region) in enumerate(zip(columns, regions, strict=True))
     ]
     bottom = max(ends)
     if block.get("divider"):

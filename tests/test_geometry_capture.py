@@ -83,7 +83,7 @@ def test_every_layout_across_every_renderer_captures_geometry_without_crashing(
     geometry: dict = {}
     image = render_entry(doc_type, entry, geometry_out=geometry, distractors=False)
 
-    assert set(geometry) == {"width", "height", "boxes", "texts", "ink", "labels", "regions"}
+    assert set(geometry) == {"width", "height", "boxes", "texts", "ink", "blocks", "labels", "regions"}
     assert geometry["width"] == image.width
     assert geometry["height"] == image.height
     boxes = geometry["boxes"]

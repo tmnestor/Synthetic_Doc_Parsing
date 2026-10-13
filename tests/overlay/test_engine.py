@@ -141,7 +141,10 @@ def test_overlay_text_ink_reaches_geometry_and_ink_out(box_drawer: str, doc_type
     _render(doc_type, entry, layout, geometry_out=geometry, ink_out=ink)
     plain_overlay: dict = {}
     _render(doc_type, entry, {**layout, "overlay": []}, geometry_out=plain_overlay)
-    added = InkRecord("distractor", (40, 40, 60, 60), False, "note", 30, False)
+    # The overlay site is one block, after every body block.
+    added = InkRecord(
+        "distractor", (40, 40, 60, 60), False, "note", 30, False, block=len(plain_overlay["blocks"])
+    )
     assert geometry["ink"] == [*plain_overlay["ink"], added]
     assert ink == geometry["ink"]
     # Ink stays internal: the exported boxes are the scored ones, unchanged by the overlay.
@@ -163,7 +166,8 @@ def test_a_stroke_records_a_mark_and_a_tint_records_nothing(box_drawer: str) -> 
     _render("invoice", mark_entry, mark_layout, geometry_out=marked)
     tinted: dict = {}
     tinted_image = _render("invoice", tint_entry, tint_layout, geometry_out=tinted)
-    assert marked["ink"] == [*base["ink"], InkRecord("distractor", (40, 40, 60, 60), True, "", 0, False)]
+    stroke = InkRecord("distractor", (40, 40, 60, 60), True, "", 0, False, block=len(base["blocks"]))
+    assert marked["ink"] == [*base["ink"], stroke]
     assert tinted["ink"] == base["ink"]
     assert tinted_image.getpixel((50, 50)) == (255, 240, 120)
 
@@ -242,8 +246,8 @@ def test_only_blocks_whose_key_is_present_draw_in_order(box_drawer: str) -> None
     assert result.drawn_for("DX_ABSENT") == []
     assert image.getpixel((65, 45)) == (255, 255, 255)
     assert recorder.ink_records() == [
-        InkRecord("distractor", (40, 40, 50, 50), False, "note", 30, False),
-        InkRecord("distractor", (80, 40, 90, 50), True, "", 0, False),
+        InkRecord("distractor", (40, 40, 50, 50), False, "note", 30, False, block=0),
+        InkRecord("distractor", (80, 40, 90, 50), True, "", 0, False, block=1),
     ]
 
 

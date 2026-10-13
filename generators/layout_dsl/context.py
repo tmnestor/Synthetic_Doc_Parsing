@@ -190,6 +190,8 @@ class RenderContext:
         render_children: The walker, injected by the engine so containers can
             render nested blocks without importing the engine — which would be
             a circular import, since the engine's dispatch table imports them.
+        block_path: Where the blocks this context walks sit in the layout, e.g. `body` or
+            `body[3].children`; the walker appends each block's position to name the block it scopes.
     """
 
     draw: ImageDraw.ImageDraw
@@ -202,6 +204,7 @@ class RenderContext:
     render_children: "Callable[[list, RenderContext, int], int] | None" = None
     ink_recorder: BoxRecorder | None = None
     dx_gated: bool = False
+    block_path: str = "body"
 
     def within(self, region: Region) -> "RenderContext":
         """Return a copy of this context scoped to a different region.

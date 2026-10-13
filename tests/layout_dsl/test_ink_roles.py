@@ -93,6 +93,7 @@ def test_a_scored_text_line_is_scored_ink_at_its_exact_ink_box() -> None:
             "01/02/2031",
             resolve_role(real_layout([]), "body"),
             False,
+            block=0,
         )
     ]
     assert_text_close(records[0].box, ink_bbox(image))
@@ -256,7 +257,7 @@ def test_a_barcode_without_caption_is_its_bars_alone() -> None:
         "caption_gap": 4,
     }
     records, _, image = draw_body([block])
-    assert records == [InkRecord("distractor", ink_bbox(image), True, FIELDS["DX_EAN"], 0, False)]
+    assert records == [InkRecord("distractor", ink_bbox(image), True, FIELDS["DX_EAN"], 0, False, block=0)]
 
 
 def test_a_qrcode_mark_is_its_exact_drawn_rectangle_with_caption() -> None:
@@ -282,7 +283,9 @@ def test_a_qrcode_without_caption_is_its_modules_exactly() -> None:
         "error_level": "m",
     }
     records, _, image = draw_body([block])
-    assert records == [InkRecord("distractor", ink_bbox(image), True, FIELDS["DX_SURVEY_URL"], 0, False)]
+    assert records == [
+        InkRecord("distractor", ink_bbox(image), True, FIELDS["DX_SURVEY_URL"], 0, False, block=0)
+    ]
 
 
 def test_a_logo_mark_is_its_shape_box() -> None:
@@ -297,7 +300,9 @@ def test_a_logo_mark_is_its_shape_box() -> None:
         "when": "DX_STORE_NUMBER",
     }
     records, _, image = draw_body([block])
-    assert records == [InkRecord("distractor", ink_bbox(image), True, initials(FIELDS["SHOP"]), 0, False)]
+    assert records == [
+        InkRecord("distractor", ink_bbox(image), True, initials(FIELDS["SHOP"]), 0, False, block=0)
+    ]
 
 
 # --- tables and whole renders ---------------------------------------------------

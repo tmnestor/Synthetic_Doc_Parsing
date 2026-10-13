@@ -178,7 +178,7 @@ def test_measure_receives_each_fitting_distractor_render_once() -> None:
     )
     assert violations == []
     assert seen == [
-        ("CASE901", layout_id, ["boxes", "height", "ink", "labels", "regions", "texts", "width"])
+        ("CASE901", layout_id, ["blocks", "boxes", "height", "ink", "labels", "regions", "texts", "width"])
     ]
 
 
