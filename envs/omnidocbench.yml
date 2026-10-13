@@ -1,0 +1,16 @@
+# Conda environment for the OmniDocBench evaluator that scores parsing output.
+#
+# It is separate from environment.yml: none of the evaluator's packages enter the generator's env.
+# The evaluator's own requirements come from its pyproject.toml, installed from the pinned checkout
+# (evaluator.repo at evaluator.commit in config/parsing_config.yml), so they are not listed twice here:
+#
+#     conda env create -n omnidocbench -f envs/omnidocbench.yml
+#     conda run -n omnidocbench pip install -e <output_root>/tools/OmniDocBench
+#
+# OmniDocBench documents Python 3.10 (its pyproject allows >=3.10,<3.12). Formula metrics (CDM) are off,
+# so no TeX, Ghostscript or ImageMagick is needed.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip

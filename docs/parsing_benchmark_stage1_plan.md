@@ -75,7 +75,9 @@ Numbered so reviews can cite them.
    `category_map.primitives[<kind>]`.
 6. **Reading order is a stable sort by `(parse_order, draw sequence)`.** `parse_order` is an integer rank,
    0 when absent; a block given `parse_order: 1` reads after every unranked block, `-1` before. `order` in the
-   output is the 0-based position after the sort; `anno_id` is the draw sequence.
+   output is the 1-based position after the sort, as OmniDocBench numbers its own pages (its matcher reads an
+   order of 0 as no order, so a 0-based first block would leave reading order); `anno_id` is the draw
+   sequence.
 7. **Tables are written as `<table>` of `<tr>` of `<td>`, with no `<thead>` or `<th>`.** Header rows are the
    first rows. A header label drawn on two lines (`"Date of\nTransaction"`) is one cell, its lines joined by
    a space. A date sub-header row (`grouping: dedicated_row`) is one `<td colspan="N">` for an N-column

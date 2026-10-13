@@ -127,13 +127,13 @@ def det(category: str, poly: list[int], order: int, anno_id: int, **content: str
 
 EXPECTED_PAGE = {
     "layout_dets": [
-        det("title", [20, 10, 220, 10, 220, 40, 20, 40], 1, 0, text="Numbat Ledger"),
-        det("figure", [300, 10, 360, 10, 360, 70, 300, 70], 2, 1),
-        det("text_block", [20, 50, 140, 50, 140, 66, 20, 66], 0, 2, text="Ref 7Q-4410"),
-        det("table", [20, 80, 370, 80, 370, 194, 20, 194], 3, 4, html=TABLE_HTML),
-        det("footer", [20, 260, 130, 260, 130, 290, 20, 290], 4, 5, text="Kindly retain this slip"),
-        det("text_block", [250, 220, 360, 220, 360, 240, 250, 240], 5, 6, text="Lodged Wren"),
-        det("abandon", [240, 200, 290, 200, 290, 215, 240, 215], 6, 7),
+        det("title", [20, 10, 220, 10, 220, 40, 20, 40], 2, 0, text="Numbat Ledger"),
+        det("figure", [300, 10, 360, 10, 360, 70, 300, 70], 3, 1),
+        det("text_block", [20, 50, 140, 50, 140, 66, 20, 66], 1, 2, text="Ref 7Q-4410"),
+        det("table", [20, 80, 370, 80, 370, 194, 20, 194], 4, 4, html=TABLE_HTML),
+        det("footer", [20, 260, 130, 260, 130, 290, 20, 290], 5, 5, text="Kindly retain this slip"),
+        det("text_block", [250, 220, 360, 220, 360, 240, 250, 240], 6, 6, text="Lodged Wren"),
+        det("abandon", [240, 200, 290, 200, 290, 215, 240, 215], 7, 7),
     ],
     "page_info": {
         "page_no": 0,
@@ -188,14 +188,22 @@ def test_a_positive_parse_order_reads_after_every_unranked_block(config: Parsing
     page["blocks"][0] = page["blocks"][0]._replace(parse_order=1)
     built = build_page(page, context=CONTEXT, config=config)
     assert {d["anno_id"]: d["order"] for d in built["layout_dets"]} == {
-        2: 0,
-        1: 1,
-        4: 2,
-        5: 3,
-        6: 4,
-        7: 5,
-        0: 6,
+        2: 1,
+        1: 2,
+        4: 3,
+        5: 4,
+        6: 5,
+        7: 6,
+        0: 7,
     }
+
+
+def test_order_counts_from_one_because_the_evaluator_reads_zero_as_no_order(config: ParsingConfig) -> None:
+    """Decision 6: the first block reads as order 1. OmniDocBench numbers its own pages from 1, and its
+    matcher takes an order of 0 as absent, so a 0-based first block would drop out of reading order."""
+    built = build_page(geometry(), context=CONTEXT, config=config)
+    orders = sorted(d["order"] for d in built["layout_dets"])
+    assert orders == list(range(1, len(orders) + 1))
 
 
 def test_a_code_mark_payload_never_enters_text(config: ParsingConfig) -> None:

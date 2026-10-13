@@ -145,8 +145,8 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
     """Build one OmniDocBench page from a render's `geometry_out`.
 
     One `layout_dets` entry per block that drew ink, in draw order (Decision 4: a block with none is
-    left out). `anno_id` is the block's draw sequence and `order` its position after a stable sort by
-    `(parse_order, draw sequence)` (Decision 6). A table carries `html`; a block in a textless category
+    left out). `anno_id` is the block's draw sequence and `order` its 1-based position after a stable sort
+    by `(parse_order, draw sequence)` (Decision 6). A table carries `html`; a block in a textless category
     carries nothing; every other block carries `text`, its non-mark lines joined by one space.
 
     Args:
@@ -168,7 +168,8 @@ def build_page(geometry: dict, *, context: PageContext, config: ParsingConfig) -
             owned.setdefault(record.block, []).append(record)
     inked = [block for block in blocks if owned.get(block.id)]
     ranked = sorted(inked, key=lambda block: (block.parse_order, block.id))
-    order = {block.id: position for position, block in enumerate(ranked)}
+    # 1-based, as OmniDocBench numbers its own pages: its matcher reads an order of 0 as no order at all.
+    order = {block.id: position for position, block in enumerate(ranked, start=1)}
     where = f"{context.image_path} / {context.layout_id} ({context.half})"
 
     dets = []

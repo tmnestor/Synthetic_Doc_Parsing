@@ -191,6 +191,32 @@ score, and inspect the matches. The findings fix the default block grouping and 
 overrides, and are recorded in this document. If the matcher misbehaves on these layouts in a way
 grouping cannot fix, stop and revisit the design.
 
+**Perfect-score findings.** Scoring the six clean probe pages' own ground truth, written back as markdown,
+with the pinned evaluator gave text edit distance 0, table TEDS 1 (structure-only TEDS 1) and table edit
+distance 0 at once: the text and table formats agree, and `.png` pages pair with `<stem>.md` predictions.
+Reading order did not, for two reasons:
+
+- *Order counts from 1.* OmniDocBench numbers its own pages' `order` from 1, and its matcher reads an
+  order of 0 as no order at all (it falls back to an absent position and then drops it). A 0-based first
+  block therefore left the reading order unscored. The writer now numbers from 1 (Decision 6).
+- *The first predicted table loses its position.* At the pinned commit, and on upstream main too, the
+  table matcher records a matched prediction's position only when its index is truthy
+  (`src/core/matching/match.py` line 714, `... if pred_idx else ""`; line 713 drops its category the same
+  way), so the table matched to prediction index 0, the first table of the page, drops out of the
+  predicted order while its ground truth stays in. The effect is one edit on every page whose first
+  predicted table matches at index 0, even when the prediction is perfect (0.062 over the probe, where
+  every page has one table). It falls equally on every tool scored, and on upstream's published numbers.
+
+  Two ways to treat it: (B) run the evaluator through a launcher that restores that one position before
+  calling the evaluator's own entry point, leaving the checkout pinned and untouched; a prototype scored
+  the probe perfectly on all five numbers (text edit distance 0, TEDS 1, structure-only TEDS 1, table edit
+  distance 0, reading-order edit distance 0), so this defect is the only remaining cause, but reading-order
+  numbers would then differ from upstream's. (C) run the evaluator unmodified, so numbers stay comparable
+  with upstream's, and have the perfect-score test assert reading order exactly up to the artefact: per
+  page, the predicted order equals the ground-truth order less that table's position, and the aggregate
+  equals the value the artefact predicts. Stage one runs C; whether to adopt B is decided at the matcher
+  gate.
+
 ### 5.4 Parser runs
 
 - `config/parsing_config.yml` lists each tool with its back-end, its runner (`local` or `remote`) and,

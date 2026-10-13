@@ -656,5 +656,28 @@ def eval_set(
     typer.echo(f"MANIFEST.json SHA-256: {summary.manifest_sha256} (record it beside the upload)")
 
 
+@app.command("parsing-probe")
+def parsing_probe(
+    config: Path = typer.Option(_DEFAULT_CONFIG, help="Path to generation_config.yml"),
+) -> None:
+    """Export the parsing probe: the pages Decision 12 chooses, with their OmniDocBench ground truth.
+
+    Writes `<eval_set.output_root>/parsing_probe/`: each probe page's image and one `probe.json`, a list
+    of OmniDocBench pages, replacing an earlier probe. Every page is checked against the parsing
+    invariants first; a page that breaks one publishes nothing.
+    """
+    from generators.parsing.probe import PROBE_JSON, ProbeError, export_probe
+
+    try:
+        directory = export_probe(config, load_parsing_config(PARSING_CONFIG_PATH))
+    except (ProbeError, ParsingConfigError, ValueError, FileNotFoundError, FitError) as exc:
+        # Echoed plain rather than through rich, which would rewrap the four-part lines.
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    pages = json.loads((directory / PROBE_JSON).read_text())
+    typer.echo(f"Probe: {directory}")
+    typer.echo(f"{len(pages)} pages")
+
+
 if __name__ == "__main__":
     app()
