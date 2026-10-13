@@ -52,6 +52,8 @@ from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_con
 RUN_RECORD = "run.json"
 RUN_LOG = "run.log"
 RAW_DIR = "raw_predictions"
+# MinerU's command, run so that a stalled local API cannot drop a status poll.
+MINERU_CLI = Path(__file__).resolve().parent / "mineru_cli.py"
 # Every tool reads only weights already on disk.
 _OFFLINE = {"HF_HUB_OFFLINE": "1"}
 
@@ -92,7 +94,9 @@ class ToolContract:
 
 
 def _mineru_arguments(backend: str, images: Path, out: Path, device: str) -> list[str]:
-    return ["-p", str(images), "-o", str(out), "-b", backend]
+    # `mineru` through a wrapper that polls its local API on fresh connections (see the wrapper's
+    # docstring); isolated mode, so nothing outside the MinerU env is imported.
+    return ["-I", str(MINERU_CLI), "-p", str(images), "-o", str(out), "-b", backend]
 
 
 def _docling_arguments(backend: str, images: Path, out: Path, device: str) -> list[str]:
@@ -121,7 +125,7 @@ def _marker_arguments(backend: str, images: Path, out: Path, device: str) -> lis
 
 
 _MINERU = ToolContract(
-    executable="mineru",
+    executable="python",
     package="mineru",
     backends=("pipeline", "vlm-engine", "hybrid-engine"),
     arguments=_mineru_arguments,

@@ -15,6 +15,7 @@ from generators.parsing.config import PARSING_CONFIG_PATH, ParsingConfig, load_p
 from scripts import run_local_parser
 from scripts.run_local_parser import (
     CONTRACTS,
+    MINERU_CLI,
     RUN_RECORD,
     ParserRunError,
     env_name,
@@ -212,6 +213,8 @@ def test_a_run_goes_through_the_tool_env_and_writes_its_record(
     assert argv[4] == contract.executable
     assert str(out) in argv
     if name.startswith("mineru"):
+        # `mineru` runs through the wrapper that polls its local API on fresh connections.
+        assert argv[5:7] == ["-I", str(MINERU_CLI)] and MINERU_CLI.is_file()
         assert argv[argv.index("-b") + 1] == tool.backend
         assert tool_call["env"]["MINERU_DEVICE_MODE"] == tool.device
     if name == "docling":
