@@ -167,6 +167,17 @@ half. Every snapshot ships the notebook (outputs cleared) and the preflight in i
 fails loudly when a run and a ground truth describe different image sets, which the
 notebook itself would otherwise absorb as "unmatched" and score around.
 
+### Scoring document parsers against the parsing ground truth
+
+The snapshot's `parsing/` files score document parsers (MinerU, Docling, Marker) with the pinned
+OmniDocBench evaluator: text, table and reading-order accuracy, broken down by document type,
+degradation tier and layout. Every parser runs locally from its own conda env (`envs/*.yml`); none of
+their packages enters `environment.yml`. `docs/parsing_benchmark_runbook.md` covers it end to end:
+building the evaluator and each parser's env, `scripts/run_local_parser.py` (one tool over one half),
+`scripts/collect_predictions.py` (one `<image stem>.md` per page), `scripts/score_parsing.py` (the
+leaderboard, `../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.csv`), and the licence terms that
+govern publishing each tool's scores.
+
 ### Dependencies
 
 ```
@@ -551,6 +562,10 @@ three checks are read-only.
 | `scripts/check_seed_reproducibility.py` | Assert the committed corpus is exactly what those two produce, run in an isolated copy |
 | `scripts/generate_extraction_gt.py` | Build an extraction ground-truth CSV from `config/extraction_schema.yml` |
 | `scripts/check_extractions_match_gt.py` | Assert a returned `raw_extractions.jsonl` and a ground truth describe the same images. Stdlib only, so it also runs on the extraction host |
+| `scripts/omnidocbench_eval.py` | Clone the pinned parsing evaluator, and score one directory of markdown predictions with it |
+| `scripts/run_local_parser.py` | Run one configured parser over one snapshot half from its own conda env, recording the run in `run.json` |
+| `scripts/collect_predictions.py` | Turn a parser run's raw output into one `<image stem>.md` per page, refusing missing or doubled pages |
+| `scripts/score_parsing.py` | Score every collected run and write the parsing leaderboard |
 | `scripts/post_install.sh` | **Required after every `conda env create` or `env update`** — see [Dependencies](#dependencies) |
 
 See [Regenerating the Dataset](#regenerating-the-dataset) for the order the seeders

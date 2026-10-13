@@ -1,0 +1,22 @@
+# Conda environment for Docling, scored with its standard pipeline, run locally.
+#
+# It is separate from environment.yml: none of Docling's packages enter the generator's env. It describes
+# the env the benchmark was first scored from, pinning the tool, Python, torch and the RapidOCR engine the
+# standard pipeline uses; everything else follows from those pins.
+#
+#     conda env create -f envs/docling.yml
+#     conda run -n docparse-docling docling --version
+#
+# Model weights are not downloaded by the env: the runbook downloads them once into
+# DOCLING_ARTIFACTS_PATH.
+name: docparse-docling
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - docling==2.120.2
+      - rapidocr==3.9.2
+      - torch==2.13.0
+      - torchvision==0.28.0

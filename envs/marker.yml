@@ -1,0 +1,22 @@
+# Conda environment for Marker, one of the parsers the parsing benchmark scores.
+#
+# It is separate from environment.yml: none of Marker's packages enter the generator's env. Marker is
+# pinned to the release first scored, with the torch it was scored on; its other requirements (transformers,
+# the surya models) follow from that pin. Marker documents Python 3.10 or later.
+#
+#     conda env create -f envs/marker.yml
+#     conda run -n marker marker --help
+#
+# The model weights download on the first conversion, into Marker's model cache; the runbook records
+# where, and the licence they carry.
+name: marker
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  # Marker's OCR model runs through llama.cpp's `llama-server`, which it starts itself.
+  - llama.cpp=11351
+  - pip
+  - pip:
+      - marker-pdf==2.0.0
+      - torch==2.14.1

@@ -41,10 +41,14 @@ fold_displacement_max_px: 3
 # therefore left out: its pages are still scored for text, tables and reading order, not for layout.
 layout_scored_tiers: [light, moderate]
 
-# The parsers scored. runner is local or remote: a local tool names the conda env file that builds it, a
-# remote tool (run on the GPU server) gives null.
+# The parsers scored. backend is the tool's own back-end selector (MinerU's -b value; default where the
+# tool has one standard pipeline). runner is local or remote: a local tool is run on this machine by
+# scripts/run_local_parser.py from the conda env its conda_env_file builds (the env's name: key names it);
+# a remote tool, run elsewhere and its markdown copied back, gives null. device is the accelerator the tool
+# is told to use, as the tool spells it (mps is Apple silicon's GPU; MinerU's vlm-engine back-end runs
+# through MLX on the same GPU whatever this says). Every tool here runs locally on Apple silicon.
 tools:
-  - {name: mineru_pipeline, backend: pipeline, runner: remote, conda_env_file: null}
-  - {name: mineru_vlm, backend: vlm-transformers, runner: remote, conda_env_file: null}
-  - {name: docling, backend: default, runner: local, conda_env_file: envs/docling.yml}
-  - {name: marker, backend: default, runner: local, conda_env_file: envs/marker.yml}
+  - {name: mineru_pipeline, backend: pipeline, runner: local, device: mps, conda_env_file: envs/mineru.yml}
+  - {name: mineru_vlm, backend: vlm-engine, runner: local, device: mps, conda_env_file: envs/mineru.yml}
+  - {name: docling, backend: default, runner: local, device: mps, conda_env_file: envs/docling.yml}
+  - {name: marker, backend: default, runner: local, device: mps, conda_env_file: envs/marker.yml}

@@ -384,23 +384,26 @@ Go. All nine recommendations accepted.
 
 ### 5.4 Parser runs
 
-- `config/parsing_config.yml` lists each tool with its back-end, its runner (`local` or `remote`) and,
-  for local tools, its conda environment file. Initial list:
+- `config/parsing_config.yml` lists each tool with its back-end, its runner (`local` or `remote`), the
+  device it is told to use and, for local tools, its conda environment file. The owner approved running
+  every tool locally (13 October 2026), so the list is:
 
-  | Tool | Runner |
-  |---|---|
-  | MinerU, pipeline back-end | remote GPU |
-  | MinerU, VLM back-end | remote GPU |
-  | Docling | local (Apple Silicon) |
-  | Marker | local (Apple Silicon) |
+  | Tool | Back-end | Runner |
+  |---|---|---|
+  | MinerU | `pipeline` | local (Apple Silicon) |
+  | MinerU | `vlm-engine` (MLX on Apple Silicon) | local (Apple Silicon) |
+  | Docling | standard pipeline | local (Apple Silicon) |
+  | Marker | default (its `fast` mode on Apple Silicon) | local (Apple Silicon) |
 
+  The `remote` runner stays valid, for a tool run elsewhere whose markdown is copied back.
 - Each tool writes one markdown file per page to
   `../evaluation_data/predictions/<tool>/<half>/`, named as OmniDocBench expects; local and remote runs
   are indistinguishable to scoring.
-- A new runbook, `docs/parsing_benchmark_runbook.md`, covers the remote runs.
+- A runbook, `docs/parsing_benchmark_runbook.md`, covers the runs.
 - A `score` step runs the evaluator per half and writes the leaderboard: per half, per document type,
   per degradation tier, with each run's device recorded.
-- Marker's model-weight licence is read and recorded before its scores are published; Docling is MIT.
+- Marker's model-weight licence is read and recorded before its scores are published (the runbook's
+  licence section); Docling is MIT.
 
 ### 5.5 Configuration
 

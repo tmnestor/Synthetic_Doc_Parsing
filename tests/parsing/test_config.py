@@ -68,6 +68,15 @@ def test_the_shipped_config_loads() -> None:
     assert config.layout_scored_tiers == ("light", "moderate")
     assert [tool.name for tool in config.tools] == ["mineru_pipeline", "mineru_vlm", "docling", "marker"]
     assert all(isinstance(tool, ToolSpec) for tool in config.tools)
+    # Every scored tool runs locally on Apple silicon, from the env file that builds it.
+    assert {(tool.runner, tool.device) for tool in config.tools} == {("local", "mps")}
+    assert [tool.conda_env_file for tool in config.tools] == [
+        "envs/mineru.yml",
+        "envs/mineru.yml",
+        "envs/docling.yml",
+        "envs/marker.yml",
+    ]
+    assert [tool.backend for tool in config.tools] == ["pipeline", "vlm-engine", "default", "default"]
     assert config.anchors == {"foot": "footer"}
 
 
@@ -283,12 +292,14 @@ def test_a_scored_tier_absent_from_the_generation_config_is_refused(tmp_path: Pa
     )
 
 
-@pytest.mark.parametrize("key", ["name", "backend", "runner", "conda_env_file"])
+@pytest.mark.parametrize("key", ["name", "backend", "runner", "device", "conda_env_file"])
 def test_a_missing_tool_key_is_refused(tmp_path: Path, key: str) -> None:
     refused(tmp_path, lambda d: d["tools"][0].pop(key), "tools[0]", key, "missing")
 
 
-@pytest.mark.parametrize(("key", "bad"), [("name", ""), ("backend", 3), ("runner", None)])
+@pytest.mark.parametrize(
+    ("key", "bad"), [("name", ""), ("backend", 3), ("runner", None), ("device", ""), ("device", 0)]
+)
 def test_a_mistyped_tool_key_is_refused(tmp_path: Path, key: str, bad: Any) -> None:
     refused(tmp_path, lambda d: d["tools"][0].__setitem__(key, bad), f"tools[0].{key}")
 
@@ -328,10 +339,18 @@ def test_a_local_tool_without_an_env_file_is_refused(tmp_path: Path) -> None:
     )
 
 
+def test_a_remote_tool_without_an_env_file_loads(tmp_path: Path) -> None:
+    def remote(data: dict[str, Any]) -> None:
+        data["tools"][0].update(runner="remote", conda_env_file=None)
+
+    tool = load_parsing_config(write_variant(tmp_path, remote)).tools[0]
+    assert (tool.name, tool.runner, tool.conda_env_file) == ("mineru_pipeline", "remote", None)
+
+
 def test_a_remote_tool_with_an_env_file_is_refused(tmp_path: Path) -> None:
     refused(
         tmp_path,
-        lambda d: d["tools"][0].__setitem__("conda_env_file", "envs/mineru.yml"),
+        lambda d: d["tools"][0].__setitem__("runner", "remote"),
         "tools[0].conda_env_file",
         "mineru_pipeline",
         "remote",

@@ -1,0 +1,22 @@
+# Conda environment for MinerU, scored with two back-ends (pipeline and vlm-engine), both run locally.
+#
+# It is separate from environment.yml: none of MinerU's packages enter the generator's env. It describes
+# the env the benchmark was first scored from, pinning the tool, Python, torch and the MLX packages the
+# vlm-engine back-end loads on Apple silicon; everything else follows from those pins.
+#
+#     conda env create -f envs/mineru.yml
+#     conda run -n docparse-mineru mineru --version
+#
+# Model weights are not downloaded by the env: the runbook says where MinerU looks for them.
+name: docparse-mineru
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - mineru[core,mlx]==3.4.5
+      - torch==2.13.0
+      - torchvision==0.28.0
+      - mlx==0.31.1
+      - mlx-vlm==0.3.9

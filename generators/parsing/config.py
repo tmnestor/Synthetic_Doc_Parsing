@@ -40,7 +40,7 @@ _TOP_LEVEL_KEYS = (
 )
 _EVALUATOR_KEYS = ("repo", "commit", "conda_env_file", "formula_metrics")
 _MAP_SECTIONS = ("primitives", "overlays", "anchors")
-_TOOL_KEYS = ("name", "backend", "runner", "conda_env_file")
+_TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file")
 
 
 class ParsingConfigError(RuntimeError):
@@ -72,12 +72,14 @@ class ToolSpec:
         name: Unique tool name.
         backend: The tool's own backend selector.
         runner: `local` or `remote`.
+        device: The accelerator the tool runs its models on, e.g. `mps`, as the tool spells it.
         conda_env_file: Env file for a local tool; `None` for a remote tool.
     """
 
     name: str
     backend: str
     runner: str
+    device: str
     conda_env_file: str | None
 
 
@@ -334,8 +336,9 @@ def _load_tiers(raw: Any, *, path: Path) -> tuple[str, ...]:
 def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
     example = (
         "tools:\n"
-        "  - {name: mineru_pipeline, backend: pipeline, runner: remote, conda_env_file: null}\n"
-        "  - {name: docling, backend: default, runner: local, conda_env_file: envs/docling.yml}"
+        "  - {name: mineru_pipeline, backend: pipeline, runner: local, device: mps,\n"
+        "     conda_env_file: envs/mineru.yml}\n"
+        "  - {name: docling, backend: default, runner: remote, device: cuda, conda_env_file: null}"
     )
     if not isinstance(raw, list) or not raw:
         raise _fail(
@@ -362,6 +365,7 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
         }
         name = _nonempty_string(values["name"], path=path, key=f"{here}.name", example=example)
         backend = _nonempty_string(values["backend"], path=path, key=f"{here}.backend", example=example)
+        device = _nonempty_string(values["device"], path=path, key=f"{here}.device", example=example)
         if name in seen:
             raise _fail(
                 what=f"'{here}.name' repeats the duplicate tool name {name!r} first used at tools[{seen[name]}].",
@@ -398,7 +402,9 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
                 expected="a remote tool gives null, e.g. conda_env_file: null",
                 recover=f"set '{here}.conda_env_file' to null, or change the runner to local.",
             )
-        tools.append(ToolSpec(name=name, backend=backend, runner=runner, conda_env_file=env_file))
+        tools.append(
+            ToolSpec(name=name, backend=backend, runner=runner, device=device, conda_env_file=env_file)
+        )
     return tuple(tools)
 
 
