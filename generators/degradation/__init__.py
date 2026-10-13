@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 
 from generators.degradation.augment import AugmentationError, apply_augraphy
-from generators.degradation.camera import apply_photometrics, warp_to_photo
+from generators.degradation.camera import apply_photometrics, warp_to_photo_mapped
 from generators.degradation.tiers import Tier, TierConfigError, load_tiers
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "Tier",
     "TierConfigError",
     "degrade_receipt",
+    "degrade_receipt_mapped",
     "load_tiers",
     "tier_seed",
 ]
@@ -59,7 +60,30 @@ def degrade_receipt(image: Image.Image, tier: Tier, seed: int) -> Image.Image:
     Raises:
         AugmentationError: The tier names an unregistered augmentation.
     """
+    return degrade_receipt_mapped(image, tier, seed)[0]
+
+
+def degrade_receipt_mapped(image: Image.Image, tier: Tier, seed: int) -> tuple[Image.Image, np.ndarray]:
+    """Degrade one clean receipt render, and return the homography that placed it in the frame.
+
+    The image is the one `degrade_receipt` returns for the same seed: the same
+    draws, in the same order. Augraphy keeps the page's size and the
+    photometrics keep the frame's, so the warp's homography maps a point of
+    `image` to its point in the returned frame. The homography is drawn from
+    the seed alone, so it is reproducible even where a fold is not.
+
+    Args:
+        image: The clean rendered receipt.
+        tier: The severity tier to apply.
+        seed: Seed for this (case, tier) pair; see `tier_seed`.
+
+    Returns:
+        The RGB frame, and the 3x3 homography from `image` pixels to frame pixels.
+
+    Raises:
+        AugmentationError: The tier names an unregistered augmentation.
+    """
     augmented = apply_augraphy(image, tier, seed)
     rng = np.random.default_rng(seed)
-    warped = warp_to_photo(augmented, tier.warp, rng)
-    return apply_photometrics(warped, tier.camera, rng)
+    warped, m = warp_to_photo_mapped(augmented, tier.warp, rng)
+    return apply_photometrics(warped, tier.camera, rng), m

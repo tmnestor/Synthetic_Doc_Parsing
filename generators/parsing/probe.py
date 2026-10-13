@@ -3,13 +3,15 @@
 The probe is what the matcher check (the design's section 5.3) runs the parsers on before the whole
 snapshot is scored. Decision 12 chooses it: for each document type of `eval_set.document_types`, in that
 order, the first case (by case id) of each of its first two layouts (by layout id, among the layouts some
-case uses). That is six clean pages; Task 6 adds the light, moderate and heavy degraded variants of the
-first receipt among them.
+case uses). That is six clean pages, and the first receipt among them is also photographed at every
+degradation tier (light, moderate and heavy): nine pages.
 
-Each page is the case's distractor render (the render the degraded half photographs), saved under the
-snapshot's own file name, `<case id>_<document type>.png`, and written as one OmniDocBench page by
-`build_page` from that very render's draw-time records; every page must keep the invariants `check_page`
-checks, or nothing is published. `export_probe` writes `<eval_set.output_root>/parsing_probe/`: the images
+Each clean page is the case's distractor render (the render the degraded half photographs), saved under
+the snapshot's own file name, `<case id>_<document type>.png`, and written as one OmniDocBench page by
+`build_page` from that very render's draw-time records. Each degraded page is that render degraded as the
+snapshot degrades it (the case's `degradation_seed`, through `tier_seed`), saved as the snapshot names its
+variant, `<case id>_<document type>_<tier suffix>.png`, with every `poly` carried onto the photographed
+frame (`degraded_page`). Every page must keep the invariants `check_page` checks, or nothing is published. `export_probe` writes `<eval_set.output_root>/parsing_probe/`: the images
 and `probe.json`, a list of pages sorted by image file name. An earlier probe is replaced whole.
 """
 
@@ -20,10 +22,12 @@ from pathlib import Path
 
 import yaml
 
+from generators.degradation import load_tiers, tier_seed
 from generators.exporters.eval_projection import load_extraction_schema
 from generators.loader import REPO_ROOT, load_ground_truth, load_layout_registry
 from generators.parsing.config import ParsingConfig
-from generators.parsing.omnidocbench import PageContext, build_page, check_page
+from generators.parsing.degraded import DEGRADED_HALF, degraded_page
+from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.snapshot.config import load_snapshot_config
 
 # The probe's directory under the output root, and its ground-truth file (the plan names both).
@@ -33,6 +37,8 @@ PROBE_JSON = "probe.json"
 PROBE_HALF = "distractor"
 # Decision 12: how many layouts of each type the probe draws.
 LAYOUTS_PER_TYPE = 2
+# The extraction-schema document type whose first probe page is also photographed at every tier.
+DEGRADED_DOC_TYPE = "receipt"
 # The suffixes of the staging directory, and of an earlier probe while the new one is swapped in.
 _STAGING_SUFFIX = ".partial"
 _ASIDE_SUFFIX = ".old"
@@ -138,11 +144,15 @@ def export_probe(config_path: Path, parsing_config: ParsingConfig) -> Path:
     Raises:
         ProbeError: The probe cannot be chosen, or a page breaks an invariant (nothing is published).
         ValueError: The `eval_set` block is invalid, or a page has a block no category covers.
+        TierConfigError: The `receipt_degradation` block is invalid.
+        AugmentationError: A tier names an unregistered augmentation.
     """
     from generators.pipeline import _RENDERERS
 
     snapshot = load_snapshot_config(config_path)
     cases = select_probe(config_path)
+    tiers = load_tiers(snapshot.config_path)
+    degraded_case = next((case for case in cases if case.canonical == DEGRADED_DOC_TYPE), None)
     final = snapshot.output_root / PROBE_DIR
     staging = snapshot.output_root / f".{PROBE_DIR}{_STAGING_SUFFIX}"
     aside = snapshot.output_root / f".{PROBE_DIR}{_ASIDE_SUFFIX}"
@@ -160,9 +170,28 @@ def export_probe(config_path: Path, parsing_config: ParsingConfig) -> Path:
             image.save(staging / case.image_name)
             context = PageContext(case.image_name, case.canonical, case.layout_id, PROBE_HALF, "none", True)
             page = build_page(geometry, context=context, config=parsing_config)
-            where = f"{case.case_id} / {case.layout_id} ({PROBE_HALF})"
+            where = page_where(case.case_id, case.layout_id, PROBE_HALF)
             errors.extend(check_page(page, geometry, where=where, config=parsing_config))
             pages.append(page)
+            if case is not degraded_case:
+                continue
+            seed = int(entry["degradation_seed"])
+            for index, tier in enumerate(tiers):
+                variant = f"{Path(case.image_name).stem}_{tier.suffix}.png"
+                frame, degraded = degraded_page(
+                    image,
+                    geometry,
+                    tier=tier,
+                    seed=tier_seed(seed, index),
+                    image_path=variant,
+                    doc_type=case.canonical,
+                    layout_id=case.layout_id,
+                    config=parsing_config,
+                )
+                frame.save(staging / variant)
+                where = page_where(case.case_id, case.layout_id, f"{DEGRADED_HALF} {tier.name}")
+                errors.extend(check_page(degraded, geometry, where=where, config=parsing_config))
+                pages.append(degraded)
         if errors:
             listing = "\n".join("      " + line for error in errors for line in error.splitlines())
             raise _diagnostic(

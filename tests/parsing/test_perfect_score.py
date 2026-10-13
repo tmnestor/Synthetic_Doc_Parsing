@@ -1,6 +1,7 @@
 """The perfect-score check (the design's section 5.2): ground truth, written as markdown, scores perfectly.
 
-The probe is exported into `tmp_path`; each page is written by `gt_to_markdown` as `<image stem>.md`; and
+The probe (six clean pages and three degraded ones, whose polys lie on the photographed frame) is exported
+into `tmp_path`; each page is written by `gt_to_markdown` as `<image stem>.md`; and
 the pinned evaluator scores those predictions against `probe.json`. Text edit distance 0, table TEDS 1 and
 table edit distance 0 prove the export and the evaluator agree on the format, and that the evaluator pairs
 `<stem>.png` ground truth with `<stem>.md` predictions (Decision 13), which no invariant can.
@@ -26,6 +27,7 @@ from pathlib import Path
 import pytest
 
 from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
+from generators.parsing.degraded import DEGRADED_HALF
 from generators.parsing.probe import PROBE_JSON, export_probe
 from generators.snapshot.config import load_snapshot_config
 from scripts.omnidocbench_eval import (
@@ -73,6 +75,9 @@ def test_the_probe_ground_truth_scores_perfectly_against_itself(tmp_path: Path) 
 
     probe = export_probe(scratch_config(tmp_path), parsing_config)
     pages = json.loads((probe / PROBE_JSON).read_text())
+    # Six clean pages and the first receipt at three degradation tiers, each scored like the rest.
+    halves = [page["page_info"]["page_attribute"]["half"] for page in pages]
+    assert (len(pages), halves.count(DEGRADED_HALF)) == (9, 3), halves
     predictions = tmp_path / "predictions"
     predictions.mkdir()
     for page in pages:

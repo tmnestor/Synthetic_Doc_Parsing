@@ -13,6 +13,7 @@ and NumPy arrays feed straight to cv2 -- so there is no BGR channel swap.
 """
 
 import io
+from collections.abc import Callable
 
 import cv2
 import numpy as np
@@ -38,6 +39,28 @@ def warp_to_photo(image: Image.Image, warp: dict, rng: np.random.Generator) -> I
     Returns:
         An RGB frame larger than the input, with the page occupying a
         perspective-distorted sub-region over a desk background.
+    """
+    return warp_to_photo_mapped(image, warp, rng)[0]
+
+
+def warp_to_photo_mapped(
+    image: Image.Image, warp: dict, rng: np.random.Generator
+) -> tuple[Image.Image, np.ndarray]:
+    """Warp a flat page onto a desk background, and return the homography that placed it.
+
+    The frame is the one `warp_to_photo` returns for the same `rng` state: the
+    same draws, in the same order.
+
+    Args:
+        image: The (already ink/paper-augmented) flat page.
+        warp: Tier warp parameters: `foreshorten`, `rotation_deg` and
+            `margin`, each a [min, max] pair.
+        rng: Seeded generator; all randomness is drawn from it.
+
+    Returns:
+        The RGB frame, and the 3x3 homography taking a point of the flat page
+        (pixel coordinates of `image`) to its point in the frame. The padding
+        offset is already folded into it, so no further shift applies.
     """
     page = image.convert("RGB")
     w, h = page.size
@@ -100,7 +123,25 @@ def warp_to_photo(image: Image.Image, warp: dict, rng: np.random.Generator) -> I
     bg = bg * (1 - shadow) + np.array([25, 22, 20]) * shadow
 
     composite = bg * (1 - alpha) + warped[:, :, :3].astype(np.float32) * alpha
-    return Image.fromarray(np.clip(composite, 0, 255).astype(np.uint8), "RGB")
+    return Image.fromarray(np.clip(composite, 0, 255).astype(np.uint8), "RGB"), m
+
+
+def homography_transform(m: np.ndarray) -> Callable[[list[float]], list[float]]:
+    """Return a function mapping one poly through the homography `m`.
+
+    Args:
+        m: A 3x3 homography, as `warp_to_photo_mapped` returns.
+
+    Returns:
+        A function taking eight numbers (four corners, x then y) to the same
+        corners, in the same order, on the frame `m` maps onto.
+    """
+
+    def transform(poly: list[float]) -> list[float]:
+        corners = np.array(poly, dtype=np.float64).reshape(-1, 1, 2)
+        return [float(value) for value in cv2.perspectiveTransform(corners, m).reshape(-1)]
+
+    return transform
 
 
 def apply_photometrics(image: Image.Image, camera: dict, rng: np.random.Generator) -> Image.Image:

@@ -65,7 +65,7 @@ def test_the_shipped_config_loads() -> None:
     assert config.evaluator.formula_metrics is False
     assert config.textless_categories == ("figure", "abandon")
     assert config.fold_displacement_max_px == 3
-    assert config.layout_scored_tiers == ("light", "moderate", "heavy")
+    assert config.layout_scored_tiers == ("light", "moderate")
     assert [tool.name for tool in config.tools] == ["mineru_pipeline", "mineru_vlm", "docling", "marker"]
     assert all(isinstance(tool, ToolSpec) for tool in config.tools)
     assert config.anchors == {"foot": "footer"}

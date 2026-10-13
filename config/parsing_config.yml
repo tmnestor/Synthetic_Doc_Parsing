@@ -34,8 +34,12 @@ category_map:
 fold_displacement_max_px: 3
 
 # The degradation tiers (names from receipt_degradation.tiers in config/generation_config.yml) whose
-# pages are scored for layout. Task 6's test decides whether heavy may stay in this list.
-layout_scored_tiers: [light, moderate, heavy]
+# pages are scored for layout. A test measures each listed tier's worst fold displacement on a page of
+# fiducial dots (seeds 0 to 4, at the first probe receipt's 420 x 1029 size) and fails above
+# fold_displacement_max_px. Measured on 13 October 2026: light 0.0 px, moderate 0.0 px, heavy 6.4 to
+# 6.6 px (its fold is not reproducible under a fixed seed, so the value varies between runs). Heavy is
+# therefore left out: its pages are still scored for text, tables and reading order, not for layout.
+layout_scored_tiers: [light, moderate]
 
 # The parsers scored. runner is local or remote: a local tool names the conda env file that builds it, a
 # remote tool (run on the GPU server) gives null.

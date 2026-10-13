@@ -666,11 +666,21 @@ def parsing_probe(
     of OmniDocBench pages, replacing an earlier probe. Every page is checked against the parsing
     invariants first; a page that breaks one publishes nothing.
     """
+    from generators.degradation import AugmentationError, TierConfigError
     from generators.parsing.probe import PROBE_JSON, ProbeError, export_probe
 
+    refusals = (
+        ProbeError,
+        ParsingConfigError,
+        ValueError,
+        FileNotFoundError,
+        FitError,
+        TierConfigError,
+        AugmentationError,
+    )
     try:
         directory = export_probe(config, load_parsing_config(PARSING_CONFIG_PATH))
-    except (ProbeError, ParsingConfigError, ValueError, FileNotFoundError, FitError) as exc:
+    except refusals as exc:
         # Echoed plain rather than through rich, which would rewrap the four-part lines.
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
