@@ -110,13 +110,45 @@ def _run_record(path: Path) -> dict:
     return record
 
 
+def _missing_metric(source: Path, dotted: str, metric: str, err: Exception) -> ScoreError:
+    """The refusal for a metric the evaluator's result does not hold where the pinned commit writes it."""
+    return _diagnostic(
+        "The evaluator's result lacks a metric the leaderboard reports.",
+        what=f"{metric} is missing or not a number at {dotted} ({err!r}).",
+        where=f"{source} -> {dotted}",
+        expected=f"a number at {dotted}, as the pinned evaluator writes it, e.g. "
+        '{"table": {"page": {"TEDS": {"doc_type: invoice": 0.5}}}}',
+        recover="check the evaluator checkout is at evaluator.commit and that the run scored text, tables "
+        "and reading order (its log lists each element), then score again.",
+    )
+
+
+def _headline(scores: dict, *, source: Path) -> dict[str, float]:
+    """The headline scores the leaderboard reports, refusing four-part when one is missing."""
+    headline: dict[str, float] = {}
+    for name, _, (element, metric) in METRICS:
+        try:
+            headline[name] = float(scores[name])
+        except (KeyError, TypeError, ValueError) as err:
+            raise _missing_metric(source, f"{element}.all.{metric}", name, err) from err
+    return headline
+
+
 def _breakdown(source: Path) -> dict[tuple[str, str], dict[str, float]]:
     """(element, metric) -> {page attribute group: value}, from the evaluator's metric result."""
-    result = json.loads(source.read_text())
-    return {
-        (element, metric): {group: float(value) for group, value in result[element]["page"][metric].items()}
-        for _, _, (element, metric) in METRICS
-    }
+    try:
+        result = json.loads(source.read_text())
+    except (OSError, ValueError) as err:
+        raise _missing_metric(source, "(file)", "the metric result", err) from err
+    breakdown: dict[tuple[str, str], dict[str, float]] = {}
+    for name, _, (element, metric) in METRICS:
+        dotted = f"{element}.page.{metric}"
+        try:
+            values = result[element]["page"][metric]
+            breakdown[(element, metric)] = {group: float(value) for group, value in values.items()}
+        except (KeyError, TypeError, ValueError, AttributeError) as err:
+            raise _missing_metric(source, dotted, name, err) from err
+    return breakdown
 
 
 def _number(value: float | None) -> str:
@@ -155,8 +187,8 @@ def score(
         The leaderboard's markdown and csv paths.
 
     Raises:
-        ScoreError: No configured tool has predictions, or a scored run lacks its record or its half's
-            ground truth.
+        ScoreError: No configured tool has predictions, a scored run lacks its record or its half's
+            ground truth, or the evaluator's result lacks a reported metric.
         EvaluatorError: The evaluator failed.
     """
     runs: dict[tuple[str, str], tuple[dict, dict[str, float], dict]] = {}
@@ -176,8 +208,9 @@ def score(
                     recover="pass --snapshot the snapshot the predictions were made from.",
                 )
             work = output_root / SCORES_DIR / tool.name / half
-            headline = run_end2end(gt, pred, checkout=checkout, work_dir=work)
-            runs[(tool.name, half)] = (record, headline, _breakdown(result_path(pred, work_dir=work)))
+            source = result_path(pred, work_dir=work)
+            headline = _headline(run_end2end(gt, pred, checkout=checkout, work_dir=work), source=source)
+            runs[(tool.name, half)] = (record, headline, _breakdown(source))
     if not runs:
         raise _diagnostic(
             "There is nothing to score.",

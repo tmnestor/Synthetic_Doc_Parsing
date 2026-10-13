@@ -1,7 +1,8 @@
 """Shared fixtures for the parser-run scripts: a tiny snapshot, and a stand-in for `conda`.
 
 The snapshot holds one half's parsing file and its images, laid out as `eval-set` writes them. The fake
-`conda` records every call it is given and, for a parser command, writes one `<stem>.md` per input image
+`conda` records every call it is given, answers `printenv` from its own environment and, for a parser
+command, writes one `<stem>.md` per input image
 into the output directory the command names, so the runner is exercised without any model.
 """
 
@@ -29,6 +30,10 @@ with open(os.environ["FAKE_CONDA_LOG"], "a") as log:
     log.write(json.dumps({{"argv": args, "env": {{k: v for k, v in os.environ.items()
                                                if k.startswith(("MINERU", "HF_", "TORCH"))}}}}) + "\\n")
 command = args[args.index("-n") + 2:]
+if command[0] == "printenv":
+    value = os.environ.get(command[1], "")
+    print(value)
+    sys.exit(0 if value else 1)
 if command[:2] == ["python", "-c"]:
     print("{version}")
     sys.exit(0)

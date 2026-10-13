@@ -19,6 +19,7 @@ from scripts.omnidocbench_eval import result_path
 from scripts.run_local_parser import RUN_RECORD
 from scripts.score_parsing import OVERALL, ScoreError, score
 from tests.conftest import assert_diagnostic_error
+from tests.eval_export_tools import scratch_config
 from tests.parsing.parser_runs import SNAPSHOT_CONFIG
 
 TODAY = date(2099, 1, 2)
@@ -304,3 +305,89 @@ def test_a_half_with_predictions_but_no_ground_truth_is_refused(tmp_path: Path) 
         )
     assert_diagnostic_error(caught.value)
     assert "degraded.json" in str(caught.value)
+
+
+def _one_run(root: Path) -> Path:
+    """A snapshot and one collected docling run on the plain half under `root`; return the snapshot."""
+    snapshot = root / "snapshot_20990101"
+    (snapshot / SNAPSHOT_CONFIG.parsing_dir).mkdir(parents=True)
+    (snapshot / SNAPSHOT_CONFIG.parsing_dir / "plain.json").write_text("[]")
+    (root / "predictions" / "docling" / "plain").mkdir(parents=True)
+    raw = root / "raw_predictions" / "docling" / "plain"
+    raw.mkdir(parents=True)
+    record = {
+        "backend": "default",
+        "tool_version": "1.2.3",
+        "device": "mps",
+        "page_count": 1,
+        "seconds": 1.0,
+    }
+    (raw / RUN_RECORD).write_text(json.dumps(record))
+    return snapshot
+
+
+def _stub(drop_headline: str | None = None, drop_page: tuple[str, str] | None = None):
+    """A run_end2end stand-in whose headline or breakdown lacks one metric."""
+
+    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+        result = _breakdown("docling", "plain")
+        if drop_page is not None:
+            del result[drop_page[0]]["page"][drop_page[1]]
+        source = result_path(pred_dir, work_dir=work_dir)
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(json.dumps(result))
+        scores = dict(zip(_NAMES, HEADLINES[("docling", "plain")], strict=True))
+        if drop_headline is not None:
+            del scores[drop_headline]
+        return scores
+
+    return stub
+
+
+@pytest.mark.parametrize(
+    ("drop_headline", "drop_page", "dotted", "metric"),
+    [
+        ("table_teds", None, "table.all.TEDS", "table_teds"),
+        (None, ("reading_order", "Edit_dist"), "reading_order.page.Edit_dist", "reading_order_edit_dist"),
+    ],
+)
+def test_a_metric_missing_from_the_result_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drop_headline: str | None,
+    drop_page: tuple[str, str] | None,
+    dotted: str,
+    metric: str,
+) -> None:
+    snapshot = _one_run(tmp_path)
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub(drop_headline, drop_page))
+    with pytest.raises(ScoreError) as caught:
+        score(
+            snapshot,
+            output_root=tmp_path,
+            config=load_parsing_config(PARSING_CONFIG_PATH),
+            snapshot_config=SNAPSHOT_CONFIG,
+            checkout=tmp_path,
+            today=TODAY,
+        )
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    source = result_path(
+        tmp_path / "predictions" / "docling" / "plain", work_dir=tmp_path / "scores" / "docling" / "plain"
+    )
+    assert f"{source} -> {dotted}" in message
+    assert metric in message
+    assert not list(tmp_path.glob("leaderboard_*"))
+
+
+def test_the_command_line_reports_a_missing_metric_and_exits_non_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = scratch_config(tmp_path)
+    snapshot = _one_run(tmp_path / "out")
+    monkeypatch.setattr(score_parsing, "ensure_checkout", lambda config, *, root: tmp_path / "checkout")
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub(drop_page=("table", "TEDS")))
+    assert score_parsing.main(["--snapshot", str(snapshot), "--config", str(config)]) == 1
+    error = capsys.readouterr().err
+    assert_diagnostic_error(error)
+    assert "table.page.TEDS" in error

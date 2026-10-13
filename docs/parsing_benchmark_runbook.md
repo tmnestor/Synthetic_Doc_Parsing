@@ -121,21 +121,33 @@ conda run -n marker marker --help
 ### Model weights
 
 Every run is made with the Hugging Face hub offline (`HF_HUB_OFFLINE=1`), so each tool's weights must be on
-disk first. On the scoring machine `HF_HOME` is `<weights dir>`, so the hub cache is
-`<weights dir>/hub`.
+disk first. Where they are is a property of the machine, not of the repository, so no path is committed:
+each tool that finds its weights through an environment variable gets it set once in its env, and the
+runner checks it (`conda run -n <env> printenv <variable>`) before every run, refusing a run whose env
+does not set it. Below, `<weights dir>` stands for the directory the machine keeps model weights in.
 
-- **MinerU** reads its model directories from the file `MINERU_TOOLS_CONFIG_JSON` names
-  (`<weights dir>/mineru.json`), whose `models-dir` holds `pipeline:
-  <weights dir>/PDF-Extract-Kit-1.0` (opendatalab/PDF-Extract-Kit-1.0) and `vlm:
-  <weights dir>/MinerU2.5-Pro-2605-1.2B` (opendatalab/MinerU2.5-Pro-2605-1.2B, the model the
+| Env | Variable the runner requires | Set once with |
+|---|---|---|
+| `docparse-mineru` | `MINERU_TOOLS_CONFIG_JSON` | `conda env config vars set -n docparse-mineru MINERU_TOOLS_CONFIG_JSON=<weights dir>/mineru.json` |
+| `docparse-docling` | `DOCLING_ARTIFACTS_PATH` | `conda env config vars set -n docparse-docling DOCLING_ARTIFACTS_PATH=<weights dir>/docling-artifacts` |
+| `marker` | none | |
+
+A variable exported by the shell profile also reaches the env through `conda run`, which is how the
+scoring machine provides them; setting them in the env makes the env self-sufficient. Marker's weights,
+and anything else the tools fetch from the Hugging Face hub, sit in the hub cache, `$HF_HOME/hub` (by
+default `~/.cache/huggingface/hub`).
+
+- **MinerU** reads its model directories from the JSON file `MINERU_TOOLS_CONFIG_JSON` names, whose
+  `models-dir` holds `pipeline: <weights dir>/PDF-Extract-Kit-1.0` (opendatalab/PDF-Extract-Kit-1.0) and
+  `vlm: <weights dir>/MinerU2.5-Pro-2605-1.2B` (opendatalab/MinerU2.5-Pro-2605-1.2B, the model the
   `vlm-engine` back-end loads by default in 3.4.5). Where they are absent, `conda run -n docparse-mineru
   mineru-models-download` fetches them and writes that file. On Apple silicon `vlm-engine` runs the model
   through MLX on the GPU (its log says `Using mlx-engine as the inference engine for VLM`); the device
   setting does not reach it.
 - **Docling**'s standard pipeline reads its layout, TableFormer and RapidOCR weights from
-  `DOCLING_ARTIFACTS_PATH` (`<weights dir>/docling-artifacts`). Download them there once (the
-  download only adds folders: `docling-project--docling-layout-heron`, its `-onnx` twin,
-  `docling-project--docling-models` and `RapidOcr`):
+  `DOCLING_ARTIFACTS_PATH`. Download them there once (the download only adds folders:
+  `docling-project--docling-layout-heron`, its `-onnx` twin, `docling-project--docling-models` and
+  `RapidOcr`):
 
   ```bash
   conda run -n docparse-docling docling-tools models download layout tableformer rapidocr \

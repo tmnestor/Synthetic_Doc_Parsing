@@ -46,6 +46,9 @@ def conda(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     script, log = fake_conda(tmp_path)
     monkeypatch.setenv("CONDA_EXE", str(script))
     monkeypatch.setenv("FAKE_CONDA_LOG", str(log))
+    # Every weight variable a contract names is set, as `conda env config vars set` leaves it in the env.
+    for variable in {name for contract in CONTRACTS.values() for name in contract.weight_variables}:
+        monkeypatch.setenv(variable, str(tmp_path / "weights" / variable.lower()))
     return log
 
 
@@ -61,6 +64,58 @@ def test_each_shipped_env_file_names_the_env_the_runner_uses() -> None:
         "docling": "docparse-docling",
         "marker": "marker",
     }
+
+
+def _strings(node: object) -> list[str]:
+    """Every string value in a parsed YAML document."""
+    if isinstance(node, dict):
+        return [text for value in node.values() for text in _strings(value)]
+    if isinstance(node, list):
+        return [text for value in node for text in _strings(value)]
+    return [node] if isinstance(node, str) else []
+
+
+def test_no_env_file_holds_a_machine_path() -> None:
+    for tool in _shipped().tools:
+        assert tool.conda_env_file is not None
+        spec = yaml.safe_load((REPO_ROOT / tool.conda_env_file).read_text())
+        assert "variables" not in spec, tool.conda_env_file
+        paths = [text for text in _strings(spec) if text.startswith(("/", "~"))]
+        assert paths == [], (tool.conda_env_file, paths)
+
+
+def test_the_tools_that_read_weights_from_a_variable_name_it() -> None:
+    assert {name: CONTRACTS[name].weight_variables for name in CONTRACTS} == {
+        "mineru_pipeline": ("MINERU_TOOLS_CONFIG_JSON",),
+        "mineru_vlm": ("MINERU_TOOLS_CONFIG_JSON",),
+        "docling": ("DOCLING_ARTIFACTS_PATH",),
+        "marker": (),
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "variable"),
+    [("docling", "DOCLING_ARTIFACTS_PATH"), ("mineru_vlm", "MINERU_TOOLS_CONFIG_JSON")],
+)
+def test_an_env_without_its_weight_variable_is_refused(
+    tmp_path: Path, conda: Path, monkeypatch: pytest.MonkeyPatch, name: str, variable: str
+) -> None:
+    monkeypatch.delenv(variable)
+    tool = local_tool(_shipped(), name, config_path=PARSING_CONFIG_PATH)
+    with pytest.raises(ParserRunError) as caught:
+        run_parser(
+            tool,
+            snapshot=make_snapshot(tmp_path),
+            half="plain",
+            run_name="plain",
+            output_root=tmp_path / "out",
+            snapshot_config=SNAPSHOT_CONFIG,
+        )
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    assert f"conda env config vars set -n {env_name(tool)} {variable}=" in message
+    assert [call["argv"][-2:] for call in calls(conda)] == [["printenv", variable]]
+    assert not (tmp_path / "out" / "raw_predictions" / name / "plain").exists()
 
 
 def test_a_remote_tool_is_refused(tmp_path: Path) -> None:
@@ -144,9 +199,12 @@ def test_a_run_goes_through_the_tool_env_and_writes_its_record(
     assert out == tmp_path / "out" / "raw_predictions" / name / "plain"
     assert sorted(path.name for path in out.rglob("*.md")) == sorted(f"{stem}.md" for stem in STEMS)
 
-    version_call, tool_call = calls(conda)
-    assert version_call["argv"][:3] == ["run", "-n", env_name(tool)]
     contract = CONTRACTS[name]
+    *printenv_calls, version_call, tool_call = calls(conda)
+    assert [call["argv"][-2:] for call in printenv_calls] == [
+        ["printenv", v] for v in contract.weight_variables
+    ]
+    assert version_call["argv"][:3] == ["run", "-n", env_name(tool)]
     assert contract.package in version_call["argv"][-1]
     argv = tool_call["argv"]
     assert argv[:4] == ["run", "--no-capture-output", "-n", env_name(tool)]

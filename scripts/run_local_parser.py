@@ -16,7 +16,8 @@ and the pages run. `collect_predictions.py` then turns the raw output into one m
 `CONTRACTS` holds how each tool is invoked: its executable, its arguments, how it is told the device, and
 the package whose version is recorded. That is the tool's own interface, so it lives here; what an
 operator chooses (back-end, device, env) lives in the YAML. Every tool runs with the Hugging Face hub
-offline, so a run uses only weights already downloaded (the runbook downloads each tool's weights once).
+offline, so a run uses only weights already downloaded (the runbook downloads each tool's weights once), and
+a tool whose contract names weight variables is refused unless its env sets each one.
 """
 
 import argparse
@@ -77,6 +78,9 @@ class ToolContract:
         arguments: The arguments after the executable, given the back-end, input and output directories
             and the device.
         environment: The environment variables that tell the tool its device.
+        weight_variables: The environment variables that tell the tool where its weights are. Their values
+            are machine paths, so they live in the env (`conda env config vars set`), never in a tracked
+            file; each must be set in the env before a run.
     """
 
     executable: str
@@ -84,6 +88,7 @@ class ToolContract:
     backends: tuple[str, ...]
     arguments: Callable[[str, Path, Path, str], list[str]]
     environment: Callable[[str], dict[str, str]]
+    weight_variables: tuple[str, ...]
 
 
 def _mineru_arguments(backend: str, images: Path, out: Path, device: str) -> list[str]:
@@ -121,6 +126,7 @@ _MINERU = ToolContract(
     backends=("pipeline", "vlm-engine", "hybrid-engine"),
     arguments=_mineru_arguments,
     environment=lambda device: {"MINERU_DEVICE_MODE": device},
+    weight_variables=("MINERU_TOOLS_CONFIG_JSON",),
 )
 CONTRACTS: dict[str, ToolContract] = {
     "mineru_pipeline": _MINERU,
@@ -131,6 +137,7 @@ CONTRACTS: dict[str, ToolContract] = {
         backends=("default",),
         arguments=_docling_arguments,
         environment=lambda device: {},
+        weight_variables=("DOCLING_ARTIFACTS_PATH",),
     ),
     "marker": ToolContract(
         executable="marker",
@@ -138,6 +145,7 @@ CONTRACTS: dict[str, ToolContract] = {
         backends=("default",),
         arguments=_marker_arguments,
         environment=lambda device: {"TORCH_DEVICE": device},
+        weight_variables=(),
     ),
 }
 
@@ -262,6 +270,24 @@ def half_images(snapshot: Path, half: str, *, snapshot_config: SnapshotConfig) -
     return images
 
 
+def _check_weight_variables(conda: str, env: str, contract: ToolContract) -> None:
+    """Refuse a run whose env does not say where the tool's weights are."""
+    for variable in contract.weight_variables:
+        done = subprocess.run(
+            [conda, "run", "-n", env, "printenv", variable], capture_output=True, text=True, check=False
+        )
+        if done.returncode != 0 or not done.stdout.strip():
+            raise _diagnostic(
+                "The tool's env does not say where its weights are.",
+                what=f"{variable} is not set in the conda env {env!r}, so {contract.executable} cannot find "
+                "its weights (runs are offline, so nothing is downloaded instead).",
+                where=f"the conda env {env!r} -> {variable}",
+                expected=f"`conda run -n {env} printenv {variable}` printing the path, e.g. "
+                f"{variable}=<weights dir>",
+                recover=f"conda env config vars set -n {env} {variable}=<path to the weights>",
+            )
+
+
 def _tool_version(conda: str, env: str, package: str) -> str:
     probe = f"import importlib.metadata as m; print(m.version({package!r}))"
     done = subprocess.run(
@@ -327,6 +353,7 @@ def run_parser(
     contract = CONTRACTS[tool.name]
     env = env_name(tool)
     conda = _conda()
+    _check_weight_variables(conda, env, contract)
     version = _tool_version(conda, env, contract.package)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"{tool.name}_{run_name}_") as staging:
