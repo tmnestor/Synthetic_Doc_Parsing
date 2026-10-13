@@ -81,3 +81,35 @@ conda run -n synthetic pytest tests/parsing/test_perfect_score.py -m slow -s
 The `-s` shows the scores. A score that is not perfect is either a writer defect, fixed in
 `generators/parsing/omnidocbench.py`, or an evaluator behaviour, recorded under "Perfect-score findings"
 in section 5.3 of `docs/parsing_benchmark_design.md`.
+
+## Local probe runs
+
+The matcher check (section 5.3) parsed the probe on an Apple silicon Mac, from existing conda envs
+`docparse-mineru` (MinerU 3.4.5) and `docparse-docling` (Docling 2.120.2), with model weights already
+cached, so Hugging Face is switched off. Raw output goes under `raw_predictions/<tool>/probe/`; each
+page's markdown is then copied to `predictions/<tool>/probe/<image stem>.md`. Unlike the rest of this
+runbook, these commands run from `eval_set.output_root`, not the repository root.
+
+MinerU, pipeline back-end, on `mps`; it writes `<stem>/auto/<stem>.md` per page:
+
+```bash
+env MINERU_DEVICE_MODE=mps HF_HUB_OFFLINE=1 conda run -n docparse-mineru \
+    mineru -p parsing_probe -o raw_predictions/mineru_pipeline/probe -b pipeline
+for f in raw_predictions/mineru_pipeline/probe/*/auto/*.md; do
+    \cp -f "$f" predictions/mineru_pipeline/probe/
+done
+```
+
+Docling, VLM pipeline with the GraniteDocling preset through MLX, on `mps` (the env holds only those
+weights; its standard pipeline would first need its layout, OCR and table models downloaded into
+`DOCLING_ARTIFACTS_PATH`):
+
+```bash
+env DOCLING_DEVICE=mps HF_HUB_OFFLINE=1 conda run -n docparse-docling \
+    docling convert parsing_probe --from image --to md --to json --image-export-mode placeholder \
+    --pipeline vlm --vlm-model granite_docling --output raw_predictions/docling/probe
+\cp -f raw_predictions/docling/probe/*.md predictions/docling/probe/
+```
+
+Each is then scored with `end2end` above, `--gt parsing_probe/probe.json`, into
+`parsing_gate/<tool>/`.
