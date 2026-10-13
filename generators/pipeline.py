@@ -57,6 +57,13 @@ from generators.payment_block import (
     load_terminal_pools,
     method_from_bank_description,
 )
+from generators.parsing.config import (
+    PARSING_CONFIG_PATH,
+    ParsingConfig,
+    ParsingConfigError,
+    layout_parse_errors,
+    load_parsing_config,
+)
 from generators.receipt import render_receipt
 from generators.schema import field_names_for, validate_entry
 
@@ -104,6 +111,11 @@ def validate(
     distractor_config = load_distractor_config()
     schema = load_extraction_schema()
     pools = load_pools()
+    parsing_config: ParsingConfig | None = None
+    try:
+        parsing_config = load_parsing_config(PARSING_CONFIG_PATH)
+    except ParsingConfigError as exc:
+        all_errors.append(str(exc))
 
     for doc_type, doc_cfg in cfg.get("document_types", {}).items():
         gt_path = Path(doc_cfg["ground_truth"])
@@ -174,6 +186,10 @@ def validate(
                     )
                 except LayoutSchemaError as exc:
                     layout_errors.append(str(exc))
+            if parsing_config is not None:
+                layout_errors.extend(
+                    layout_parse_errors(layouts, layout_path=str(doc_cfg["layouts"]), config=parsing_config)
+                )
         all_errors.extend(layout_errors)
 
         # Overflow backstop: render each entry plain, and with distractors where its layout

@@ -187,6 +187,8 @@ PRIMITIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 _CONTAINERS = ("panel", "split", "stack")
+# Parsing ground-truth keys every block accepts; `parse_block` is added for a container only.
+_PARSE_KEYS = frozenset({"parse_category", "parse_order"})
 # The one container `anchor:` value: drawn upward from the bottom margin (primitives_container.foot_origin).
 ANCHORS = ("foot",)
 
@@ -461,7 +463,19 @@ def _validate_block(
     if "region" in block and kind != "stack":
         # Named before the generic unknown-key check: only a stack declares a region (Decision 9).
         _validate_regions([block], layout_id=layout_id, layout_path=layout_path)
-    allowed = set(required) | set(optional) | {"type", "when"}
+    if "parse_block" in block and kind not in _CONTAINERS:
+        # Named before the generic unknown-key check: only a container can be one parsed block.
+        raise _err(
+            f"'{kind}' block sets parse_block, which only {list(_CONTAINERS)} accept.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_block",
+            expected=f"parse_block on a block of type {' / '.join(_CONTAINERS)} (true makes the container "
+            "one parsed block).",
+            recover="remove parse_block from this block, or move it to the enclosing container.",
+        )
+    allowed = set(required) | set(optional) | _PARSE_KEYS | {"type", "when"}
+    if kind in _CONTAINERS:
+        allowed.add("parse_block")
     unknown = sorted(set(block) - allowed)
     if unknown:
         raise _err(
@@ -471,6 +485,8 @@ def _validate_block(
             expected=f"only {sorted(allowed)}.",
             recover=f"remove {unknown}, or add them to PRIMITIVES in generators/layout_dsl/schema.py.",
         )
+
+    _validate_parse_keys(block, layout_path=layout_path, key_path=key_path)
 
     # A block-level `family:` override is caught here rather than at render
     # time: load_font would raise FontFamilyError on the first block that
@@ -556,6 +572,36 @@ def _validate_block(
             layout_path=layout_path,
             known_fields=known_fields,
             key_path=key_path,
+        )
+
+
+def _validate_parse_keys(block: dict, *, layout_path: str, key_path: str) -> None:
+    """Check the parsing-ground-truth keys' types; the category vocabulary is `validate`'s concern."""
+    category = block.get("parse_category", "x")
+    if not isinstance(category, str) or not category:
+        raise _err(
+            f"parse_category is {category!r}, not a non-empty string.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_category",
+            expected="a category_vocabulary value such as parse_category: title.",
+            recover="set parse_category to a non-empty string, or remove it.",
+        )
+    order = block.get("parse_order", 0)
+    if isinstance(order, bool) or not isinstance(order, int):
+        raise _err(
+            f"parse_order is {order!r}, not an integer.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_order",
+            expected="an integer reading-order rank such as parse_order: 2 (not a boolean).",
+            recover="set parse_order to an integer, or remove it.",
+        )
+    if "parse_block" in block and not isinstance(block["parse_block"], bool):
+        raise _err(
+            f"parse_block is {block['parse_block']!r}, not a boolean.",
+            layout_path=layout_path,
+            key_path=f"{key_path}.parse_block",
+            expected="parse_block: true or parse_block: false.",
+            recover="set parse_block to true or false, or remove it.",
         )
 
 
