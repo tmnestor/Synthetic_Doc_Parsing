@@ -19,7 +19,7 @@ import pytest
 
 from scripts import mineru_cli
 from scripts.mineru_cli import poll_on_fresh_connections
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, assert_diagnostic_error
 
 MINERU_ENV = "docparse-mineru"
 
@@ -71,6 +71,109 @@ def test_the_module_imports_neither_httpx_nor_mineru() -> None:
     )
     assert done.stdout.strip() == "[]"
     assert mineru_cli.__doc__ is not None and "fresh connection" in mineru_cli.__doc__
+
+
+# A stand-in `httpx` and `mineru.cli.client`, written as files so `main` imports them as it would the
+# real ones. The client's `main` records the arguments and program name it ran with.
+_FAKE_HTTPX = """
+class Limits:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class AsyncClient:
+    def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
+"""
+_FAKE_CLIENT_HEAD = {
+    "module": "import sys\nimport httpx\n",
+    "bound": "import sys\nimport httpx\nfrom httpx import AsyncClient\n",
+}
+_FAKE_CLIENT_BODY = {
+    "module": "def poll():\n    return httpx.AsyncClient(timeout=1, follow_redirects=True)\n",
+    "other": "def poll():\n    return httpx.Client(timeout=1)\n",
+    "bound": "def poll():\n    return AsyncClient(timeout=1)\n",
+}
+_FAKE_CLIENT_MAIN = """
+calls = []
+
+
+def main(prog_name=None):
+    calls.append({"argv": sys.argv[1:], "prog_name": prog_name, "limits": poll().kwargs.get("limits")})
+"""
+
+
+@pytest.fixture
+def fake_mineru(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Return a function that writes a stand-in `mineru` whose client builds its client one way."""
+    modules = ("httpx", "mineru", "mineru.cli", "mineru.cli.client")
+    for name in modules:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    def write(head: str, body: str) -> Path:
+        package = tmp_path / "site" / "mineru" / "cli"
+        package.mkdir(parents=True)
+        (package.parent / "__init__.py").write_text("")
+        (package / "__init__.py").write_text("")
+        client = package / "client.py"
+        client.write_text(_FAKE_CLIENT_HEAD[head] + _FAKE_CLIENT_BODY[body] + _FAKE_CLIENT_MAIN)
+        (tmp_path / "site" / "httpx.py").write_text(_FAKE_HTTPX)
+        monkeypatch.syspath_prepend(str(tmp_path / "site"))
+        return client
+
+    yield write
+    for name in modules:
+        sys.modules.pop(name, None)
+
+
+def test_main_runs_mineru_with_its_arguments_and_the_patch(
+    fake_mineru: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_mineru("module", "module")
+    arguments = ["-p", "images", "-o", "out", "-b", "pipeline"]
+    monkeypatch.setattr(sys, "argv", ["mineru_cli.py", *arguments])
+    assert mineru_cli.main() == 0
+    (call,) = sys.modules["mineru.cli.client"].calls
+    assert call["argv"] == arguments and call["prog_name"] == "mineru"
+    assert call["limits"].kwargs == {"max_keepalive_connections": 0}
+
+
+@pytest.mark.parametrize(
+    ("head", "body", "problem"),
+    [
+        ("bound", "bound", "binds `AsyncClient` itself"),
+        ("module", "other", "never builds a client as `httpx.AsyncClient(...)`"),
+    ],
+)
+def test_a_client_the_patch_does_not_reach_is_refused_and_not_run(
+    fake_mineru: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    head: str,
+    body: str,
+    problem: str,
+) -> None:
+    client = fake_mineru(head, body)
+    monkeypatch.setattr(sys, "argv", ["mineru_cli.py", "-p", "images"])
+    assert mineru_cli.main() == 1
+    assert sys.modules["mineru.cli.client"].calls == []
+    error = capsys.readouterr().err
+    assert_diagnostic_error(error)
+    assert problem in error and str(client) in error
+    assert "envs/mineru.yml" in error
+
+
+def test_a_client_module_that_does_not_import_httpx_as_httpx_is_refused(tmp_path: Path) -> None:
+    httpx = _stand_in_httpx()
+    patched = poll_on_fresh_connections(httpx)
+    source = tmp_path / "client.py"
+    source.write_text("import httpx as web\n\nweb.AsyncClient(timeout=1)\n")
+    client = ModuleType("client")
+    client.__file__ = str(source)
+    with pytest.raises(mineru_cli.MineruWrapperError) as caught:
+        mineru_cli.check_patch_applies(client, httpx, patched)
+    assert_diagnostic_error(caught.value)
+    assert "does not import the `httpx` module as `httpx`" in str(caught.value)
 
 
 # Run in the MinerU env: a local server records the client port of every request it answers, and an
@@ -142,3 +245,31 @@ def test_each_request_opens_its_own_connection_in_the_mineru_env(mode: str, conn
     )
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout.strip().splitlines()[-1]) == connections
+
+
+_CHECK_PINNED_CLIENT = """
+import importlib.util, sys
+import httpx
+from mineru.cli import client
+spec = importlib.util.spec_from_file_location("mineru_cli", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.check_patch_applies(client, httpx, module.poll_on_fresh_connections(httpx))
+print("reached")
+"""
+
+
+@pytest.mark.skipif(not _mineru_env_has_httpx(), reason=f"the {MINERU_ENV} env is not built here")
+def test_the_patch_reaches_the_pinned_mineru_client() -> None:
+    conda = _conda()
+    assert conda is not None
+    script = Path(mineru_cli.__file__).resolve()
+    done = subprocess.run(
+        [conda, "run", "-n", MINERU_ENV, "python", "-I", "-c", _CHECK_PINNED_CLIENT, str(script)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip().splitlines()[-1] == "reached"

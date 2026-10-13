@@ -74,6 +74,7 @@ class ToolContract:
     """How one tool is invoked.
 
     Attributes:
+        command: The tool's own command, as messages name it (`executable` may be a wrapper that runs it).
         executable: The command the tool's env provides.
         package: The distribution whose version the run records.
         backends: The `backend` values the tool accepts.
@@ -85,6 +86,7 @@ class ToolContract:
             file; each must be set in the env before a run.
     """
 
+    command: str
     executable: str
     package: str
     backends: tuple[str, ...]
@@ -125,6 +127,7 @@ def _marker_arguments(backend: str, images: Path, out: Path, device: str) -> lis
 
 
 _MINERU = ToolContract(
+    command="mineru",
     executable="python",
     package="mineru",
     backends=("pipeline", "vlm-engine", "hybrid-engine"),
@@ -136,6 +139,7 @@ CONTRACTS: dict[str, ToolContract] = {
     "mineru_pipeline": _MINERU,
     "mineru_vlm": _MINERU,
     "docling": ToolContract(
+        command="docling",
         executable="docling",
         package="docling",
         backends=("default",),
@@ -144,6 +148,7 @@ CONTRACTS: dict[str, ToolContract] = {
         weight_variables=("DOCLING_ARTIFACTS_PATH",),
     ),
     "marker": ToolContract(
+        command="marker",
         executable="marker",
         package="marker-pdf",
         backends=("default",),
@@ -206,7 +211,7 @@ def local_tool(config: ParsingConfig, name: str, *, config_path: Path) -> ToolSp
     if tool.backend not in contract.backends:
         raise _diagnostic(
             "The tool's back-end is not one its command contract knows.",
-            what=f"tool {name!r} has backend {tool.backend!r}; {contract.executable} is invoked here with "
+            what=f"tool {name!r} has backend {tool.backend!r}; {contract.command} is invoked here with "
             f"one of {list(contract.backends)}.",
             where=f"{config_path.resolve()} -> tools[{index}].backend",
             expected=f"one of {list(contract.backends)}, e.g. backend: {contract.backends[0]}",
@@ -284,7 +289,7 @@ def _check_weight_variables(conda: str, env: str, contract: ToolContract) -> Non
             raise _diagnostic(
                 "The tool's environment does not say where its weights are.",
                 what=f"{variable} is not set in the environment the conda env {env!r} runs in, so "
-                f"{contract.executable} cannot find its weights (runs are offline, so nothing is downloaded).",
+                f"{contract.command} cannot find its weights (runs are offline, so nothing is downloaded).",
                 where=f"the conda env {env!r} -> {variable}",
                 expected=f"`conda run -n {env} printenv {variable}` printing the path, e.g. "
                 f"{variable}=<weights dir>",

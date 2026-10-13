@@ -114,6 +114,9 @@ def test_an_env_without_its_weight_variable_is_refused(
         )
     assert_diagnostic_error(caught.value)
     message = str(caught.value)
+    # The tool is named by its own command, not by a wrapper the runner invokes it through.
+    assert f"{CONTRACTS[name].command} cannot find its weights" in message
+    assert "python cannot" not in message
     assert f"export {variable}=" in message
     assert f"conda env config vars set -n {env_name(tool)} {variable}=" in message
     assert [call["argv"][-2:] for call in calls(conda)] == [["printenv", variable]]
@@ -141,6 +144,25 @@ def test_a_remote_tool_is_refused_from_the_command_line(
     assert run_local_parser.main([*argv, "--parsing-config", str(path)]) == 1
     assert_diagnostic_error(capsys.readouterr().err)
     assert not conda.exists(), "a refused tool must not reach conda"
+
+
+def test_messages_name_each_tool_by_its_own_command() -> None:
+    assert {name: CONTRACTS[name].command for name in CONTRACTS} == {
+        "mineru_pipeline": "mineru",
+        "mineru_vlm": "mineru",
+        "docling": "docling",
+        "marker": "marker",
+    }
+
+
+def test_a_backend_the_contract_does_not_know_is_refused_naming_the_tool(tmp_path: Path) -> None:
+    path = _scratch_parsing_config(tmp_path, backend="no-such-backend")
+    with pytest.raises(ParserRunError) as caught:
+        local_tool(load_parsing_config(path), "mineru_pipeline", config_path=path)
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    assert "mineru is invoked here with one of" in message and "python" not in message
+    assert f"{path.resolve()} -> tools[0].backend" in message
 
 
 def test_an_unknown_tool_is_refused() -> None:
