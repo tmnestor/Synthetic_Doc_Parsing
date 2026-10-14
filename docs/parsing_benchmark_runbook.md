@@ -266,8 +266,9 @@ conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_
 ```
 
 The leaderboard opens by naming the snapshot each half was scored against and, for an overridden half,
-whether its ground truth is byte-identical in the two snapshots (compared by SHA-256); if it is not, the
-degraded runs must be made again on the new snapshot.
+whether its ground truth is identical in the two snapshots, compared by SHA-256 with each page's
+`image_path` cut to its file name, since each snapshot names its own dated image directory there. If it
+is not, the degraded runs must be made again on the new snapshot.
 
 - *Overall*, shown as 'n/a (no formulas in stage one)': it needs formula scores, which arrive in stage three,
   and is never replaced by an average of the other components.

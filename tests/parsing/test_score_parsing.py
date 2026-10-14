@@ -134,16 +134,30 @@ def test_each_collected_run_is_scored_against_its_half(tmp_path: Path, scored: t
     assert {checkout for _, _, checkout, _ in stub_calls} == {tmp_path / "checkout"}
 
 
-def _overridden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, degraded_gt: str) -> tuple[Path, list]:
+def _degraded_page(stamp: str, text: str) -> dict:
+    """One invented degraded page, its image under the snapshot's dated directory."""
+    image = f"degraded_{stamp}/CASE901_receipt_v1.png"
+    return {
+        "layout_dets": [{"category_type": "text_block", "text": text}],
+        "page_info": {"image_path": image},
+    }
+
+
+def _overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, earlier_text: str = "Quokka Bakery"
+) -> tuple[Path, list]:
     """Docling's plain run on snapshot_20990202 and degraded run on snapshot_20990101, scored with the
-    degraded half overridden to the earlier snapshot, whose degraded ground truth is `degraded_gt`."""
+    degraded half overridden to the earlier snapshot. Both degraded files hold one page, under each
+    snapshot's own dated image directory; the earlier one's block reads `earlier_text`."""
     later = tmp_path / "snapshot_20990202"
     earlier = tmp_path / "snapshot_20990101"
     for snapshot in (later, earlier):
         (snapshot / SNAPSHOT_CONFIG.parsing_dir).mkdir(parents=True)
         (snapshot / SNAPSHOT_CONFIG.parsing_dir / "plain.json").write_text("[]")
-    (later / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text("[]")
-    (earlier / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text(degraded_gt)
+    later_pages = [_degraded_page("20990202", "Quokka Bakery")]
+    earlier_pages = [_degraded_page("20990101", earlier_text)]
+    (later / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text(json.dumps(later_pages))
+    (earlier / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text(json.dumps(earlier_pages))
     root = tmp_path / "out"
     for half, made_on in (("plain", later), ("degraded", earlier)):
         (root / "predictions" / "docling" / half).mkdir(parents=True)
@@ -176,8 +190,9 @@ def test_a_half_overridden_is_scored_against_its_own_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """--snapshot-for scores the degraded half on the snapshot its run was made on, and the leaderboard
-    names each half's snapshot and finds the two degraded ground truths byte-identical."""
-    markdown, calls = _overridden(tmp_path, monkeypatch, "[]")
+    names each half's snapshot and finds the two degraded ground truths identical: they differ only in
+    the dated image directory each page's image_path names."""
+    markdown, calls = _overridden(tmp_path, monkeypatch)
     parsing = SNAPSHOT_CONFIG.parsing_dir
     assert calls == [
         tmp_path / "snapshot_20990202" / parsing / "plain.json",
@@ -188,14 +203,18 @@ def test_a_half_overridden_is_scored_against_its_own_snapshot(
         "Snapshot `snapshot_20990202`. Each half is scored against: plain `snapshot_20990202`, distractor "
         "`snapshot_20990202`, labelled_varied `snapshot_20990202`, degraded `snapshot_20990101`."
     ) in text
-    digest = hashlib.sha256(b"[]").hexdigest()
-    assert f"is byte-identical in the two snapshots (SHA-256 {digest} and {digest})" in text
+    page = _degraded_page("", "Quokka Bakery")
+    page["page_info"]["image_path"] = "CASE901_receipt_v1.png"
+    digest = hashlib.sha256(json.dumps([page], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert "its ground truth (`parsing/degraded.json`) is identical in the two snapshots" in text
+    assert f"(SHA-256 {digest} and {digest})" in text
 
 
 def test_an_overridden_half_whose_ground_truth_differs_is_flagged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    markdown, _ = _overridden(tmp_path, monkeypatch, "[ ]")
+    """A block that reads differently is a real difference, not a dated directory."""
+    markdown, _ = _overridden(tmp_path, monkeypatch, earlier_text="Quokka Bakeries")
     assert "is DIFFERENT between the two snapshots" in markdown.read_text()
 
 

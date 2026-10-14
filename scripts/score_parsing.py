@@ -360,7 +360,9 @@ def _provenance(
     """The leaderboard's opening lines: the snapshot each half was scored against.
 
     For a half scored against another snapshot (`--snapshot-for`), they say whether its ground truth is
-    byte-identical in the two, compared by SHA-256.
+    identical in the two: compared by SHA-256 of each page list with every `page_info.image_path` cut to
+    its file name, since each snapshot names its own dated image directory there and nothing else may
+    differ.
     """
     against = ", ".join(f"{half} `{scored_on[half].name}`" for half in HALVES)
     lines = [f"Snapshot `{snapshot.name}`. Each half is scored against: {against}."]
@@ -374,14 +376,24 @@ def _provenance(
         if not ours.is_file():
             lines.append(f"`{snapshot.name}` has no {half} ground truth to compare with `{other.name}`'s.")
             continue
-        digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (theirs, ours)]
-        verdict = "byte-identical in" if digests[0] == digests[1] else "DIFFERENT between"
+        digests = [hashlib.sha256(_comparable(path)).hexdigest() for path in (theirs, ours)]
+        verdict = "identical in" if digests[0] == digests[1] else "DIFFERENT between"
         lines.append(
             f"The {half} half is scored against `{other.name}`, the snapshot its runs were made on; its "
-            f"ground truth (`{snapshot_config.parsing_dir}/{name}`) is {verdict} the two snapshots "
-            f"(SHA-256 {digests[0]} and {digests[1]})."
+            f"ground truth (`{snapshot_config.parsing_dir}/{name}`) is {verdict} the two snapshots, "
+            "every page's image_path cut to its file name since each snapshot names its own dated image "
+            f"directory there (SHA-256 {digests[0]} and {digests[1]})."
         )
     return lines
+
+
+def _comparable(path: Path) -> bytes:
+    """A parsing file's pages as canonical JSON, each `page_info.image_path` cut to its file name."""
+    pages = json.loads(path.read_text())
+    for page in pages:
+        info = page["page_info"]
+        info["image_path"] = Path(str(info["image_path"])).name
+    return json.dumps(pages, sort_keys=True, separators=(",", ":")).encode()
 
 
 def parse_snapshot_for(values: list[str]) -> dict[str, Path]:
