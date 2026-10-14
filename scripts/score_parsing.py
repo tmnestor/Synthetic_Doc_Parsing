@@ -11,8 +11,9 @@ scores them against `<snapshot>/<parsing_dir>/<half prefix>.json`, working in
 edit distance, table TEDS (with structure-only TEDS), table edit distance and reading-order edit distance,
 then the same broken down by document type, degradation tier and layout key (the page attributes the
 evaluator slices by, read from its metric result), and each run's back-end, version and device, read from
-the `run.json` the runner left beside the raw output. A run whose `run.json` names another tool, half or
-snapshot than the one scored is refused. The leaderboard ends with a "Tools and licences" block crediting
+the `run.json` the runner left beside the raw output. A run whose `run.json` names another tool or half is
+refused, and so is one made on another snapshot unless every image of its half is byte-identical in the
+two (the same SHA-256 in each MANIFEST.json), as after a re-export that changed only the ground truth. The leaderboard ends with a "Tools and licences" block crediting
 each scored project, its URL and the licences of its code and weights, read from `credits` in
 `config/parsing_config.yml`.
 
@@ -43,6 +44,7 @@ from generators.parsing.config import (  # noqa: E402
     load_parsing_config,
 )
 from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config  # noqa: E402
+from generators.snapshot.manifest import MANIFEST_NAME  # noqa: E402
 from scripts.collect_predictions import PREDICTIONS_DIR  # noqa: E402
 from scripts.omnidocbench_eval import (  # noqa: E402
     EvaluatorError,
@@ -115,15 +117,48 @@ def _run_record(path: Path) -> dict:
     return record
 
 
-def _check_run_matches(record: dict, path: Path, *, tool: str, half: str, snapshot: Path) -> None:
-    """Refuse predictions that a run.json says came from another tool, half or snapshot."""
+def _image_digests(snapshot: Path, half: str, *, snapshot_config: SnapshotConfig) -> dict[str, str]:
+    """Image file name -> SHA-256, for every image the half's parsing file lists, from MANIFEST.json.
+
+    Raises:
+        ScoreError: The parsing file or the manifest is missing or unreadable, or lists an image the
+            manifest does not hash.
+    """
+    gt = snapshot / snapshot_config.parsing_dir / f"{snapshot_config.half_prefixes[half]}.json"
+    manifest = snapshot / MANIFEST_NAME
+    try:
+        files = json.loads(manifest.read_text())["files"]
+        images = [str(page["page_info"]["image_path"]) for page in json.loads(gt.read_text())]
+        return {Path(image).name: str(files[image]) for image in images}
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        raise _diagnostic(
+            "A snapshot's images cannot be compared.",
+            what=f"the {half} images of {snapshot} could not be read from {gt.name} and {MANIFEST_NAME} "
+            f"({err!r}), so it is unknown whether they are the images the run parsed.",
+            where=f"{gt}; {manifest} -> files",
+            expected=f"both files as `eval-set` writes them: {gt.name} listing each page's "
+            f"page_info.image_path, and {MANIFEST_NAME} hashing it under files, e.g. "
+            '{"files": {"plain_20990101/CASE001_receipt.png": "<sha256>"}}',
+            recover="keep the snapshot the run was made on beside the one scored, or pass --snapshot the "
+            "snapshot the run was made on.",
+        ) from err
+
+
+def _check_run_matches(
+    record: dict, path: Path, *, tool: str, half: str, snapshot: Path, snapshot_config: SnapshotConfig
+) -> None:
+    """Refuse predictions that a run.json says came from another tool, half or snapshot.
+
+    A run recorded on another snapshot is accepted only when every image of the half is byte-identical in
+    the two (the same file names with the same SHA-256 in each MANIFEST.json), so its predictions read the
+    very pages scored: a re-export that changed only the ground truth is scored without running the tool
+    again.
+    """
     problems = []
     if record["tool"] != tool:
         problems.append(f"tool {record['tool']!r}, not {tool!r}")
     if record["half"] != half:
         problems.append(f"half {record['half']!r}, not {half!r}")
-    if Path(str(record["snapshot"])).name != snapshot.name:
-        problems.append(f"snapshot {record['snapshot']!r}, not {str(snapshot)!r}")
     if problems:
         raise _diagnostic(
             "A run's record does not match what is being scored.",
@@ -131,8 +166,42 @@ def _check_run_matches(record: dict, path: Path, *, tool: str, half: str, snapsh
             where=f"{path}",
             expected=f"a run of {tool} on the {half} half of {snapshot.name}, e.g. "
             f'{{"tool": "{tool}", "half": "{half}", "snapshot": "<dir>/{snapshot.name}"}}',
-            recover=f"pass --snapshot the snapshot the run was made on, or run {tool} on "
-            f"{snapshot.name}'s {half} half with scripts/run_local_parser.py and collect it again.",
+            recover=f"run {tool} on {snapshot.name}'s {half} half with scripts/run_local_parser.py and "
+            "collect it again.",
+        )
+    recorded = Path(str(record["snapshot"]))
+    if recorded.name == snapshot.name:
+        return
+    if not recorded.is_dir():
+        recorded = snapshot.parent / recorded.name
+    if not recorded.is_dir():
+        raise _diagnostic(
+            "A run's record names a snapshot that cannot be found.",
+            what=f"{path} records snapshot {record['snapshot']!r}, not {str(snapshot)!r}, and neither it "
+            f"nor {recorded} exists, so its images cannot be compared with {snapshot.name}'s.",
+            where=f"{path} -> snapshot",
+            expected=f"the run's snapshot on disk, or a run made on {snapshot.name}, e.g. "
+            f'{{"tool": "{tool}", "half": "{half}", "snapshot": "<dir>/{snapshot.name}"}}',
+            recover=f"restore {recorded.name} beside {snapshot.name}, pass --snapshot the snapshot the run "
+            f"was made on, or run {tool} on {snapshot.name}'s {half} half and collect it again.",
+        )
+    made_on = _image_digests(recorded, half, snapshot_config=snapshot_config)
+    scored = _image_digests(snapshot, half, snapshot_config=snapshot_config)
+    changed = sorted(
+        name for name in made_on.keys() | scored.keys() if made_on.get(name) != scored.get(name)
+    )
+    if changed:
+        raise _diagnostic(
+            "A run was made on images that differ from the snapshot scored.",
+            what=f"{path} records snapshot {recorded.name}, not {snapshot.name}, and {len(changed)} of the "
+            f"{half} images differ between the two (absent from one, or a different SHA-256 in "
+            f"{MANIFEST_NAME}): {changed[:5]}; the predictions did not read those pages.",
+            where=f"{path} -> snapshot; {recorded / MANIFEST_NAME} and {snapshot / MANIFEST_NAME} -> files",
+            expected=f"every {half} image byte-identical in both snapshots, or a run made on "
+            f"{snapshot.name}, e.g. "
+            f'{{"tool": "{tool}", "half": "{half}", "snapshot": "<dir>/{snapshot.name}"}}',
+            recover=f"pass --snapshot {recorded.name}, or run {tool} on {snapshot.name}'s {half} half with "
+            "scripts/run_local_parser.py and collect it again.",
         )
 
 
@@ -225,7 +294,14 @@ def score(
                 continue
             record_path = output_root / RAW_DIR / tool.name / half / RUN_RECORD
             record = _run_record(record_path)
-            _check_run_matches(record, record_path, tool=tool.name, half=half, snapshot=snapshot)
+            _check_run_matches(
+                record,
+                record_path,
+                tool=tool.name,
+                half=half,
+                snapshot=snapshot,
+                snapshot_config=snapshot_config,
+            )
             gt = snapshot / snapshot_config.parsing_dir / f"{snapshot_config.half_prefixes[half]}.json"
             if not gt.is_file():
                 raise _diagnostic(

@@ -481,3 +481,85 @@ def test_a_record_without_its_snapshot_is_refused(tmp_path: Path) -> None:
         )
     assert_diagnostic_error(caught.value)
     assert "snapshot" in str(caught.value)
+
+
+def _stamped(root: Path, name: str, digests: dict[str, str]) -> Path:
+    """A snapshot under `root` whose plain half lists `digests'` images, each hashed in its MANIFEST.json."""
+    snapshot = root / name
+    half_dir = f"plain_{name.removeprefix('snapshot_')}"
+    (snapshot / SNAPSHOT_CONFIG.parsing_dir).mkdir(parents=True)
+    pages = [{"page_info": {"image_path": f"{half_dir}/{image}"}} for image in digests]
+    (snapshot / SNAPSHOT_CONFIG.parsing_dir / "plain.json").write_text(json.dumps(pages))
+    files = {f"{half_dir}/{image}": digest for image, digest in digests.items()}
+    (snapshot / "MANIFEST.json").write_text(json.dumps({"files": files}))
+    return snapshot
+
+
+IMAGES = {"CASE901_invoice.png": "a1" * 32, "CASE902_receipt.png": "b2" * 32}
+
+
+def _rescore(
+    root: Path, monkeypatch: pytest.MonkeyPatch, scored_images: dict[str, str], *, manifest: bool = True
+) -> Path:
+    """A docling plain run made on snapshot_20990101 (IMAGES), scored against snapshot_20990202."""
+    made_on = _stamped(root, "snapshot_20990101", IMAGES)
+    if not manifest:
+        (made_on / "MANIFEST.json").unlink()
+    later = _stamped(root, "snapshot_20990202", scored_images)
+    (root / "predictions" / "docling" / "plain").mkdir(parents=True)
+    raw = root / "raw_predictions" / "docling" / "plain"
+    raw.mkdir(parents=True)
+    record: dict[str, object] = {"tool": "docling", "half": "plain", "snapshot": str(made_on)}
+    record |= {"backend": "default"}
+    record |= {"tool_version": "1.2.3", "device": "mps", "page_count": 2, "seconds": 1.0}
+    (raw / RUN_RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub())
+    score(
+        later,
+        output_root=root,
+        config=load_parsing_config(PARSING_CONFIG_PATH),
+        snapshot_config=SNAPSHOT_CONFIG,
+        checkout=root,
+        today=TODAY,
+    )
+    return raw / RUN_RECORD
+
+
+def test_a_run_on_another_snapshot_with_identical_images_is_scored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-export that changed only the ground truth is scored against the run made before it."""
+    _rescore(tmp_path, monkeypatch, dict(IMAGES))
+    assert (tmp_path / "leaderboard_20990102.md").is_file()
+
+
+@pytest.mark.parametrize(
+    ("scored_images", "named"),
+    [
+        ({**IMAGES, "CASE902_receipt.png": "c3" * 32}, "CASE902_receipt.png"),
+        ({"CASE901_invoice.png": IMAGES["CASE901_invoice.png"]}, "CASE902_receipt.png"),
+        ({**IMAGES, "CASE903_receipt.png": "d4" * 32}, "CASE903_receipt.png"),
+    ],
+    ids=["a-changed-hash", "an-image-dropped", "an-image-added"],
+)
+def test_a_run_on_another_snapshot_with_different_images_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scored_images: dict[str, str], named: str
+) -> None:
+    """One image that differs, or is in only one snapshot, means the predictions did not read the page."""
+    with pytest.raises(ScoreError) as caught:
+        _rescore(tmp_path, monkeypatch, scored_images)
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    assert named in message and "1 of the plain images" in message
+    assert "snapshot_20990101" in message and "snapshot_20990202" in message and "MANIFEST.json" in message
+    assert not list(tmp_path.glob("leaderboard_*"))
+
+
+def test_a_run_on_another_snapshot_without_a_manifest_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Images that cannot be compared are not assumed identical."""
+    with pytest.raises(ScoreError) as caught:
+        _rescore(tmp_path, monkeypatch, dict(IMAGES), manifest=False)
+    assert_diagnostic_error(caught.value)
+    assert "cannot be compared" in str(caught.value)
