@@ -461,6 +461,64 @@ def test_the_layout_scan_catches_a_real_layout_id(
     assert f"plain.json: {layout_id}" in _parsing_leaks(scratch)
 
 
+def test_the_sidecar_names_each_page_by_its_opaque_layout_key(export: SnapshotSummary) -> None:
+    """A sidecar row's `layout` is the page's opaque key, worked out here from the ground truth and the
+    registry by the key's rule, never the layout id the page was drawn from."""
+    config = yaml.safe_load(CONFIG_PATH.read_text())["document_types"]
+    rows = export.sidecar_rows
+    assert rows
+    for row in rows:
+        dtype = TYPE_KEYS[row["doc_type"]]
+        layout_id = str(
+            load_ground_truth(REPO_ROOT / config[dtype]["ground_truth"])[row["case_id"]]["layout"]
+        )
+        registry = sorted(load_layout_registry(REPO_ROOT / config[dtype]["layouts"]))
+        assert row["layout"] == f"{row['doc_type']}_layout_{registry.index(layout_id) + 1}", row
+
+
+def _layout_id_hits(root: Path) -> list[str]:
+    """Every real layout id that a published non-image file under `root` names, as a whole word."""
+    ids = [layout_id for registry in _layout_registries().values() for layout_id in registry]
+    hits = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix == ".png":
+            continue
+        text = path.read_text()
+        hits += [
+            f"{path.relative_to(root)}: {layout_id}"
+            for layout_id in ids
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(layout_id)}(?![A-Za-z0-9])", text)
+        ]
+    return hits
+
+
+def test_no_published_file_names_a_layout_id(export: SnapshotSummary) -> None:
+    """Every published text file, the sidecar and the manifest included, names layouts only by their
+    opaque keys; the parsing-file scan above covers `parsing/` alone."""
+    assert _layout_id_hits(export.path) == []
+
+
+def test_a_layout_id_reaching_a_published_file_refuses_the_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative control and guard: a sidecar row carrying its real layout id refuses the export with a
+    four-part diagnostic naming the file and the id, and nothing is published."""
+    real_row = export_module.sidecar_row
+
+    def leaking_row(**kwargs: object) -> dict:
+        return {**real_row(**kwargs), "layout": "receipt_thermal_80mm"}
+
+    monkeypatch.setattr(export_module, "sidecar_row", leaking_row)
+    config = _receipt_config(tmp_path)
+    root = load_snapshot_config(config).output_root
+    with pytest.raises(SnapshotError) as err:
+        _export(config)
+    assert_diagnostic_error(err.value)
+    message = str(err.value)
+    assert SIDECAR_NAME in message and "receipt_thermal_80mm" in message
+    assert _entries(root) == []
+
+
 def test_nothing_leaks_into_the_snapshot(export: SnapshotSummary) -> None:
     """No local path, register file, TFN-shaped key or label key; ground-truth columns are the schema's."""
     banned = [str(Path.home()), str(REPO_ROOT), "abn_register", ".npy"]

@@ -78,7 +78,8 @@ varied pages equal their distractor pages.
 
 `label_styles.jsonl` has one JSON line per image, sorted by `image_file`: `styles` maps each varied field
 to its `style` and the `wording` printed (empty for a bank statement), and `refusals` lists any style
-refused by the unambiguity rules before the one drawn. It is metadata, never answer key, and is not given
+refused by the unambiguity rules before the one drawn; `layout` is the page's opaque layout key, the same
+one its parsing page carries (section 8). It is metadata, never answer key, and is not given
 to the model. To stratify, join it to your per-field scores on `image_file` and group by
 `styles.<FIELD>.style`. The realised counts:
 

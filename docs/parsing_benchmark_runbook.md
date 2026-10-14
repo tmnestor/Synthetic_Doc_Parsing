@@ -431,9 +431,12 @@ Scores that the evaluator, not the tool, gets wrong or flatters:
 
 ## Publishing the snapshot
 
-One item stands before the first snapshot is published: the labelled-varied half's `label_styles.jsonl`
-names each page's layout by its internal name, which undoes the opaque layout keys the published pages
-carry. The fix belongs in the upstream generator, which writes that sidecar.
+Every published file names a layout only by its opaque key, `<doc_type>_layout_<n>`. The labelled-varied
+half's `label_styles.jsonl` named each page's layout by its internal name up to `snapshot_20261014`; from
+15 October 2026 it carries the opaque key, the same one as the page's parsing record, and the export
+refuses any snapshot in which a layout id appears in a published file. Snapshots exported before that
+date must not be shared. `generate --distractors --label-variation` still writes internal names into its
+review copy under `output/`, which is never published.
 
 ## Licences of the tools scored
 

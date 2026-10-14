@@ -116,7 +116,7 @@ from generators.snapshot.manifest import (
     write_manifest,
     write_provenance,
 )
-from generators.snapshot.publication import find_forbidden, refusal
+from generators.snapshot.publication import find_forbidden, layout_refusal, refusal
 from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange, read_repo_state
 from generators.snapshot.summary import ParsingSummary, SnapshotSummary
@@ -415,6 +415,7 @@ def _render_type(
     for case_id, entry, filename, projected in plan.entries:
         layout_id = str(entry.get("layout", ""))
         layout = plan.layouts[layout_id]
+        layout_key = plan.layout_keys[layout_id]
         where = f"{case_id} / {layout_id}"
 
         def fresh() -> dict:
@@ -465,7 +466,6 @@ def _render_type(
             out.density[half][filename] = density_report(geometry["ink"], int(geometry["height"]))
             out.counts[half][plan.canonical] += 1
             image_path = f"{half_dirs[half].name}/{filename}"
-            layout_key = plan.layout_keys[layout_id]
             context = PageContext(image_path, plan.canonical, layout_key, half, _CLEAN_TIER, True)
             page = build_page(geometry, context=context, config=parsing_config)
             where_page = page_where(case_id, layout_id, half)
@@ -477,7 +477,7 @@ def _render_type(
                 image_file=filename,
                 case_id=case_id,
                 doc_type=plan.canonical,
-                layout_id=layout_id,
+                layout_id=layout_key,
                 outcome=outcome,
                 geometry=varied_geometry,
             )
@@ -497,7 +497,7 @@ def _render_type(
                 seed=tier_seed(seed, index),
                 image_path=f"{half_dirs[DEGRADED].name}/{variant}",
                 doc_type=plan.canonical,
-                layout_id=plan.layout_keys[layout_id],
+                layout_id=layout_key,
                 config=parsing_config,
             )
             frame.save(half_dirs[DEGRADED] / variant)
@@ -746,6 +746,11 @@ def export_snapshot(
         hits = find_forbidden(staging, config.forbidden_terms)
         if hits:
             raise SnapshotError(refusal(hits, root=staging, config_path=config.config_path))
+        # No published file may name the template a page was drawn from, only its opaque key.
+        layout_ids = tuple(layout_id for plan in ready for layout_id in plan.layout_keys)
+        layout_hits = find_forbidden(staging, layout_ids)
+        if layout_hits:
+            raise SnapshotError(layout_refusal(layout_hits, root=staging))
 
         previous = find_previous(
             config.output_root,

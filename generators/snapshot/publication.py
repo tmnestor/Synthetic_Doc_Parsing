@@ -83,3 +83,27 @@ def refusal(hits: list[str], *, root: Path, config_path: Path) -> str:
         "  Recover:  reword the source of each hit (the README template, the notebook or a shipped\n"
         "            script), or remove a term from eval_set.forbidden_terms if it discloses nothing."
     )
+
+
+def layout_refusal(hits: list[str], *, root: Path) -> str:
+    """The four-part diagnostic for a snapshot that names a layout by its id rather than its opaque key.
+
+    Args:
+        hits: `find_forbidden`'s result over the layout ids, non-empty.
+        root: The directory scanned.
+
+    Returns:
+        The message.
+    """
+    named = hits[:LISTED]
+    more = [f"... and {len(hits) - LISTED} more ({len(hits)} in all)"] if len(hits) > LISTED else []
+    listing = "\n".join(f"            {line}" for line in named + more)
+    return (
+        "The snapshot names the layouts its pages were drawn from, so it was not published.\n"
+        f"  What:     {len(hits)} layout id(s) in the files about to be published:\n{listing}\n"
+        f"  Where:    {root} (the staging copy); the ids are the keys under layouts: in\n"
+        "            config/layouts/*.yml, and the file named is written by generators/snapshot/export.py\n"
+        "  Expected: a published file names a layout only by its opaque key, <doc_type>_layout_<n>\n"
+        "            (from opaque_layout_keys), as the parsing pages do.\n"
+        "  Recover:  pass plan.layout_keys[layout_id], not layout_id, where export.py writes the file named."
+    )
