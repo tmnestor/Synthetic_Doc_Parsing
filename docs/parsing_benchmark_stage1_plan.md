@@ -561,27 +561,32 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
   are still scored for text, tables and reading order.
 - *Evaluator.* OmniDocBench at commit `50d69e3ea1dc1866f49e8b5369f4155dfdaca3ed`, unmodified, quick
   matching, formula metrics off.
-- *First leaderboard.* `leaderboard_20261014.md` and `.csv` under the output root, scoring snapshot
-  `snapshot_20261013`; the runbook's section 'First leaderboard, 14 October 2026' reads it against the
-  page images.
+- *First leaderboard.* `leaderboard_20261014.md` and `.csv` under the output root, scoring the plain,
+  distractor and labelled-varied runs against `snapshot_20261014`, re-exported after the invoice
+  remittance slip was given scored categories; the runs were made on `snapshot_20261013`, whose images
+  for those halves are byte-identical. The degraded half was not re-scored (the heavy tier's images are not
+  reproducible between exports; its ground truth is unchanged), so its figures come from the first
+  scoring, kept with every other before-fix figure as `leaderboard_20261014_before_footer_fix.md` and
+  `.csv`. The runbook's section 'First leaderboard, 14 October 2026' reads both against the page images.
 - *Publication blocker.* The published `labelled_varied/label_styles.jsonl` sidecar rows carry the real
   layout id in their `layout` field, so a reader can join `image_file` to `page_info.image_path` and
   recover the real layout behind every opaque parsing layout key. The snapshot must not be uploaded until
   the upstream sidecar writer drops or opaques that field; after that, the parsing leak test should
   widen to every non-image file in the snapshot. This repository leaves the sidecar unchanged.
 - *Headline results* (page means; text and reading order are edit distances, lower is better; TEDS
-  higher is better; halves plain / distractor / labelled varied / degraded):
+  higher is better; halves plain / distractor / labelled varied / degraded, the degraded figures from the
+  first scoring):
 
   | Tool | Text edit | Table TEDS | Table edit | Reading-order edit |
   |---|---|---|---|---|
-  | MinerU `pipeline` | 0.637 / 0.525 / 0.523 / 0.546 | 0.458 / 0.397 / 0.381 / 0.115 | 0.480 / 0.512 / 0.527 / 0.764 | 0.634 / 0.584 / 0.584 / 0.586 |
-  | MinerU `vlm-engine` | 0.241 / 0.264 / 0.255 / 0.203 | 0.601 / 0.516 / 0.547 / 0.085 | 0.378 / 0.437 / 0.416 / 0.889 | 0.284 / 0.332 / 0.327 / 0.167 |
-  | Docling | 0.290 / 0.249 / 0.244 / 0.249 | 0.425 / 0.451 / 0.460 / 0.026 | 0.770 / 0.758 / 0.751 / 0.979 | 0.297 / 0.363 / 0.366 / 0.351 |
-  | Marker | 0.360 / 0.318 / 0.310 / 0.132 | 0.427 / 0.491 / 0.495 / 0.090 | 0.757 / 0.701 / 0.699 / 0.928 | 0.459 / 0.435 / 0.427 / 0.143 |
+  | MinerU `pipeline` | 0.637 / 0.539 / 0.536 / 0.546 | 0.458 / 0.397 / 0.381 / 0.115 | 0.480 / 0.512 / 0.527 / 0.764 | 0.634 / 0.596 / 0.595 / 0.586 |
+  | MinerU `vlm-engine` | 0.241 / 0.269 / 0.261 / 0.203 | 0.601 / 0.516 / 0.547 / 0.085 | 0.378 / 0.437 / 0.416 / 0.889 | 0.284 / 0.346 / 0.342 / 0.167 |
+  | Docling | 0.290 / 0.255 / 0.251 / 0.249 | 0.425 / 0.451 / 0.460 / 0.026 | 0.770 / 0.758 / 0.751 / 0.979 | 0.297 / 0.368 / 0.371 / 0.351 |
+  | Marker | 0.360 / 0.336 / 0.329 / 0.132 | 0.427 / 0.491 / 0.495 / 0.090 | 0.757 / 0.701 / 0.699 / 0.928 | 0.459 / 0.451 / 0.443 / 0.143 |
 
   MinerU `vlm-engine` leads on tables on every clean half (TEDS 0.601 plain, 0.516 distractor, 0.547
   labelled varied; invoices 0.988 plain) and on reading order on the clean halves, and has the best
-  plain text (0.241). Docling has the best distractor and labelled-varied text (0.249, 0.244). Marker
+  plain text (0.241). Docling has the best distractor and labelled-varied text (0.255, 0.251). Marker
   leads the degraded half on text (0.132) and reading order (0.143), because it reads photographed
   receipts as text where it reads many clean ones as one table. MinerU `pipeline` trails on text and
   reading order everywhere, mostly from receipts it barely reads. No tool scores receipt tables (TEDS
@@ -593,10 +598,16 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
     immune); text between two dollar signs is also kept as a formula item, leaving spare fragments;
     unmatched ground-truth lines are paired with leftover fragments and table date cells, which moves
     reading order; a page read as one paragraph scores almost perfect reading order.
-  - The ignored-category hazard is real, not theoretical: the invoice remittance slip is `footer` and
+  - The ignored-category hazard was real, not theoretical: the invoice remittance slip was `footer` and
     repeats the body's invoice-number and amount-due lines, so on 31 of the 55 distractor and
-    labelled-varied invoices those scored lines lose their prediction for every tool. Any new `header` or
-    `footer` block needs the 0.25 check against the page's scored lines before it ships.
+    labelled-varied invoices those scored lines lost their prediction for every tool. The slip is now
+    scored (`text_block`, its barcode `figure`), as is the invoice website line, and `validate` refuses
+    any ignored block within the evaluator's 0.25 of a scored one (`ignored_categories` and
+    `ignored_match_max_distance` in `config/parsing_config.yml`). The fix raised distractor invoice text
+    edit distance for every tool (MinerU `pipeline` 0.528 to 0.569, MinerU `vlm-engine` 0.292 to 0.308,
+    Docling 0.160 to 0.177, Marker 0.264 to 0.318; labelled varied alike), because three of the four
+    tools leave the slip out, which the scores now charge instead of charging correct readings of the
+    body.
   - Tool behaviours: MinerU `pipeline` reads little of short receipt images (38 of 55 plain receipts
     above text 0.8); MinerU `vlm-engine` drops text it classes as a page header (the first line of every plain
     invoice, most statements' lines above the table); Docling reads 24 of the 55 plain invoices as one page-wide

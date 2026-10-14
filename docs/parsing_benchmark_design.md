@@ -201,6 +201,11 @@ Checked by `validate` and again by `eval-set`; each failure is fail-fast with th
 4. Every `poly` lies within its page (degraded: within the frame).
 5. `category_map` covers every primitive and overlay type in use, and every value is in the
    OmniDocBench vocabulary, which `config/parsing_config.yml` lists beside the pinned evaluator commit.
+6. No block in one of the evaluator's ignored categories has text within the evaluator's ignored-match
+   distance of a scored block's text on the same page (section 5.3, *Ignored categories are matched
+   first*), both texts normalised as the evaluator normalises them. The category list and the distance
+   are `ignored_categories` and `ignored_match_max_distance` in `config/parsing_config.yml`, read from
+   the pinned evaluator; the comparison is strict, as the evaluator's `< 0.25` is.
 
 ### 5.2 Evaluator
 
@@ -337,7 +342,8 @@ What goes wrong, and why:
   and Docling one. A receipt barcode is a `figure`, so those digits are spare predicted text (see the
   previous item). No probe invoice carries the remittance barcode, but the evaluator ignores the `footer`
   category together with whatever is matched to it (`src/core/matching/match_quick.py`, its ignore
-  list), so a foot-anchored barcode's caption digits would cost nothing either way.
+  list), so a foot-anchored barcode's caption digits would cost nothing either way. (The remittance
+  barcode has since become a `figure`, with the rest of its slip scored; see the next item.)
 - *Ignored categories are matched first.* At the pinned commit the quick matcher
   (`src/core/matching/match_quick.py`) first pairs every ground-truth line in an ignored category
   (`header`, `footer`, `page_number` and the caption and footnote categories) with every prediction
@@ -349,6 +355,18 @@ What goes wrong, and why:
   nearest scored line (the contact email line); the page-number footer is 0.75 or more from every
   scored line. No footer line on the probe is within 0.25 of a scored line, but the website line's
   margin is small, because the business domain recurs across lines.
+
+  On the full corpus the hazard was live. In the first scoring (`snapshot_20261013`) the invoice
+  remittance slip, a foot-anchored and so `footer` stack, repeated the body's invoice-number and
+  amount-due lines on 31 of the 55 distractor and labelled-varied invoices, and every tool lost its
+  correct prediction of those body lines. It is fixed for the slip: the slip is tear-off content that a
+  payer returns with the payment, not running page furniture repeated on every page, so its detach note,
+  heading and three lines carry `parse_category: text_block` and its barcode `parse_category: figure`,
+  while the thank-you line, the social handle and the page number stay `footer`. The website line in the
+  foot band is `text_block` too: on two invoices it is 0.24 from the letterhead email or the PayID line.
+  It is guarded at `validate` by invariant 6 (section 5.1), which refuses any ignored block this close
+  to a scored one, so a new `header` or `footer` block cannot reintroduce it unnoticed. The runbook's
+  'First leaderboard' section gives the scores before and after.
 
 Recommendations for the owner (each to accept or reject):
 
@@ -386,7 +404,7 @@ Go. All nine recommendations accepted.
 | 3 | `header` on the invoice contact strip and the statement banner | Accepted for the statement banner; withdrawn for the invoice contact strip after implementation | `parse_category: header` on the statement `banner`. The contact strip stays `text_block`: the quick matcher removes every prediction within normalised edit distance 0.25 of an ignored line (see *Ignored categories are matched first* above), and the contact email line and the scored PayID line on the same business domain are 0.24 apart, so a `header` contact email swallowed the PayID prediction for every parser and the perfect-score check failed | `config/layouts/bank_statements.yml`: the `banner` in `_anz_standard_body` and `_anz_modern_body`; `tests/parsing/test_layout_parse_keys.py` (the banner is a `header`; no invoice block is) |
 | 4 | No `parse_order` | Accepted | No change: draw order stands | None |
 | 5 | Separator glyphs left out | Accepted | No change: rule fill glyphs stay unrecorded (section 4.2) | None |
-| 6 | Code primitives keep `figure`, or `footer` when foot-anchored | Accepted | No change: the category precedence of plan Decision 5 stands | None |
+| 6 | Code primitives keep `figure`, or `footer` when foot-anchored | Accepted, then superseded for the invoice remittance barcode on 14 October 2026 | The category precedence of plan Decision 5 stands. The remittance slip, barcode included, is no longer `footer`: its foot-anchored `footer` lines struck correct readings of the body's lines (see *Ignored categories are matched first*), so each slip leaf declares its category, `figure` for the barcode and `text_block` for the rest; invariant 6 guards the hazard at `validate` | `config/layouts/invoices.yml`: `_invoice_detach_note`, `_invoice_remittance_heading`, `_invoice_remittance_slip`, the website line of `_invoice_contact_band`; `config/parsing_config.yml`: `ignored_categories`, `ignored_match_max_distance`; `generators/parsing/omnidocbench.py` (invariant 6); `tests/parsing/test_omnidocbench.py` |
 | 7 | Statement totals joined to the transaction table | Accepted | New table key `parse_join: previous_table` (plan Decision 17; sections 4.2 and 4.3), set on the totals table | `generators/layout_dsl/schema.py`, `generators/parsing/config.py` (`layout_parse_errors`), `generators/exporters/geometry.py` (`BlockRecord.join`), `generators/parsing/omnidocbench.py`; `config/layouts/bank_statements.yml`: the `bank_transaction_totals` table in `_anz_standard_body` and `_anz_modern_body`; `tests/parsing/test_omnidocbench.py`, `tests/parsing/test_layout_parse_keys.py`, `tests/layout_dsl/test_schema_parse_keys.py` |
 | 8 | Leaderboard leads with TEDS, table edit distance beside it with the output-form caveat | Accepted | Carried into the first leaderboard | Plan Task 8, `scripts/score_parsing.py` |
 | 9 | Evaluator left unpatched (option C) | Accepted | No change: the perfect-score test keeps asserting the reading-order artefact | `tests/parsing/test_perfect_score.py` |

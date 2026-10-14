@@ -251,7 +251,11 @@ conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_
 For every configured tool and every half with a predictions directory, the pinned evaluator (run through
 `run_end2end`, unmodified) scores the predictions against the half's `parsing/<half>.json`, working in
 `../evaluation_data/scores/<tool>/<half>/`. The leaderboard is written to
-`../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.csv`:
+`../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.csv`. A run's `run.json` must name the tool and half
+scored; a run made on another snapshot is scored only when every image of its half has the same name and
+SHA-256 in both snapshots' `MANIFEST.json` (a re-export that changed only the ground truth), and refused
+otherwise. `--halves` scores only the halves named (all four by default); a half left out is blank in the
+leaderboard, which names it under its heading.
 
 - *Overall*, shown as 'n/a (no formulas in stage one)': it needs formula scores, which arrive in stage three,
   and is never replaced by an average of the other components.
@@ -269,8 +273,16 @@ are unrounded.
 
 ## First leaderboard, 14 October 2026
 
-All sixteen runs (four tools, four halves, 165 pages each) collected without a refusal and scored into
-`leaderboard_20261014.md` and `.csv` under the output root. Each score below was read against the page
+All sixteen runs (four tools, four halves, 165 pages each) collected without a refusal and were first
+scored against `snapshot_20261013`; that leaderboard is kept as `leaderboard_20261014_before_footer_fix.md`
+and `.csv` under the output root. The invoice remittance slip was then given scored categories (see the
+first finding under 'Scores that the evaluator, not the tool, gets wrong or flatters'), the snapshot
+re-exported as `snapshot_20261014`, and the plain, distractor and labelled-varied runs re-scored against
+it, without running any parser, into `leaderboard_20261014.md` and `.csv`: their images are
+byte-identical in both snapshots, which `score_parsing.py` checks against each `MANIFEST.json`. The
+degraded runs were not re-scored (`--halves plain distractor labelled_varied`): the heavy tier's fold is
+not reproducible, so its 55 images differ between the snapshots and the check refuses them. The degraded
+ground truth is identical in both, so its scores stand as in the earlier leaderboard. Each score below was read against the page
 image, the tool's markdown and the ground-truth page, at least one page per document type for each tool;
 pages are named by case id and role only. Unless a finding says otherwise, the score is right: it
 measures what the tool wrote.
@@ -309,7 +321,7 @@ Scores that are right, but only once the tool's reading is known:
   0.91 and TEDS 0.12: the supplier, customer, date and totals lines all sit in one markdown table with
   the items, so no scored text block has a text prediction to match. The same layouts with distractors
   added are read as text and a table (distractor CASE033 scored 0.01), so Docling's plain invoices score
-  worse than its distractor invoices (0.433 against 0.160). On distractor statement CASE008 (text 0.19,
+  worse than its distractor invoices (0.433 against 0.177). On distractor statement CASE008 (text 0.19,
   TEDS 0.999) it is right throughout, missing only the page number and the handwritten note.
 - *Marker leaves out page headers and footers.* Plain invoice CASE033 scored text 0.36: the heading and
   supplier name at the top of the page are missing from its markdown, as on every plain invoice (the
@@ -321,17 +333,39 @@ Scores that are right, but only once the tool's reading is known:
 
 Scores that the evaluator, not the tool, gets wrong or flatters:
 
-- *The ignored-category hazard is live on distractor invoices.* On 31 of the 55 distractor invoices (and
-  the same 31 labelled-varied ones) a scored line lies within normalised edit distance 0.25 of a `footer`
-  line, almost always because the remittance slip at the foot, which is `footer`, repeats the
+- *The ignored-category hazard, found here and now fixed.* Against `snapshot_20261013`, on 31 of the 55
+  distractor invoices (and the same 31 labelled-varied ones) a scored line lay within normalised edit
+  distance 0.25 of a `footer` line, because the remittance slip at the foot, then `footer`, repeats the
   invoice-number and amount-due lines of the body word for word. The quick matcher pairs each ignored
-  footer line with every prediction within normalised edit distance 0.25 and removes them first (design
-  section 5.3), so the body's own invoice-number line, and the amount-due line where both are printed,
-  lose their prediction: on distractor invoice CASE002 all four tools transcribed the body's invoice
-  number correctly and all four were charged between 0.92 and 1 for it. This raises every tool's distractor and
-  labelled-varied invoice text edit distance alike by one or two lines a page, and confounds the plain
-  against distractor comparison for invoices. No plain, statement or degraded page has an ignored line
-  that close to a scored one.
+  line with every prediction within normalised edit distance 0.25 and removes them first (design section
+  5.3), so the body's own lines lost their prediction: on distractor invoice CASE002 all four tools
+  transcribed the body's invoice number correctly and all four were charged between 0.92 and 1 for it.
+  The slip is tear-off content, not running page furniture, so its detach note, heading and lines are
+  now `text_block` and its barcode a `figure`; the website line in the foot band, 0.24 from the
+  letterhead email or PayID line on two invoices, is `text_block` too. `validate` now refuses any
+  ignored block within the evaluator's distance of a scored one (design section 5.1, invariant 6), and
+  no page of `snapshot_20261014` has one.
+
+  The fix makes distractor and labelled-varied invoice text edit distance higher, not lower, for every
+  tool (plain invoices are unchanged):
+
+  | Tool | Distractor invoices, before / after | Labelled-varied invoices, before / after |
+  |---|---|---|
+  | MinerU `pipeline` | 0.528 / 0.569 | 0.541 / 0.579 |
+  | MinerU `vlm-engine` | 0.292 / 0.308 | 0.265 / 0.283 |
+  | Docling | 0.160 / 0.177 | 0.146 / 0.166 |
+  | Marker | 0.264 / 0.318 | 0.253 / 0.309 |
+
+  The slip's five lines and the website line are now read or charged. MinerU `pipeline` and Marker
+  leave the foot band out almost entirely (mean edit 0.99 and 0.95 on the slip's heading, detach note and
+  amount lines), MinerU `vlm-engine` mostly (0.79), and Docling reads most of it (0.40). The body's
+  invoice-number line is no longer struck, but the matcher merges the two identical invoice-number lines
+  into one ground-truth item, so a tool that reads only the body's copy is charged 0.5 for the pair
+  (CASE002: 0.5 for both MinerU back-ends and Marker, 0 for Docling, which reads both). The before
+  figures charged correct readings; the after figures charge text a tool left out, which is what the
+  metric is meant to measure. Overall distractor and labelled-varied text edit distance and reading-order
+  edit distance (more blocks to order on those invoices) rose by 0.005 to 0.019 for every tool; tables,
+  every plain figure and every receipt and statement figure are unchanged.
 - *A markdown table loses every cell holding a colon.* The pinned evaluator converts a pipe table to html
   and then drops each converted line that matches its table-separator test (`find_md_table_mode` in
   `src/core/preprocess/table_utils.py`), which any colon satisfies, so a cell such as a labelled total or
