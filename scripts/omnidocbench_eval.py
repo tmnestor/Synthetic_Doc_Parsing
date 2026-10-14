@@ -137,15 +137,16 @@ def ensure_checkout(config: ParsingConfig, *, root: Path) -> Path:
                 where=f"{checkout}; {PARSING_CONFIG_PATH} -> evaluator.commit",
                 expected=f"the checkout at the pinned commit, e.g. `git -C {checkout} rev-parse HEAD` "
                 f"printing {pin.commit}.",
-                recover=f"run `git -C {checkout} checkout --detach {pin.commit}`, or change evaluator.commit "
-                "deliberately and re-run the perfect-score test.",
+                recover=f"run `git -C {checkout} checkout --detach {pin.commit}`, or change "
+                "evaluator.commit deliberately and re-run the perfect-score test.",
             )
         dirty = _git("status", "--porcelain", "--untracked-files=no", cwd=checkout)
         if dirty.returncode != 0 or dirty.stdout.strip():
             raise _diagnostic(
                 "The evaluator checkout has local modifications.",
                 what=f"{checkout} is at the pinned commit {pin.commit} but tracked files differ from it:\n"
-                f"{_tail(dirty.stdout or dirty.stderr)}\nscores from a modified evaluator are not comparable.",
+                f"{_tail(dirty.stdout or dirty.stderr)}\n"
+                "scores from a modified evaluator are not comparable.",
                 where=f"{checkout}; {PARSING_CONFIG_PATH} -> evaluator.commit",
                 expected=f"a clean checkout, e.g. `git -C {checkout} status --porcelain "
                 "--untracked-files=no` printing nothing.",
@@ -172,7 +173,8 @@ def ensure_checkout(config: ParsingConfig, *, root: Path) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
         raise _diagnostic(
             "The pinned evaluator commit is not in its repository.",
-            what=f"`git checkout {pin.commit}` failed in a fresh clone of {pin.repo}:\n{_tail(switch.stderr)}",
+            what=f"`git checkout {pin.commit}` failed in a fresh clone of {pin.repo}:\n"
+            f"{_tail(switch.stderr)}",
             where=f"{PARSING_CONFIG_PATH} -> evaluator.commit",
             expected="a full 40-character SHA the repository holds, e.g. one `git ls-remote <repo>` lists.",
             recover="correct evaluator.commit to a commit of evaluator.repo.",

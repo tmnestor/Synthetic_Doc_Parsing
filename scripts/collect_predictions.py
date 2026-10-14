@@ -40,20 +40,39 @@ def _diagnostic(title: str, *, what: str, where: str, expected: str, recover: st
     )
 
 
-def _pages(raw: Path) -> list[str]:
-    """The image file names the run's record lists."""
+def _pages(raw: Path, *, tool: str, half: str) -> list[str]:
+    """The image file names the run's record lists, once the record is shown to be the run asked for."""
     record = raw / RUN_RECORD
     try:
-        pages = json.loads(record.read_text())["pages"]
+        data = json.loads(record.read_text())
+        pages = data["pages"]
     except (OSError, ValueError, KeyError, TypeError) as err:
         raise _diagnostic(
             "The run has no readable record.",
             what=f"{record} is missing or holds no 'pages' list ({err!r}), so the pages the run covered "
             "are unknown.",
             where=f"{record}",
-            expected='the run.json scripts/run_local_parser.py writes, e.g. {"pages": ["CASE001_invoice.png"]}',
-            recover="run the tool with scripts/run_local_parser.py, which writes the record beside its output.",
+            expected='the run.json scripts/run_local_parser.py writes, e.g. {"pages": '
+            '["CASE001_invoice.png"]}',
+            recover="run the tool with scripts/run_local_parser.py, which writes the record beside its "
+            "output.",
         ) from err
+    mismatches = [
+        f"{key} {data.get(key)!r}, not {wanted!r}"
+        for key, wanted in (("tool", tool), ("run_name", half))
+        if data.get(key) != wanted
+    ]
+    if mismatches:
+        raise _diagnostic(
+            "The run's record belongs to another run.",
+            what=f"{record} records {'; '.join(mismatches)}, so the raw output beside it was not made by "
+            "the run being collected.",
+            where=f"{record}",
+            expected=f'a record of this run, e.g. {{"tool": "{tool}", "run_name": "{half}", '
+            '"pages": [...]}',
+            recover="pass the --tool and --half the run was made with, or move the stale output aside and "
+            "run the tool again.",
+        )
     if not isinstance(pages, list) or not all(isinstance(page, str) for page in pages):
         raise _diagnostic(
             "The run's record lists no pages.",
@@ -80,7 +99,7 @@ def collect(tool: str, half: str, *, output_root: Path) -> Path:
         CollectError: The run has no record, or a page has no markdown file or more than one.
     """
     raw = output_root / RAW_DIR / tool / half
-    stems = [Path(page).stem for page in _pages(raw)]
+    stems = [Path(page).stem for page in _pages(raw, tool=tool, half=half)]
     found: dict[str, list[Path]] = {stem: [] for stem in stems}
     for path in raw.rglob("*.md"):
         if path.stem in found:
@@ -97,9 +116,10 @@ def collect(tool: str, half: str, *, output_root: Path) -> Path:
             "The run does not give exactly one markdown file per page.",
             what="; ".join(problems),
             where=f"{raw}",
-            expected="one file named <image stem>.md under the run's raw output for every page run.json lists.",
-            recover="for a missing page read the tool's run.log beside run.json; for two candidates remove the "
-            "stale one (or move the run aside and run the tool again).",
+            expected="one file named <image stem>.md under the run's raw output for every page "
+            "run.json lists.",
+            recover="for a missing page read the tool's run.log beside run.json; for two candidates "
+            "remove the stale one (or move the run aside and run the tool again).",
         )
     target = output_root / PREDICTIONS_DIR / tool / half
     staging = target.with_name(f".{half}.partial")

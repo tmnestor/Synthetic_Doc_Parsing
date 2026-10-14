@@ -11,7 +11,10 @@ scores them against `<snapshot>/<parsing_dir>/<half prefix>.json`, working in
 edit distance, table TEDS (with structure-only TEDS), table edit distance and reading-order edit distance,
 then the same broken down by document type, degradation tier and layout key (the page attributes the
 evaluator slices by, read from its metric result), and each run's back-end, version and device, read from
-the `run.json` the runner left beside the raw output.
+the `run.json` the runner left beside the raw output. A run whose `run.json` names another tool, half or
+snapshot than the one scored is refused. The leaderboard ends with a "Tools and licences" block crediting
+each scored project, its URL and the licences of its code and weights, read from `credits` in
+`config/parsing_config.yml`.
 
 Tables lead with TEDS. Table edit distance is reported beside it with its caveat: it compares html
 strings, and the evaluator converts a markdown pipe table to html with attributes an html table does not
@@ -67,14 +70,15 @@ BREAKDOWNS = (
     ("layout_id", "By layout", "Layout key"),
 )
 _NOTES = {
-    "table_edit_dist": "Table edit distance compares html strings. The evaluator turns a markdown pipe table "
-    'into html with `colspan="1" rowspan="1"` on every cell, which an html table does not carry, so a '
-    "perfect markdown table can score 0.5 here while scoring TEDS 1: compare it only between tools with the "
-    "same output form (html or markdown). TEDS is not affected.",
+    "table_edit_dist": "Table edit distance compares html strings. The evaluator turns a markdown pipe "
+    'table into html with `colspan="1" rowspan="1"` on every cell, which an html table does not carry, '
+    "so a perfect markdown table can score 0.5 here while scoring TEDS 1: compare it only between "
+    "tools with the same output form (html or markdown). TEDS is not affected.",
     "reading_order_edit_dist": "Reading order includes one known artefact of the pinned evaluator: once "
     "matched, a page's first predicted table drops out of the predicted order, one edit on every such page "
     "for every tool alike (the design's section 5.3).",
 }
+RECORD_KEYS = ("tool", "half", "snapshot", "backend", "tool_version", "device", "page_count", "seconds")
 _RUN_FIELDS = (("backend", "Backend"), ("tool_version", "Version"), ("device", "Device"))
 
 
@@ -94,7 +98,7 @@ def _run_record(path: Path) -> dict:
         record = json.loads(path.read_text())
         if not isinstance(record, dict):
             raise TypeError(f"the record is {type(record).__name__}, not an object")
-        for key in ("backend", "tool_version", "device", "page_count", "seconds"):
+        for key in RECORD_KEYS:
             record[key]  # noqa: B018  every field the leaderboard reports must be present
     except (OSError, ValueError, KeyError, TypeError) as err:
         raise _diagnostic(
@@ -102,12 +106,34 @@ def _run_record(path: Path) -> dict:
             what=f"{path} is missing or incomplete ({err!r}); the leaderboard reports each run's device "
             "and version from it.",
             where=f"{path}",
-            expected='the run.json scripts/run_local_parser.py writes, e.g. {"backend": "default", '
+            expected='the run.json scripts/run_local_parser.py writes, e.g. {"tool": "docling", '
+            '"half": "plain", "snapshot": "/data/snapshot_20260101", "backend": "default", '
             '"tool_version": "2.0.0", "device": "mps", "page_count": 165, "seconds": 900.0}',
-            recover="run the tool with scripts/run_local_parser.py and collect it again; a run made another "
-            "way needs a run.json beside its raw output.",
+            recover="run the tool with scripts/run_local_parser.py and collect it again; a run made "
+            "another way needs a run.json beside its raw output.",
         ) from err
     return record
+
+
+def _check_run_matches(record: dict, path: Path, *, tool: str, half: str, snapshot: Path) -> None:
+    """Refuse predictions that a run.json says came from another tool, half or snapshot."""
+    problems = []
+    if record["tool"] != tool:
+        problems.append(f"tool {record['tool']!r}, not {tool!r}")
+    if record["half"] != half:
+        problems.append(f"half {record['half']!r}, not {half!r}")
+    if Path(str(record["snapshot"])).name != snapshot.name:
+        problems.append(f"snapshot {record['snapshot']!r}, not {str(snapshot)!r}")
+    if problems:
+        raise _diagnostic(
+            "A run's record does not match what is being scored.",
+            what=f"{path} records {'; '.join(problems)}, so its predictions were left from another run.",
+            where=f"{path}",
+            expected=f"a run of {tool} on the {half} half of {snapshot.name}, e.g. "
+            f'{{"tool": "{tool}", "half": "{half}", "snapshot": "<dir>/{snapshot.name}"}}',
+            recover=f"pass --snapshot the snapshot the run was made on, or run {tool} on "
+            f"{snapshot.name}'s {half} half with scripts/run_local_parser.py and collect it again.",
+        )
 
 
 def _missing_metric(source: Path, dotted: str, metric: str, err: Exception) -> ScoreError:
@@ -197,14 +223,17 @@ def score(
             pred = output_root / PREDICTIONS_DIR / tool.name / half
             if not pred.is_dir():
                 continue
-            record = _run_record(output_root / RAW_DIR / tool.name / half / RUN_RECORD)
+            record_path = output_root / RAW_DIR / tool.name / half / RUN_RECORD
+            record = _run_record(record_path)
+            _check_run_matches(record, record_path, tool=tool.name, half=half, snapshot=snapshot)
             gt = snapshot / snapshot_config.parsing_dir / f"{snapshot_config.half_prefixes[half]}.json"
             if not gt.is_file():
                 raise _diagnostic(
                     "A scored half has no ground truth in the snapshot.",
                     what=f"{tool.name} has predictions for {half}, but {gt} does not exist.",
                     where=f"{gt}",
-                    expected=f"the snapshot's parsing file for the half, {gt.name}, as `eval-set` writes it.",
+                    expected=f"the snapshot's parsing file for the half, {gt.name}, as `eval-set` "
+                    "writes it.",
                     recover="pass --snapshot the snapshot the predictions were made from.",
                 )
             work = output_root / SCORES_DIR / tool.name / half
@@ -214,8 +243,8 @@ def score(
     if not runs:
         raise _diagnostic(
             "There is nothing to score.",
-            what=f"no configured tool {[tool.name for tool in config.tools]} has a predictions directory for "
-            f"any half {list(HALVES)}.",
+            what=f"no configured tool {[tool.name for tool in config.tools]} has a predictions "
+            f"directory for any half {list(HALVES)}.",
             where=f"{output_root / PREDICTIONS_DIR}",
             expected="predictions/<tool>/<half>/<image stem>.md, e.g. predictions/docling/plain/",
             recover="run scripts/run_local_parser.py and scripts/collect_predictions.py for a tool first.",
@@ -308,6 +337,24 @@ def _parse(cell: str) -> float:
     return math.nan if cell == "n/a" else float(cell)
 
 
+def _credits(tools: list[str], config: ParsingConfig) -> list[str]:
+    """The closing "Tools and licences" block: one row per project among the scored tools."""
+    credited = {tool.name: tool.credits for tool in config.tools}
+    projects = list(dict.fromkeys(credited[tool] for tool in tools))
+    return [
+        "",
+        "## Tools and licences",
+        "",
+        "These scores were produced with the projects below; each is credited with its project page and "
+        "the licences of its code and its model weights, as its authors state them.",
+        "",
+        *_table(
+            ["Project", "Project page", "Code licence", "Weights licence"],
+            [[c.project, c.url, c.code_licence, c.weights_licence] for c in projects],
+        ),
+    ]
+
+
 def _markdown(
     rows: Rows, runs: dict, tools: list[str], *, snapshot: Path, config: ParsingConfig, today: date
 ) -> str:
@@ -315,13 +362,13 @@ def _markdown(
     lines = [
         "# Parsing leaderboard",
         "",
-        f"Snapshot `{snapshot.name}`, scored {today.day} {today.strftime('%B %Y')} with OmniDocBench at commit "
-        f"`{config.evaluator.commit}`, unmodified, with quick matching.",
+        f"Snapshot `{snapshot.name}`, scored {today.day} {today.strftime('%B %Y')} with OmniDocBench "
+        f"at commit `{config.evaluator.commit}`, unmodified, with quick matching.",
         "",
         "Edit distances are normalised: 0 is a perfect reading and 1 the worst. TEDS runs from 0 to 1, 1 "
-        "being a perfect table. Text, table and reading-order edit distances are means over a half's pages; "
-        "TEDS is the mean over its tables. A blank cell is a half the tool was not run on; n/a is a score "
-        "the evaluator could not compute, because nothing of that kind was matched.",
+        "being a perfect table. Text, table and reading-order edit distances are means over a half's "
+        "pages; TEDS is the mean over its tables. A blank cell is a half the tool was not run on; n/a is "
+        "a score the evaluator could not compute, because nothing of that kind was matched.",
         "",
         "## Overall",
         "",
@@ -373,6 +420,7 @@ def _markdown(
             ]
             lines += ["", f"### {title}", ""]
             lines += _table(["Tool", column, *halves], body)
+    lines += _credits(tools, config)
     return "\n".join(lines) + "\n"
 
 

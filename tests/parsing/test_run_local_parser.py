@@ -1,4 +1,4 @@
-"""The local parser runner: it runs only local tools, from the env their env file names, and records the run.
+"""The local parser runner: it runs only local tools, from the env their file names, and records the run.
 
 The parsers themselves never run here: `conda` is replaced by a script that records its arguments and
 writes one markdown file per input image, so each test checks what the runner asks for and what it keeps.

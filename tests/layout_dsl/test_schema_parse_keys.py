@@ -1,4 +1,4 @@
-"""The `parse_category`, `parse_order` and `parse_block` layout keys, and the vocabulary check in `validate`."""
+"""The `parse_category`, `parse_order` and `parse_block` layout keys, and the vocabulary check."""
 
 import copy
 from pathlib import Path
@@ -64,14 +64,14 @@ def test_parse_block_is_refused_on_a_non_container_naming_the_three_containers(b
     ],
 )
 def test_a_table_beneath_a_parse_block_container_is_refused(body: list, table_path: str) -> None:
-    """A table is a block of its own, with its own grid; it cannot be folded into an enclosing parsed block."""
+    """A table is a block of its own, with its own grid; it cannot fold into an enclosing parsed block."""
     err = reject_body(body, "table", "parse_block", f"layout_under_test.{table_path}", "Recover")
     assert_diagnostic_error(err)
     assert str(REPO_ROOT / "config" / "layouts" / "receipts.yml") in str(err)
 
 
 def test_a_table_beside_a_parse_block_container_is_accepted() -> None:
-    """Only tables beneath the parsed block are refused; one beside it, or under a plain container, is fine."""
+    """Only tables beneath the parsed block are refused; one beside it or in a plain container is fine."""
     check_body([{"type": "stack", "parse_block": True, "children": [text()]}, table()])
     check_body([{"type": "stack", "parse_block": False, "children": [table()]}])
 

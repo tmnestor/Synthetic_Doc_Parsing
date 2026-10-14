@@ -79,7 +79,8 @@ def check_patch_applies(client: ModuleType, httpx_module: ModuleType, patched: t
         problems.append(f"it never builds a client as `{CLIENT_CONSTRUCTION}...)`")
     if problems:
         raise MineruWrapperError(
-            "MinerU's client is not reached by the fresh-connection patch, so its status polls could fail.\n"
+            "MinerU's client is not reached by the fresh-connection patch, so its status polls could "
+            "fail.\n"
             f"  What:     {source_file} is not built the way the patch expects: {'; '.join(problems)}.\n"
             f"  Where:    {source_file} (its httpx import and client construction), and "
             f"{Path(__file__).resolve()} -> poll_on_fresh_connections\n"

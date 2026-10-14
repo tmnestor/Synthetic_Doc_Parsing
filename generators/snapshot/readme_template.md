@@ -152,7 +152,8 @@ directory (for example `$plain_dir/CASE001_invoice.png`), so the files hold wher
 unpacked. Each page lists its blocks under `layout_dets`: category, polygon, reading order, and the text
 (a table as HTML). `page_info.page_attribute` names the page's document type, its layout as an opaque
 key (`invoice_layout_2` and so on, the same key for every page drawn from one layout), its half, its
-degradation tier (`none` on a clean half) and `layout_scored`.
+degradation tier (`none` on a clean half) and `layout_scored`. The layout keys are stable within this
+snapshot only: they renumber when a layout is added, so do not compare them across snapshots.
 
 Score parsing output with the OmniDocBench evaluator, $evaluator_repository, at commit
 `$evaluator_commit`, whose format these pages follow. The metrics that apply are text edit distance,

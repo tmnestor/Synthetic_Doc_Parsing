@@ -40,7 +40,8 @@ _TOP_LEVEL_KEYS = (
 )
 _EVALUATOR_KEYS = ("repo", "commit", "conda_env_file", "formula_metrics")
 _MAP_SECTIONS = ("primitives", "overlays", "anchors")
-_TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file")
+_TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file", "credits")
+_CREDIT_KEYS = ("project", "url", "code_licence", "weights_licence")
 
 
 class ParsingConfigError(RuntimeError):
@@ -65,6 +66,23 @@ class EvaluatorPin:
 
 
 @dataclass(frozen=True)
+class Credits:
+    """What the leaderboard credits a tool's project with.
+
+    Attributes:
+        project: The project's name.
+        url: The project's URL.
+        code_licence: The licence of the code, with its URL.
+        weights_licence: The licence of the model weights, with its URL.
+    """
+
+    project: str
+    url: str
+    code_licence: str
+    weights_licence: str
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     """One parser under test.
 
@@ -74,6 +92,7 @@ class ToolSpec:
         runner: `local` or `remote`.
         device: The accelerator the tool runs its models on, e.g. `mps`, as the tool spells it.
         conda_env_file: Env file for a local tool; `None` for a remote tool.
+        credits: The project, URL and licences the leaderboard prints for the tool.
     """
 
     name: str
@@ -81,6 +100,7 @@ class ToolSpec:
     runner: str
     device: str
     conda_env_file: str | None
+    credits: Credits
 
 
 @dataclass(frozen=True)
@@ -147,7 +167,8 @@ def _string_list(value: Any, *, path: Path, key: str, example: str, allow_empty:
     )
     if not ok:
         raise _fail(
-            what=f"'{key}' is {value!r}, not a {'' if allow_empty else 'non-empty '}list of non-empty strings.",
+            what=f"'{key}' is {value!r}, not a {'' if allow_empty else 'non-empty '}list of "
+            "non-empty strings.",
             path=path,
             key=key,
             expected=f"a YAML list of strings, e.g.\n{example}",
@@ -236,7 +257,10 @@ def _check_key_set(
     example: str,
     subset: bool = False,
 ) -> None:
-    """Refuse a map whose keys differ from `expected`, or with `subset` stray outside it; What lists both."""
+    """Refuse a map whose keys differ from `expected`, or with `subset` stray outside it.
+
+    What lists both the missing and the stray keys.
+    """
     missing = [] if subset else sorted(expected - set(mapping))
     extra = sorted(set(mapping) - expected)
     if missing or extra:
@@ -333,11 +357,42 @@ def _load_tiers(raw: Any, *, path: Path) -> tuple[str, ...]:
     return tiers
 
 
+def _load_credits(raw: Any, *, path: Path, here: str) -> Credits:
+    example = (
+        "credits:\n"
+        "  project: Docling\n"
+        "  url: https://github.com/docling-project/docling\n"
+        "  code_licence: MIT, https://github.com/docling-project/docling/blob/main/LICENSE\n"
+        "  weights_licence: see https://huggingface.co/docling-project/docling-models"
+    )
+    values = _mapping(raw, path=path, key=here, example=example)
+    unknown = sorted(set(values) - set(_CREDIT_KEYS))
+    if unknown:
+        raise _fail(
+            what=f"'{here}' has the unknown keys {unknown}.",
+            path=path,
+            key=here,
+            expected=f"exactly the keys {list(_CREDIT_KEYS)}, e.g.\n{example}",
+            recover=f"remove {unknown} from '{here}' in {path.name}.",
+        )
+    fields = {
+        key: _nonempty_string(
+            _require(values, key, path=path, prefix=f"{here}.", example=example),
+            path=path,
+            key=f"{here}.{key}",
+            example=example,
+        )
+        for key in _CREDIT_KEYS
+    }
+    return Credits(**fields)
+
+
 def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
     example = (
         "tools:\n"
         "  - {name: mineru_pipeline, backend: pipeline, runner: local, device: mps,\n"
-        "     conda_env_file: envs/mineru.yml}\n"
+        "     conda_env_file: envs/mineru.yml, credits: {project: MinerU, url: ..., code_licence: ...,\n"
+        "     weights_licence: ...}}\n"
         "  - {name: docling, backend: default, runner: remote, device: cuda, conda_env_file: null}"
     )
     if not isinstance(raw, list) or not raw:
@@ -368,7 +423,8 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
         device = _nonempty_string(values["device"], path=path, key=f"{here}.device", example=example)
         if name in seen:
             raise _fail(
-                what=f"'{here}.name' repeats the duplicate tool name {name!r} first used at tools[{seen[name]}].",
+                what=f"'{here}.name' repeats the duplicate tool name {name!r} first used at "
+                f"tools[{seen[name]}].",
                 path=path,
                 key=f"{here}.name",
                 expected="a name unique across every tool, e.g. mineru_pipeline, docling.",
@@ -387,7 +443,8 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
         env_file = values["conda_env_file"]
         if runner == "local" and (not isinstance(env_file, str) or not env_file):
             raise _fail(
-                what=f"local tool {name!r} has no conda_env_file ({env_file!r}), so nothing builds its env.",
+                what=f"local tool {name!r} has no conda_env_file ({env_file!r}), so nothing builds its "
+                "env.",
                 path=path,
                 key=f"{here}.conda_env_file",
                 expected="a local tool names its env file, e.g. conda_env_file: envs/docling.yml",
@@ -402,8 +459,16 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
                 expected="a remote tool gives null, e.g. conda_env_file: null",
                 recover=f"set '{here}.conda_env_file' to null, or change the runner to local.",
             )
+        credits = _load_credits(values["credits"], path=path, here=f"{here}.credits")
         tools.append(
-            ToolSpec(name=name, backend=backend, runner=runner, device=device, conda_env_file=env_file)
+            ToolSpec(
+                name=name,
+                backend=backend,
+                runner=runner,
+                device=device,
+                conda_env_file=env_file,
+                credits=credits,
+            )
         )
     return tuple(tools)
 
@@ -464,7 +529,8 @@ def load_parsing_config(path: Path) -> ParsingConfig:
                 what=f"'category_vocabulary' lists {value!r} more than once (a duplicate).",
                 path=path,
                 key="category_vocabulary",
-                expected="each category once, e.g.\ncategory_vocabulary: [title, text_block, figure, table]",
+                expected="each category once, e.g.\n"
+                "category_vocabulary: [title, text_block, figure, table]",
                 recover=f"remove the duplicate {value!r} from 'category_vocabulary'.",
             )
         seen.add(value)

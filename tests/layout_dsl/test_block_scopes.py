@@ -248,7 +248,7 @@ def test_a_gated_off_block_records_nothing() -> None:
 
 @pytest.mark.parametrize("ink", ["text", "mark"])
 def test_overlay_ink_lands_in_an_overlay_block(monkeypatch: pytest.MonkeyPatch, ink: str) -> None:
-    """Each drawn overlay site opens one `overlay:<type>` block, after every body block, at its overlay path."""
+    """Each drawn overlay site opens one `overlay:<type>` block, after every body block, at its path."""
     monkeypatch.setitem(registry.OVERLAY_DRAWERS, TEST_TYPE, draw_test_box)
     entry, layout = overlaid(
         "invoice", "CASE001", [{"type": TEST_TYPE, "when": TEST_KEY, "box": [40, 40, 60, 60], "ink": ink}]
@@ -280,7 +280,7 @@ def test_every_layout_is_covered() -> None:
 @pytest.mark.parametrize("distractors", [False, True], ids=["plain", "distractor"])
 @pytest.mark.parametrize(("doc_type", "layout_id"), ALL_LAYOUTS)
 def test_no_ink_is_drawn_outside_a_block(doc_type: str, layout_id: str, distractors: bool) -> None:
-    """Review Focus 1: on the first case of every layout, every line and mark belongs to a recorded block."""
+    """On the first case of every layout, every line and mark belongs to a recorded block."""
     entry = entry_per_layout(doc_type)[layout_id]
     geometry: dict = {}
     render_entry(doc_type, entry, distractors=distractors, geometry_out=geometry)
@@ -300,7 +300,7 @@ def _without_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize("doc_type", DOC_TYPES)
 def test_recording_blocks_moves_no_pixel_and_no_box(monkeypatch: pytest.MonkeyPatch, doc_type: str) -> None:
-    """Review Focus 2: the page, its scored boxes and its ink boxes are identical with and without scopes."""
+    """The page, its scored boxes and its ink boxes are identical with and without scopes."""
     entry = next(iter(entry_per_layout(doc_type).values()))
 
     def render() -> tuple[bytes, dict, list]:

@@ -37,6 +37,7 @@ import yaml
 # FIELD_ALIASES (generator field name -> extraction-schema field name, where they differ) is the
 # shared table; re-exported here for callers that import it from this module.
 from generators.exporters.eval_projection import FIELD_ALIASES, ExtractionSchema
+from generators.parsing.degraded import DEGRADED_DOC_TYPE
 
 __all__ = [
     "FIELD_ALIASES",
@@ -52,10 +53,9 @@ NOT_FOUND = "NOT_FOUND"
 
 _ROOT_KEY = "eval_set"
 
-# The one extraction document type users photograph, and so the only one the
-# degraded half of the snapshot contains. Bank statements and invoices
-# arrive as clean PDFs or printouts, so degrading them models nothing.
-_DEGRADED_TYPE = "receipt"
+# The one extraction document type users photograph, and so the only one the degraded half of the
+# snapshot contains; held once, in the parsing package, beside the degraded half's name.
+_DEGRADED_TYPE = DEGRADED_DOC_TYPE
 
 # Required sub-keys of eval_set, mapped to the expected shape used in diagnostics. Each key's type and
 # shape beyond presence is checked in generators/snapshot/config.py.

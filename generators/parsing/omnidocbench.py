@@ -472,11 +472,14 @@ def _cell_errors(ink: list[InkRecord], blocks: dict[int, BlockRecord], where: st
         columns = block.columns or 0
         cell = record.cell
         if cell is None:
-            what = f"the line {record.text!r} at {record.box} sits in table block {block.path} but names no cell."
+            what = (
+                f"the line {record.text!r} at {record.box} sits in table block {block.path} but names "
+                "no cell."
+            )
         elif cell.span < 1 or cell.column < 0 or cell.column + cell.span > columns:
             what = (
-                f"the line {record.text!r} names cell {tuple(cell)} (row, column, span), outside the table's "
-                f"declared {columns} columns."
+                f"the line {record.text!r} names cell {tuple(cell)} (row, column, span), outside the "
+                f"table's declared {columns} columns."
             )
         else:
             continue
@@ -510,11 +513,11 @@ def _text_errors(page: dict, texts: dict[str, str], where: str) -> list[str]:
         errors.append(
             _diagnostic(
                 "A scored value is not in the page's text.",
-                what=f"field {field} was drawn as {wanted!r}, which no block's text and no table cell's text "
-                "holds, so a parser cannot read it off the page.",
+                what=f"field {field} was drawn as {wanted!r}, which no block's text and no table "
+                "cell's text holds, so a parser cannot read it off the page.",
                 where=f"{where}, field {field}",
-                expected=f"{wanted!r} within one block's text or one cell's text (whitespace collapsed), e.g. "
-                "a block reading 'Total $12.50' holds the value '$12.50'.",
+                expected=f"{wanted!r} within one block's text or one cell's text (whitespace "
+                "collapsed), e.g. a block reading 'Total $12.50' holds the value '$12.50'.",
                 recover="draw the value inside a block scope, as one block's lines or one table cell, and "
                 "record it with the string actually drawn.",
             )
@@ -541,8 +544,8 @@ def _poly_errors(page: dict, blocks: dict[int, BlockRecord], where: str) -> list
                 where=f"{where}, block {path}",
                 expected=f"eight numbers, four corners each with 0 <= x <= {width} and 0 <= y <= {height}, "
                 "e.g. [10, 20, 110, 20, 110, 40, 10, 40].",
-                recover="draw the block inside the page (a layout position or an overlay placement), or map "
-                "the poly onto the frame the page was saved in.",
+                recover="draw the block inside the page (a layout position or an overlay placement), "
+                "or map the poly onto the frame the page was saved in.",
             )
         )
     return errors
@@ -571,8 +574,8 @@ def _category_errors(
                 "does not list.",
                 where=f"{where}, block {path}; {PARSING_CONFIG_PATH} -> category_vocabulary",
                 expected=f"one of {list(config.category_vocabulary)}, e.g. parse_category: title",
-                recover="set the block's parse_category (or its category_map entry) to a category_vocabulary "
-                "value.",
+                recover="set the block's parse_category (or its category_map entry) to a "
+                "category_vocabulary value.",
             )
         )
     return errors

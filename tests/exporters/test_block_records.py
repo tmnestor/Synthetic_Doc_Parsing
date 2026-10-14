@@ -8,7 +8,7 @@ BOX = (10, 20, 30, 40)
 
 
 def scope(recorder: BoxRecorder, kind: str = "text", *, path: str = "body[0]", **extra):
-    """Open a block scope with an unranked, unanchored, uncategorised block unless `extra` says otherwise."""
+    """Open a block scope with an unranked, unanchored, uncategorised block unless `extra` says so."""
     params = {"anchor": None, "parse_category": None, "parse_order": 0, "join": None, **extra}
     return recorder.block_scope(kind, path=path, **params)
 
@@ -54,7 +54,7 @@ def test_a_scope_records_a_table_join() -> None:
 
 
 def test_a_scope_opened_inside_a_scope_creates_no_block() -> None:
-    """The outermost open scope owns the ink: an inner scope adds no block and its ink carries the outer id."""
+    """The outermost open scope owns the ink: an inner scope adds no block, its ink the outer id."""
     recorder = BoxRecorder(100, 100)
     with scope(recorder, "stack", path="body[2]"):
         ink(recorder, "Before")

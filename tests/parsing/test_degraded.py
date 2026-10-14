@@ -42,7 +42,7 @@ def parsing_config() -> ParsingConfig:
 
 @pytest.fixture(scope="module")
 def receipt() -> tuple[str, str, int, Image.Image, dict]:
-    """The first probe receipt's distractor render: case id, layout id, degradation seed, image, geometry."""
+    """The first probe receipt's distractor render: case id, layout id, seed, image, geometry."""
     case = next(case for case in select_probe(CONFIG) if case.canonical == "receipt")
     entry = {**load_ground_truth(case.ground_truth)[case.case_id], "case_id": case.case_id}
     geometry: dict = {}
@@ -113,7 +113,9 @@ def test_a_block_mapped_half_off_the_frame_is_clipped_and_ignored(
     monkeypatch: pytest.MonkeyPatch, parsing_config: ParsingConfig
 ) -> None:
     """A camera warp that pushes one block past the frame's right edge: that block's corners are clipped
-    to the frame in their order and it is ignored, keeping its text; the block wholly inside is unchanged."""
+    to the frame in their order and it is ignored, keeping its text; the block wholly inside is
+    unchanged.
+    """
     geometry = {
         "width": 100,
         "height": 80,

@@ -153,7 +153,7 @@ def test_a_table_that_captures_no_boxes_still_records_its_cells() -> None:
 
 
 def test_inline_grouping_leaves_the_repeated_date_cell_without_ink() -> None:
-    """A blanked date draws nothing, so its row holds no line in column 0 and the other cells keep theirs."""
+    """A blanked date draws nothing, so its row holds no line in column 0; the other cells keep theirs."""
     recorder = draw(table(grouping="inline"))
     found = cells_by_text(recorder)
     assert found["05/03/2031"] == [Cell(1, 0, 1)]

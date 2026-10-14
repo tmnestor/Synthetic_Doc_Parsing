@@ -367,10 +367,46 @@ Scores that the evaluator, not the tool, gets wrong or flatters:
   receipt CASE044, MinerU `vlm-engine` joined the cropped exchange-policy line to the closing thanks line,
   which then scored 0.70.
 
-## Marker's licences
+## Licences of the tools scored
 
-Marker's code and its model weights are licensed separately; both were read from their official sources on
-13 October 2026.
+Each tool's code and model weights are licensed separately. The terms below were read from their official
+sources on 14 October 2026 (Marker's on 13 October 2026). They are the author's reading of the quoted
+text, not legal advice, and each finding waits on the project owner's confirmation before any score is
+published. The leaderboard ends with a 'Tools and licences' block, generated from `credits` in
+`config/parsing_config.yml`, that credits each scored project with its URL and its code and weights
+licences; where a weights licence could not be confirmed from an official source it reads 'see <URL>'.
+
+### MinerU
+
+- **Code: the MinerU Open Source License,** Apache License 2.0 with additional terms
+  (<https://github.com/opendatalab/MinerU/blob/master/LICENSE.md>; the same file ships in the pinned
+  3.4.5 package as `LICENSE.md`). The README says: 'This repository is licensed under the MinerU Open
+  Source License'. It is not AGPL-3.0. Commercial use needs no separate licence below two thresholds
+  (monthly active users above 100 million, or monthly revenue above US$20 million, for the user and its
+  affiliates together); anyone offering an online service built on MinerU must show that MinerU is used,
+  in the interface or in public documentation. It says nothing about publishing benchmark results.
+- **Weights.** MinerU2.5-Pro, the `vlm-engine` model, declares `apache-2.0`
+  (<https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B>). PDF-Extract-Kit-1.0, the `pipeline`
+  models, sets no licence tag and carries only a heading reading 'license: agpl-3.0'
+  (<https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0>), so its weights licence is not confirmed:
+  see that page.
+- **Finding.** Nothing in the code licence restricts publishing scores, and this benchmark offers no
+  online service; the leaderboard credits MinerU and links its licence in any case. The PDF-Extract-Kit
+  licence should be settled with its authors before the `pipeline` scores are published.
+
+### Docling
+
+- **Code: MIT.** The README: 'The Docling codebase is under MIT license.'
+  (<https://github.com/docling-project/docling>, `LICENSE` in the repository). For the models it says
+  to 'refer to the model licenses found in the original packages'.
+- **Weights.** The layout model (`docling-layout-heron`) declares `apache-2.0`
+  (<https://huggingface.co/docling-project/docling-layout-heron>); `docling-models`, which holds
+  TableFormer, declares both `apache-2.0` and `cdla-permissive-2.0`
+  (<https://huggingface.co/docling-project/docling-models>). The RapidOCR weights the pipeline also
+  loads were not confirmed from an official source: see <https://github.com/RapidAI/RapidOCR>.
+- **Finding.** Permissive terms; none restricts publishing scores. The leaderboard credits the project.
+
+### Marker
 
 - **Code: Apache License 2.0.** The repository's `LICENSE` file is the Apache License, Version 2.0
   (<https://github.com/datalab-to/marker/blob/master/LICENSE>), and its README says the code is free to
@@ -394,13 +430,44 @@ Marker's code and its model weights are licensed separately; both were read from
     or research purposes'; 2(c) bars use by anyone whose employer offers a product or service that
     competes with the licensor's.
 
-**Finding.** Nothing in either licence forbids publishing benchmark scores, and evaluating the model is a
-named permitted use. Publishing Marker's scores is therefore permitted as research use, with three
-conditions to keep: the benchmark is run for research, not as part of a commercial service (the revenue
-and funding limits of Attachment A, 2(a) and 2(b), would otherwise bind a large employer); the leaderboard
-credits Marker and its model with links and the licence; and Marker's raw markdown (the model's Output)
-is not published, or is published only under the same licence (paragraph 8). The scores themselves are
-computed by OmniDocBench, not by the model. Docling is MIT; this section covers Marker only.
+**Finding.** This is the author's reading, pending the project owner's confirmation; it is not legal
+advice. Nothing in the quoted text forbids publishing benchmark scores, and evaluating the model is a
+named permitted use (paragraph 5).
+
+- Clauses 2(a) and 2(b): the revenue and funding limits carry the exception 'except where Your Use is
+  limited to personal use or research purposes', so research use, which a published benchmark is, stays
+  inside them. They would bind a large employer running Marker as part of a commercial service.
+- Clause 2(c): the quoted text bars use 'for any purpose if You (your employer, or the entity you are
+  affiliated with) provides or otherwise makes available' a product or service 'that competes with any
+  product or service offered by or made available by Licensor'. The research exception sits in 2(a)
+  and 2(b) only, so on the text as quoted it does not soften 2(c): research use is no answer to it.
+  'Competes' is not defined. Whether 2(c) applies turns on a fact the repository cannot show, namely
+  whether the person running the benchmark, or their employer or affiliated entity, offers a document
+  conversion or OCR product or service. The project owner must confirm that none does before Marker's
+  scores are published; if one does, the safe course is to leave Marker out.
+- Attribution (paragraph 7): the leaderboard's 'Tools and licences' block credits Marker and its model
+  with their links and licence, and suggests no endorsement. Marker's raw markdown (the model's Output)
+  is not published, or is published only under the same licence (paragraph 8). The scores themselves
+  are computed by OmniDocBench, not by the model.
+
+### Marker's weights revision
+
+Marker takes whichever revision of its weights the hub serves when they are first fetched, so a score is
+reproducible only against the revision recorded with it. Read it from the hub cache, where each model
+keeps one directory per revision named by its commit hash (`$HF_HOME` is the hub cache's parent, by
+default `~/.cache/huggingface`):
+
+```bash
+ls $HF_HOME/hub/models--datalab-to--surya-ocr-2-gguf/snapshots/
+ls $HF_HOME/hub/models--datalab-to--surya_layout2/snapshots/
+```
+
+The first benchmark run used `datalab-to/surya-ocr-2-gguf` at revision
+`6a3a4c30e5e74446d4f8b6afd05b2f2da970f470` and `datalab-to/surya_layout2` at
+`0aee81d5fd9275c0582e545bf3a56944b1e75679`. To fetch exactly those again, set `HF_HUB_OFFLINE=0` once
+and download with `huggingface-cli download <repo> --revision <hash>`. The small `ocr_error_detection`
+model sits outside the hub, in Marker's own cache under `~/Library/Caches/datalab/models/`, in a
+directory named by its date (`2025_02_18`).
 
 ## The matcher-check probe runs
 

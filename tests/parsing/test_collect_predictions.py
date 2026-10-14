@@ -127,3 +127,17 @@ def test_the_command_line_reports_a_refusal(tmp_path: Path, capsys: pytest.Captu
         == 0
     )
     assert (tmp_path / "out" / "predictions" / "docling" / "distractor" / f"{STEMS[1]}.md").is_file()
+
+
+@pytest.mark.parametrize(("key", "value"), [("tool", "marker"), ("run_name", "distractor")])
+def test_a_record_of_another_tool_or_run_is_refused(tmp_path: Path, key: str, value: str) -> None:
+    raw = _raw_run(tmp_path, "docling")
+    record = json.loads((raw / RUN_RECORD).read_text())
+    record[key] = value
+    (raw / RUN_RECORD).write_text(json.dumps(record))
+    with pytest.raises(CollectError) as caught:
+        collect("docling", "plain", output_root=tmp_path)
+    assert_diagnostic_error(caught.value)
+    assert f"{key} {value!r}" in str(caught.value)
+    assert str(raw / RUN_RECORD) in str(caught.value)
+    assert not (tmp_path / "predictions").exists()

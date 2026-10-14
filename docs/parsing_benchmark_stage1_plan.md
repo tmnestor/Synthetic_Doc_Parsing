@@ -564,6 +564,11 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
 - *First leaderboard.* `leaderboard_20261014.md` and `.csv` under the output root, scoring snapshot
   `snapshot_20261013`; the runbook's section 'First leaderboard, 14 October 2026' reads it against the
   page images.
+- *Publication blocker.* The published `labelled_varied/label_styles.jsonl` sidecar rows carry the real
+  layout id in their `layout` field, so a reader can join `image_file` to `page_info.image_path` and
+  recover the real layout behind every opaque parsing layout key. The snapshot must not be uploaded until
+  the upstream sidecar writer drops or opaques that field; after that, the parsing leak test should
+  widen to every non-image file in the snapshot. This repository leaves the sidecar unchanged.
 - *Headline results* (page means; text and reading order are edit distances, lower is better; TEDS
   higher is better; halves plain / distractor / labelled varied / degraded):
 

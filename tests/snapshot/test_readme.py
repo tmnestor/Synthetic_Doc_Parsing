@@ -107,6 +107,8 @@ def test_the_parsing_section_names_the_files_the_evaluator_and_the_scored_tiers(
     for metric in ("text edit distance", "TEDS", "table edit distance", "reading-order edit distance"):
         assert metric in section, metric
     assert "overall" in section
+    flat = " ".join(section.split())
+    assert "stable within this snapshot only: they renumber when a layout is added" in flat
     scored = " and ".join(parsing.layout_scored_tiers)
     assert f"the {scored} tiers count for layout detection" in section
     tiers = [tier["name"] for tier in manifest["degradation_tiers"]]

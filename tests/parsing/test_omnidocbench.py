@@ -58,7 +58,7 @@ def mark(text: str, box: tuple[int, int, int, int], block: int) -> InkRecord:
 
 
 def geometry() -> dict:
-    """A page of seven blocks: a banner, a logo, a ranked text, an inkless text, a table, a footer, overlays.
+    """A page of seven blocks: a banner, a logo, a ranked and an inkless text, a table, a footer, overlays.
 
     The table has three columns: a header whose first label is drawn on two lines, a date sub-header row
     spanning the table, a row whose date cell is blank and whose description carries a sub-line, and a row
@@ -157,7 +157,7 @@ EXPECTED_PAGE = {
 
 
 def test_build_page_writes_every_inked_block_in_draw_order(config: ParsingConfig) -> None:
-    """Exact page: ranks, categories, text joins, a textless figure and abandon, the inkless block omitted."""
+    """Exact page: ranks, categories, text joins, a textless figure and abandon, no inkless block."""
     assert build_page(geometry(), context=CONTEXT, config=config) == EXPECTED_PAGE
 
 
@@ -515,7 +515,7 @@ def test_every_layout_writes_a_page_that_keeps_every_invariant(
 def test_a_real_value_forced_to_differ_from_the_drawing_fails_naming_its_field(
     config: ParsingConfig,
 ) -> None:
-    """Review Focus 4's negative: the real check is not vacuous; a value the page does not hold is refused."""
+    """The check is not vacuous: a value the page does not hold is refused."""
     doc_type, layout_id = ALL_LAYOUTS[0]
     entry = entry_per_layout(doc_type)[layout_id]
     geometry_out: dict = {}

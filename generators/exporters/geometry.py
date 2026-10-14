@@ -184,8 +184,8 @@ class BoxRecorder:
         """
         if self._open_block is None:
             msg = (
-                f"A table declared {columns} columns but no block is open. Remediation: draw tables through "
-                f"render_blocks, which opens a block scope around each table it draws."
+                f"A table declared {columns} columns but no block is open. Remediation: draw tables "
+                f"through render_blocks, which opens a block scope around each table it draws."
             )
             raise ValueError(msg)
         block = self._blocks[self._open_block]

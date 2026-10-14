@@ -619,7 +619,8 @@ def _refuse_tables_beneath(block: dict, *, layout_path: str, key_path: str) -> N
     for child, child_path in nested:
         if child.get("type") == "table":
             raise _err(
-                f"a table sits beneath the {block.get('type')} at {key_path}, which sets parse_block: true; "
+                f"a table sits beneath the {block.get('type')} at {key_path}, which sets "
+                "parse_block: true; "
                 "the container's one parsed block would swallow the table, which needs a block of its own "
                 "for its columns and cells.",
                 layout_path=layout_path,

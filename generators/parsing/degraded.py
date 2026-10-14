@@ -30,6 +30,9 @@ from generators.parsing.omnidocbench import PageContext, build_page, map_polys
 
 # The eval-set half a degraded page belongs to.
 DEGRADED_HALF = "degraded"
+# The one extraction document type users photograph, and so the only one the degraded half holds. Bank
+# statements and invoices arrive as clean PDFs or printouts, so degrading them models nothing.
+DEGRADED_DOC_TYPE = "receipt"
 # The fiducial page: a black square dot of FOLD_DOT_PX pixels every FOLD_SPACING_PX pixels, each found
 # again within a FOLD_WINDOW_PX square window centred where it was drawn.
 FOLD_DOT_PX = 5

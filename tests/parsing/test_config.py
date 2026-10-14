@@ -292,7 +292,7 @@ def test_a_scored_tier_absent_from_the_generation_config_is_refused(tmp_path: Pa
     )
 
 
-@pytest.mark.parametrize("key", ["name", "backend", "runner", "device", "conda_env_file"])
+@pytest.mark.parametrize("key", ["name", "backend", "runner", "device", "conda_env_file", "credits"])
 def test_a_missing_tool_key_is_refused(tmp_path: Path, key: str) -> None:
     refused(tmp_path, lambda d: d["tools"][0].pop(key), "tools[0]", key, "missing")
 
@@ -355,4 +355,41 @@ def test_a_remote_tool_with_an_env_file_is_refused(tmp_path: Path) -> None:
         "mineru_pipeline",
         "remote",
         "null",
+    )
+
+
+def test_every_shipped_tool_carries_its_credits() -> None:
+    config = load_parsing_config(SHIPPED)
+    assert {tool.name: tool.credits.project for tool in config.tools} == {
+        "mineru_pipeline": "MinerU",
+        "mineru_vlm": "MinerU",
+        "docling": "Docling",
+        "marker": "Marker",
+    }
+    for tool in config.tools:
+        credits = tool.credits
+        assert credits.url.startswith("https://"), tool.name
+        assert "http" in credits.code_licence and "http" in credits.weights_licence, tool.name
+
+
+@pytest.mark.parametrize("key", ["project", "url", "code_licence", "weights_licence"])
+def test_a_missing_credits_key_is_refused(tmp_path: Path, key: str) -> None:
+    refused(tmp_path, lambda d: d["tools"][3]["credits"].pop(key), f"tools[3].credits.{key}", "missing")
+
+
+@pytest.mark.parametrize("key", ["project", "url", "code_licence", "weights_licence"])
+def test_a_mistyped_credits_key_is_refused(tmp_path: Path, key: str) -> None:
+    refused(tmp_path, lambda d: d["tools"][3]["credits"].__setitem__(key, ""), f"tools[3].credits.{key}")
+
+
+def test_credits_that_are_not_a_mapping_are_refused(tmp_path: Path) -> None:
+    refused(tmp_path, lambda d: d["tools"][3].__setitem__("credits", "MIT"), "tools[3].credits")
+
+
+def test_an_unknown_credits_key_is_refused(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["tools"][3]["credits"].__setitem__("copyright", "x"),
+        "tools[3].credits",
+        "copyright",
     )

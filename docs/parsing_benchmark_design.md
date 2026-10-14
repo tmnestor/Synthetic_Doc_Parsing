@@ -101,6 +101,15 @@ Since the snapshot names no template, and some layout ids name the real bank the
 page's `page_attribute.layout_id` is an opaque key, `<doc_type>_layout_<n>` with n counting from 1 over
 the type's sorted layout ids; the probe, which is never published, keeps the real ids.
 
+**Publication blocker.** The opaque key hides the real layout only while it stands alone. The labelled
+varied half's sidecar, `label_styles.jsonl`, is published too, and each row carries the real layout id in
+its `layout` field (`ROW_KEYS` in `generators/labels/sidecar.py`). A reader can join a row's `image_file`
+to a parsing page's `page_info.image_path` and so recover the real layout behind every opaque key. This
+repository does not change the sidecar; the fix belongs to the code that writes it. The snapshot must
+not be uploaded until that sidecar drops the `layout` field or replaces it with the opaque key, after
+which the parsing leak test should widen from the parsing files to every non-image file in the
+snapshot.
+
 ### 4.2 Blocks
 
 - **Unit.** Each leaf content primitive (`text`, `pair`, `block`, `table`, `banner`, `logo`, `barcode`,

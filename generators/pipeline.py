@@ -613,12 +613,11 @@ def eval_set(
     `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
     label_styles.jsonl, the scored-field geometry of the three clean halves, every half's OmniDocBench
     parsing ground truth, the tools, a README generated from the manifest, MANIFEST.json and SHA256SUMS.
-    The snapshot says nothing about how it
-    was produced and is refused if it names a term under `eval_set.forbidden_terms`; that is written
-    beside it, in `<snapshot dir>.<provenance_suffix>/` (PROVENANCE.json, and working_tree.patch when
-    the tree was modified, which is recorded rather than refused). A tree changed during the export is
-    refused. Every render is checked before anything is published; a snapshot of the same name is
-    replaced. Prints MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
+    The snapshot says nothing about how it was produced and is refused if it names a term under
+    `eval_set.forbidden_terms`; that is written beside it, in `<snapshot dir>.<provenance_suffix>/`
+    (PROVENANCE.json, and working_tree.patch when the tree was modified, which is recorded rather than
+    refused). A tree changed during the export is refused. Every render is checked before anything is
+    published; a snapshot of the same name is replaced. Prints MANIFEST.json's own SHA-256, which the manifest cannot record about itself.
     """
     from generators.degradation.tiers import TierConfigError
     from generators.drawn_fields import DrawnFieldsError

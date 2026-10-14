@@ -226,7 +226,7 @@ def test_the_clean_halves_pair_by_filename_and_share_their_ground_truth(export: 
 
 
 def test_the_halves_differ_where_they_should(export: SnapshotSummary) -> None:
-    """Distractors change every page; label variation changes some receipts and invoices, never a statement."""
+    """Distractors change every page; label variation changes some receipts and invoices, no statement."""
     plain, distractor, varied = (export.half_dirs[half] for half in CLEAN)
     for image in plain.glob("*.png"):
         assert image.read_bytes() != (distractor / image.name).read_bytes(), image.name
@@ -302,7 +302,7 @@ def _pages(export: SnapshotSummary, half: str) -> list[dict]:
 
 
 def test_four_parsing_files_hold_one_page_per_image_of_their_half(export: SnapshotSummary) -> None:
-    """Each page's image_path is relative to the snapshot root, so the files hold wherever it is unpacked."""
+    """Each page's image_path is relative to the snapshot root, so the files hold wherever unpacked."""
     for half in HALVES:
         directory = export.half_dirs[half]
         pages = _pages(export, half)
@@ -399,36 +399,66 @@ def test_opaque_layout_keys_count_from_one_over_sorted_ids() -> None:
     }
 
 
+def _layout_registries() -> dict[str, dict]:
+    return {
+        name: yaml.safe_load((REPO_ROOT / "config" / "layouts" / f"{name}.yml").read_text())["layouts"]
+        for name in ("bank_statements", "invoices", "receipts")
+    }
+
+
+def _described(page: dict) -> dict:
+    """A page as scanned: its `text` and `html` are set aside, since they transcribe what the image
+    prints and a bank statement prints its bank's name."""
+    dets = [{k: v for k, v in det.items() if k not in ("text", "html")} for det in page["layout_dets"]]
+    return {**page, "layout_dets": dets}
+
+
+def _parsing_leaks(parsing_dir: Path) -> list[str]:
+    """Every real layout id, or bank name, that a parsing file in `parsing_dir` names."""
+    leaks = []
+    for name, registry in _layout_registries().items():
+        for path in sorted(parsing_dir.glob("*.json")):
+            text = json.dumps([_described(page) for page in json.loads(path.read_text())]).lower()
+            for layout_id in registry:
+                if layout_id in text:
+                    leaks.append(f"{path.name}: {layout_id}")
+                if name == "bank_statements" and re.search(rf"\b{layout_id.split('_')[0]}\b", text):
+                    leaks.append(f"{path.name}: {layout_id.split('_')[0]}")
+    return leaks
+
+
 def test_no_parsing_file_names_a_layout_or_a_bank(export: SnapshotSummary) -> None:
     """A published page carries the opaque layout key, never a layout id nor the real bank some bank
     layouts imitate (the README test's rule, applied to the parsing files).
 
     Everything a page says about itself is scanned. Its `text` and `html` are set aside: they transcribe
     what the image prints, and a bank statement prints its bank's name."""
-    registries = {
-        name: yaml.safe_load((REPO_ROOT / "config" / "layouts" / f"{name}.yml").read_text())["layouts"]
-        for name in ("bank_statements", "invoices", "receipts")
-    }
-
-    def described(page: dict) -> dict:
-        dets = [{k: v for k, v in det.items() if k not in ("text", "html")} for det in page["layout_dets"]]
-        return {**page, "layout_dets": dets}
-
-    texts = {
-        half: json.dumps([described(page) for page in _pages(export, half)]).lower() for half in HALVES
-    }
-    for name, registry in registries.items():
-        for layout_id in registry:
-            for half, text in texts.items():
-                assert layout_id not in text, (half, layout_id)
-                if name == "bank_statements":
-                    assert not re.search(rf"\b{layout_id.split('_')[0]}\b", text), (half, layout_id)
+    assert _parsing_leaks(export.path / "parsing") == []
     keys = {
         page["page_info"]["page_attribute"]["layout_id"] for half in HALVES for page in _pages(export, half)
     }
     assert keys and all(
         re.fullmatch(r"(bank_statement|invoice|receipt)_layout_\d+", key) for key in keys
     ), keys
+
+
+@pytest.mark.parametrize("registry", ["invoices", "bank_statements"])
+def test_the_layout_scan_catches_a_real_layout_id(
+    export: SnapshotSummary, tmp_path: Path, registry: str
+) -> None:
+    """Negative control: the scan fails on a parsing file into which a real layout id is injected, so the
+    test above cannot pass vacuously."""
+    layout_id = next(iter(_layout_registries()[registry]))
+    scratch = tmp_path / "parsing"
+    scratch.mkdir()
+    for path in (export.path / "parsing").glob("*.json"):
+        (scratch / path.name).write_text(path.read_text())
+    assert _parsing_leaks(scratch) == []
+    target = scratch / "plain.json"
+    pages = json.loads(target.read_text())
+    pages[0]["page_info"]["page_attribute"]["layout_id"] = layout_id
+    target.write_text(json.dumps(pages))
+    assert f"plain.json: {layout_id}" in _parsing_leaks(scratch)
 
 
 def test_nothing_leaks_into_the_snapshot(export: SnapshotSummary) -> None:

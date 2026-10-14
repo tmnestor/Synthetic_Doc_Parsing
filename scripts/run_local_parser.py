@@ -306,7 +306,8 @@ def _tool_version(conda: str, env: str, package: str) -> str:
     if done.returncode != 0:
         raise _diagnostic(
             "The tool's env cannot be run.",
-            what=f"reading {package}'s version in env {env!r} failed:\n{(done.stderr or done.stdout)[-2000:]}",
+            what=f"reading {package}'s version in env {env!r} failed:\n"
+            f"{(done.stderr or done.stdout)[-2000:]}",
             where=f"the conda env {env!r}",
             expected=f'the env built, e.g. `conda run -n {env} python -c "{probe}"` printing a version.',
             recover="build it with `conda env create -f envs/<tool>.yml` (the runbook lists each env).",

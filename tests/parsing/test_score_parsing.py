@@ -80,6 +80,7 @@ def scored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path,
         raw = root / "raw_predictions" / tool / half
         raw.mkdir(parents=True)
         record: dict[str, object] = {"tool": tool, "backend": "default", "half": half}
+        record["snapshot"] = str(snapshot)
         record |= {"tool_version": version, "device": device, "page_count": pages, "seconds": seconds}
         (raw / RUN_RECORD).write_text(json.dumps(record))
     # A tool the config does not list is not scored, even with predictions.
@@ -287,6 +288,9 @@ def test_a_half_with_predictions_but_no_ground_truth_is_refused(tmp_path: Path) 
     raw = tmp_path / "raw_predictions" / "marker" / "degraded"
     raw.mkdir(parents=True)
     record = {
+        "tool": "marker",
+        "half": "degraded",
+        "snapshot": str(snapshot),
         "backend": "default",
         "tool_version": "1.2.3",
         "device": "mps",
@@ -316,6 +320,9 @@ def _one_run(root: Path) -> Path:
     raw = root / "raw_predictions" / "docling" / "plain"
     raw.mkdir(parents=True)
     record = {
+        "tool": "docling",
+        "half": "plain",
+        "snapshot": str(snapshot),
         "backend": "default",
         "tool_version": "1.2.3",
         "device": "mps",
@@ -391,3 +398,86 @@ def test_the_command_line_reports_a_missing_metric_and_exits_non_zero(
     error = capsys.readouterr().err
     assert_diagnostic_error(error)
     assert "table.page.TEDS" in error
+
+
+def test_the_leaderboard_ends_with_the_tools_and_licences_block(scored: tuple) -> None:
+    text = scored[0].read_text()
+    heading = "## Tools and licences"
+    assert text.count(heading) == 1
+    block = text[text.index(heading) :]
+    assert text.rstrip("\n").endswith(block.rstrip("\n"))
+    config = load_parsing_config(PARSING_CONFIG_PATH)
+    credits = {tool.name: tool.credits for tool in config.tools}
+    rows = _section(block, heading)
+    # Docling and Marker were scored; the unscored MinerU tools are not credited.
+    assert rows == [
+        "| Project | Project page | Code licence | Weights licence |",
+        "|---|---|---|---|",
+        *(
+            f"| {c.project} | {c.url} | {c.code_licence} | {c.weights_licence} |"
+            for c in (credits["docling"], credits["marker"])
+        ),
+    ]
+    assert "MinerU" not in block
+
+
+def test_a_project_run_as_two_tools_is_credited_once(tmp_path: Path) -> None:
+    config = load_parsing_config(PARSING_CONFIG_PATH)
+    mineru = [tool for tool in config.tools if tool.credits.project == "MinerU"]
+    assert len(mineru) == 2
+    lines = score_parsing._credits([tool.name for tool in mineru], config)
+    assert [line for line in lines if line.startswith("| MinerU")] == [
+        f"| MinerU | {mineru[0].credits.url} | {mineru[0].credits.code_licence} | "
+        f"{mineru[0].credits.weights_licence} |"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "stated"),
+    [
+        ("tool", "marker", "tool 'marker'"),
+        ("half", "degraded", "half 'degraded'"),
+        ("snapshot", "/x/snapshot_20000101", "snapshot_20000101"),
+    ],
+)
+def test_predictions_left_from_another_run_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, value: str, stated: str
+) -> None:
+    snapshot = _one_run(tmp_path)
+    record_path = tmp_path / "raw_predictions" / "docling" / "plain" / RUN_RECORD
+    record = json.loads(record_path.read_text())
+    record[key] = value
+    record_path.write_text(json.dumps(record))
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub())
+    with pytest.raises(ScoreError) as caught:
+        score(
+            snapshot,
+            output_root=tmp_path,
+            config=load_parsing_config(PARSING_CONFIG_PATH),
+            snapshot_config=SNAPSHOT_CONFIG,
+            checkout=tmp_path,
+            today=TODAY,
+        )
+    assert_diagnostic_error(caught.value)
+    assert str(record_path) in str(caught.value)
+    assert stated in str(caught.value)
+    assert not list(tmp_path.glob("leaderboard_*"))
+
+
+def test_a_record_without_its_snapshot_is_refused(tmp_path: Path) -> None:
+    snapshot = _one_run(tmp_path)
+    record_path = tmp_path / "raw_predictions" / "docling" / "plain" / RUN_RECORD
+    record = json.loads(record_path.read_text())
+    del record["snapshot"]
+    record_path.write_text(json.dumps(record))
+    with pytest.raises(ScoreError) as caught:
+        score(
+            snapshot,
+            output_root=tmp_path,
+            config=load_parsing_config(PARSING_CONFIG_PATH),
+            snapshot_config=SNAPSHOT_CONFIG,
+            checkout=tmp_path,
+            today=TODAY,
+        )
+    assert_diagnostic_error(caught.value)
+    assert "snapshot" in str(caught.value)

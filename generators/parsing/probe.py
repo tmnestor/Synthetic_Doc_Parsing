@@ -11,8 +11,9 @@ the snapshot's own file name, `<case id>_<document type>.png`, and written as on
 `build_page` from that very render's draw-time records. Each degraded page is that render degraded as the
 snapshot degrades it (the case's `degradation_seed`, through `tier_seed`), saved as the snapshot names its
 variant, `<case id>_<document type>_<tier suffix>.png`, with every `poly` carried onto the photographed
-frame (`degraded_page`). Every page must keep the invariants `check_page` checks, or nothing is published. `export_probe` writes `<eval_set.output_root>/parsing_probe/`: the images
-and `probe.json`, a list of pages sorted by image file name. An earlier probe is replaced whole.
+frame (`degraded_page`). Every page must keep the invariants `check_page` checks, or nothing is
+published. `export_probe` writes `<eval_set.output_root>/parsing_probe/`: the images and
+`probe.json`, a list of pages sorted by image file name. An earlier probe is replaced whole.
 """
 
 import json
@@ -26,7 +27,7 @@ from generators.degradation import load_tiers, tier_seed
 from generators.exporters.eval_projection import load_extraction_schema
 from generators.loader import REPO_ROOT, load_ground_truth, load_layout_registry
 from generators.parsing.config import ParsingConfig
-from generators.parsing.degraded import DEGRADED_HALF, degraded_page
+from generators.parsing.degraded import DEGRADED_DOC_TYPE, DEGRADED_HALF, degraded_page
 from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.snapshot.config import load_snapshot_config
 
@@ -37,8 +38,6 @@ PROBE_JSON = "probe.json"
 PROBE_HALF = "distractor"
 # Decision 12: how many layouts of each type the probe draws.
 LAYOUTS_PER_TYPE = 2
-# The extraction-schema document type whose first probe page is also photographed at every tier.
-DEGRADED_DOC_TYPE = "receipt"
 # The suffixes of the staging directory, and of an earlier probe while the new one is swapped in.
 _STAGING_SUFFIX = ".partial"
 _ASIDE_SUFFIX = ".old"

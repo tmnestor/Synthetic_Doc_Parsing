@@ -167,7 +167,8 @@ def _forbidden_terms(block: dict, *, config_path: Path) -> tuple[str, ...]:
     """Check `forbidden_terms`: present, and a list of non-empty strings (an explicit [] disables it)."""
     if "forbidden_terms" not in block:
         raise _err(
-            "eval_set.forbidden_terms is missing; the export scans the snapshot for these before publishing.",
+            "eval_set.forbidden_terms is missing; the export scans the snapshot for these before "
+            "publishing.",
             config_path=config_path,
             key="forbidden_terms",
             expected=f"a YAML list of terms, or [] to disable the scan:\n  {_FORBIDDEN_EXAMPLE}",
