@@ -556,6 +556,49 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
 
 - *Matcher findings.* Line-level blocks match fairly against both paragraph and line-style parsers, and
   the gate passed with the grouping changes listed in the design's section 5.3 (Decision 18).
+- *Tiers scored for layout.* `[light, moderate]`; heavy is excluded because its fold displaced the
+  fiducial dots by 6.4 to 6.6 pixels against the 3-pixel limit (`fold_displacement_max_px`). Heavy pages
+  are still scored for text, tables and reading order.
+- *Evaluator.* OmniDocBench at commit `50d69e3ea1dc1866f49e8b5369f4155dfdaca3ed`, unmodified, quick
+  matching, formula metrics off.
+- *First leaderboard.* `leaderboard_20261014.md` and `.csv` under the output root, scoring snapshot
+  `snapshot_20261013`; the runbook's section 'First leaderboard, 14 October 2026' reads it against the
+  page images.
+- *Headline results* (page means; text and reading order are edit distances, lower is better; TEDS
+  higher is better; halves plain / distractor / labelled varied / degraded):
 
-The rest is filled in when Task 8 is done: the tiers scored for layout, the evaluator commit, the first
-leaderboard's location, and what stage two should know.
+  | Tool | Text edit | Table TEDS | Table edit | Reading-order edit |
+  |---|---|---|---|---|
+  | MinerU `pipeline` | 0.637 / 0.525 / 0.523 / 0.546 | 0.458 / 0.397 / 0.381 / 0.115 | 0.480 / 0.512 / 0.527 / 0.764 | 0.634 / 0.584 / 0.584 / 0.586 |
+  | MinerU `vlm-engine` | 0.241 / 0.264 / 0.255 / 0.203 | 0.601 / 0.516 / 0.547 / 0.085 | 0.378 / 0.437 / 0.416 / 0.889 | 0.284 / 0.332 / 0.327 / 0.167 |
+  | Docling | 0.290 / 0.249 / 0.244 / 0.249 | 0.425 / 0.451 / 0.460 / 0.026 | 0.770 / 0.758 / 0.751 / 0.979 | 0.297 / 0.363 / 0.366 / 0.351 |
+  | Marker | 0.360 / 0.318 / 0.310 / 0.132 | 0.427 / 0.491 / 0.495 / 0.090 | 0.757 / 0.701 / 0.699 / 0.928 | 0.459 / 0.435 / 0.427 / 0.143 |
+
+  MinerU `vlm-engine` leads on tables on every clean half (TEDS 0.601 plain, 0.516 distractor, 0.547
+  labelled varied; invoices 0.988 plain) and on reading order on the clean halves, and has the best
+  plain text (0.241). Docling has the best distractor and labelled-varied text (0.249, 0.244). Marker
+  leads the degraded half on text (0.132) and reading order (0.143), because it reads photographed
+  receipts as text where it reads many clean ones as one table. MinerU `pipeline` trails on text and
+  reading order everywhere, mostly from receipts it barely reads. No tool scores receipt tables (TEDS
+  0.16 at most), so degraded TEDS is near 0 for all. Table edit distance compares only the two MinerU
+  back-ends (html) with each other, and Docling with Marker (markdown).
+- *What stage two should know.*
+  - The pinned evaluator's artefacts: the first matched table drops out of the predicted reading order
+    (one edit a page, every tool); a markdown table loses every cell holding a colon (html tables are
+    immune); text between two dollar signs is also kept as a formula item, leaving spare fragments;
+    unmatched ground-truth lines are paired with leftover fragments and table date cells, which moves
+    reading order; a page read as one paragraph scores almost perfect reading order.
+  - The ignored-category hazard is real, not theoretical: the invoice remittance slip is `footer` and
+    repeats the body's invoice-number and amount-due lines, so on 31 of the 55 distractor and
+    labelled-varied invoices those scored lines lose their prediction for every tool. Any new `header` or
+    `footer` block needs the 0.25 check against the page's scored lines before it ships.
+  - Tool behaviours: MinerU `pipeline` reads little of short receipt images (38 of 55 plain receipts
+    above text 0.8); MinerU `vlm-engine` drops text it classes as a page header (the first line of every plain
+    invoice, most statements' lines above the table); Docling reads 24 of the 55 plain invoices as one page-wide
+    table and every receipt as one paragraph; Marker drops page headers and footers (store names, invoice
+    headings, closing lines) and reads some clean receipts as one table. Statement text edit is volatile
+    because a statement has only five to eight scored text lines.
+  - Runtime on the Apple M1 Pro (16 GB), seconds per page from `run.json`: MinerU `pipeline` 3.3 to 9.1
+    (all four halves in about 64 minutes), Docling 5.0 to 12.2 (about 101 minutes), MinerU `vlm-engine`
+    24.6 to 35.3 (about 5.6 hours), Marker 48.8 to 89.0 (about 11.4 hours, the degraded half alone 4.1
+    hours).

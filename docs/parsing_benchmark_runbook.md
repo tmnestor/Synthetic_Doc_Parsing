@@ -267,6 +267,106 @@ For every configured tool and every half with a predictions directory, the pinne
 The csv holds the same rows, one per section, metric, tool and group, with a column per half; its scores
 are unrounded.
 
+## First leaderboard, 14 October 2026
+
+All sixteen runs (four tools, four halves, 165 pages each) collected without a refusal and scored into
+`leaderboard_20261014.md` and `.csv` under the output root. Each score below was read against the page
+image, the tool's markdown and the ground-truth page, at least one page per document type for each tool;
+pages are named by case id and role only. Unless a finding says otherwise, the score is right: it
+measures what the tool wrote.
+
+Two things to know before reading any number:
+
+- *The per-page mean weights short pages heavily.* A statement has five to eight scored text lines above
+  and below its transaction table, so one omitted line moves its page by 0.1 to 0.2, where it moves an
+  invoice with thirty lines by 0.03. Statement text edit distance is therefore volatile, and mostly
+  measures what a tool does with top-of-page text.
+- *Statements repeat between halves.* Labelled-varied pages vary only the labels of invoices and
+  receipts, so their statements are the distractor statements, byte for byte; every tool scores them
+  identically in both halves.
+
+Scores that are right, but only once the tool's reading is known:
+
+- *MinerU `pipeline` loses most of many receipts.* Plain receipt CASE044 scored text 0.87 and reading
+  order 0.92: its layout model found two regions on the page (the store name and address) and the
+  markdown holds those two lines and nothing else. The score is right. It does this on 38 of the 55 plain
+  receipts (text above 0.8), 3 of 55 distractor and 25 of 165 degraded receipts; the plain receipts are
+  the shortest images (about 540 to 770 pixels tall against 750 to 1,070 for distractor receipts), which
+  is the likely cause, not yet tested. On plain invoice CASE002 (text 0.24, TEDS 0.63) it read the item
+  table well but carried the subtotal, GST and total lines into it as extra rows, so those three text
+  blocks go unmatched and the table loses TEDS: the folding the matcher check found, on every layout.
+- *MinerU `vlm-engine` drops page-top text it takes for a page header.* Plain invoice CASE002 scored text
+  0.22 with TEDS 1: its content list classes the invoice heading as a page header, which the markdown
+  omits, and writes the totals as a second, two-column table. The page's first scored line is missing
+  from its markdown on all 55 plain invoices. Distractor statement CASE008 scored text 0.86 with TEDS 0.999: the table is perfect, but the
+  brand line, page number, account holder and statement period above it are all left out, and on a page
+  with seven scored lines that is most of the text. Plain receipt CASE044 (text 0.07, reading order 0.08)
+  is typical of its receipts, the best of any tool: it writes the item lines as text, which costs nothing
+  in text edit distance but leaves the item table unmatched (TEDS 0). Receipt TEDS is near 0 for every
+  tool (0.16 at best): a receipt's items are written as text, or as part of a table spanning the whole
+  receipt, almost never as a table of their own.
+- *Docling reads 24 of the 55 plain invoices as one page-wide table.* Plain invoice CASE033 scored text
+  0.91 and TEDS 0.12: the supplier, customer, date and totals lines all sit in one markdown table with
+  the items, so no scored text block has a text prediction to match. The same layouts with distractors
+  added are read as text and a table (distractor CASE033 scored 0.01), so Docling's plain invoices score
+  worse than its distractor invoices (0.433 against 0.160). On distractor statement CASE008 (text 0.19,
+  TEDS 0.999) it is right throughout, missing only the page number and the handwritten note.
+- *Marker leaves out page headers and footers.* Plain invoice CASE033 scored text 0.36: the heading and
+  supplier name at the top of the page are missing from its markdown, as on every plain invoice (the
+  page's first scored line is absent from all 55), and on plain receipts it drops the store name (51 of 55) and the
+  closing line. Distractor receipt CASE015 scored text 0.87: Marker wrote the whole clean receipt as one
+  three-column table, so no text block matches; the photographed light-tier copy of the same receipt
+  scored 0.02, read as text. This is why Marker's degraded half (0.132) scores better than its clean
+  receipts (0.204 on the distractor half).
+
+Scores that the evaluator, not the tool, gets wrong or flatters:
+
+- *The ignored-category hazard is live on distractor invoices.* On 31 of the 55 distractor invoices (and
+  the same 31 labelled-varied ones) a scored line lies within normalised edit distance 0.25 of a `footer`
+  line, almost always because the remittance slip at the foot, which is `footer`, repeats the
+  invoice-number and amount-due lines of the body word for word. The quick matcher pairs each ignored
+  footer line with every prediction within normalised edit distance 0.25 and removes them first (design
+  section 5.3), so the body's own invoice-number line, and the amount-due line where both are printed,
+  lose their prediction: on distractor invoice CASE002 all four tools transcribed the body's invoice
+  number correctly and all four were charged between 0.92 and 1 for it. This raises every tool's distractor and
+  labelled-varied invoice text edit distance alike by one or two lines a page, and confounds the plain
+  against distractor comparison for invoices. No plain, statement or degraded page has an ignored line
+  that close to a scored one.
+- *A markdown table loses every cell holding a colon.* The pinned evaluator converts a pipe table to html
+  and then drops each converted line that matches its table-separator test (`find_md_table_mode` in
+  `src/core/preprocess/table_utils.py`), which any colon satisfies, so a cell such as a labelled total or
+  a time vanishes from the predicted table (and from the text). An invented one-row table with a cell
+  'Ref: Q7' loses that cell. Html tables (both MinerU back-ends) are untouched. Ground-truth table cells
+  rarely hold a colon (87 of 8,304 statement cells, 33 of 768 invoice cells, none on receipts), so the
+  direct cost to Docling and Marker's TEDS is small; it mostly removes folded-in total labels, as on
+  Marker's plain invoice CASE033 (TEDS 0.28).
+- *Dollar signs in markdown become inline formulas.* The evaluator reads the text between two `$` signs
+  as a formula, across lines, and keeps the pieces as formula items; in a pipe table of amounts, cell
+  fragments such as an amount and the next column separator then appear as spare predicted text. Text
+  blocks still score correctly (the perfect-score check holds with unescaped `$`), but these fragments and
+  the date cells the table-formula rescue turns into formulas are what unmatched ground-truth lines get
+  paired with, so per-block results show a statement's brand line 'matched' to a date.
+- *Those leftover pairings move reading order.* On distractor statement CASE008, Marker's markdown has
+  the page in the right order, but the brand line and page number, unmatched, are paired with date cells
+  inside the table and so placed after the account-holder and period lines: reading order 0.57 for a correctly ordered
+  page.
+- *One merged paragraph flatters both text and reading order.* Docling writes each receipt as one
+  paragraph; distractor receipt CASE044 scored text 0.12 and reading order 0.03, the matcher merging all
+  29 ground-truth text blocks into it. Reading order is scored between matched blocks, so a page that is
+  one block has almost no order to get wrong, and the item table's text inside the paragraph is charged
+  as text, not as the table Docling did not find (TEDS 0).
+- *Table edit distance follows the output form, as expected.* On distractor statement CASE008, Docling,
+  Marker and MinerU `vlm-engine` all scored TEDS 0.999, but table edit distance 0.53 and 0.53 for the two
+  markdown tools against 0.003 for MinerU: the `colspan="1" rowspan="1"` the evaluator adds to markdown
+  cells. Compare table edit distance within an output form only.
+- *The reading-order artefact.* Every page whose first predicted table matched loses that table's
+  position (statement CASE008: the table's place is missing from every tool's predicted order), one edit
+  for every tool alike.
+- *Cropped degraded blocks.* The 10 cropped blocks (4 pages) are ignored as intended. Where a parser runs
+  a cropped line into its neighbour, the neighbour is charged for the extra text: on moderate-tier
+  receipt CASE044, MinerU `vlm-engine` joined the cropped exchange-policy line to the closing thanks line,
+  which then scored 0.70.
+
 ## Marker's licences
 
 Marker's code and its model weights are licensed separately; both were read from their official sources on
