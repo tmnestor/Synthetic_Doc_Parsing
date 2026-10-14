@@ -1,5 +1,16 @@
 # Synthetic Document Parsing Benchmark
 
+## Abstract
+
+| | |
+|---|---|
+| **Category** | Synthetic document parsing benchmark |
+| **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU pipeline, MinerU 2.5 Pro VLM (1.2B), Docling, Marker |
+| **Details** | [Results](#results), [what is measured](#what-it-measures), [the pages](#the-pages), [the runbook](docs/parsing_benchmark_runbook.md) |
+| **Summary** | As of 14 October 2026, MinerU 2.5 Pro VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
+
+## Overview
+
 A benchmark for document parsers such as MinerU, Docling and Marker: how well does each one read a page
 of a business document into structured markdown (its text, its tables and its reading order)? The pages
 are synthetic Australian bank statements, receipts and tax invoices, and their ground truth is not
