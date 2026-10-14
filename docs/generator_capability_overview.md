@@ -613,7 +613,7 @@ well-formed — a subtly wrong field map still produces valid JSON.
 
 The specifics live elsewhere and are not repeated here: which target covers which
 documents, the export-policy keys, and the licensing of the vendored evaluator are in
-the README's [Benchmark Export Schemas](../README.md#benchmark-export-schemas)
+the generator reference's [Benchmark Export Schemas](generator_reference.md#benchmark-export-schemas)
 section; the authoritative field maps are in
 [`docs/GroundTruth_Export_Spec.md`](GroundTruth_Export_Spec.md).
 

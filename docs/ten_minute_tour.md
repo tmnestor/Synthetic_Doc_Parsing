@@ -122,7 +122,7 @@ if no quad converges. Two design calls are worth naming:
   at all. That is moot under value-F1 scoring, which reads field values rather
   than positions, and matters only for spatial round-trip validation.
 
-The README's [Rectification](../README.md#rectification--undoing-the-camera-scan-offline-preprocessing)
+The generator reference's [Rectification](generator_reference.md#rectification-undoing-the-camera-scan-offline-preprocessing)
 section records 55/55 quad detection, with dimensions recovering close to the
 clean original (CASE001: clean 420×374 → degraded 516×490 → rectified 425×380).
 
