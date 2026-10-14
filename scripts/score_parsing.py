@@ -266,6 +266,7 @@ def score(
     snapshot_config: SnapshotConfig,
     checkout: Path,
     today: date,
+    halves: tuple[str, ...] = HALVES,
 ) -> tuple[Path, Path]:
     """Score every collected run and write the leaderboard.
 
@@ -277,6 +278,7 @@ def score(
         snapshot_config: The snapshot configuration, naming the parsing directory and half prefixes.
         checkout: The evaluator checkout.
         today: The date the leaderboard is named and headed with.
+        halves: The halves scored; a half left out is blank in every table, and the leaderboard says so.
 
     Returns:
         The leaderboard's markdown and csv paths.
@@ -288,7 +290,7 @@ def score(
     """
     runs: dict[tuple[str, str], tuple[dict, dict[str, float], dict]] = {}
     for tool in config.tools:
-        for half in HALVES:
+        for half in halves:
             pred = output_root / PREDICTIONS_DIR / tool.name / half
             if not pred.is_dir():
                 continue
@@ -320,7 +322,7 @@ def score(
         raise _diagnostic(
             "There is nothing to score.",
             what=f"no configured tool {[tool.name for tool in config.tools]} has a predictions "
-            f"directory for any half {list(HALVES)}.",
+            f"directory for any half {list(halves)}.",
             where=f"{output_root / PREDICTIONS_DIR}",
             expected="predictions/<tool>/<half>/<image stem>.md, e.g. predictions/docling/plain/",
             recover="run scripts/run_local_parser.py and scripts/collect_predictions.py for a tool first.",
@@ -330,7 +332,9 @@ def score(
     stamp = today.strftime("%Y%m%d")
     markdown = output_root / f"leaderboard_{stamp}.md"
     table = output_root / f"leaderboard_{stamp}.csv"
-    markdown.write_text(_markdown(rows, runs, tools, snapshot=snapshot, config=config, today=today))
+    markdown.write_text(
+        _markdown(rows, runs, tools, snapshot=snapshot, config=config, today=today, scored_halves=halves)
+    )
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(["section", "metric", "tool", "group", *HALVES])
@@ -432,8 +436,21 @@ def _credits(tools: list[str], config: ParsingConfig) -> list[str]:
 
 
 def _markdown(
-    rows: Rows, runs: dict, tools: list[str], *, snapshot: Path, config: ParsingConfig, today: date
+    rows: Rows,
+    runs: dict,
+    tools: list[str],
+    *,
+    snapshot: Path,
+    config: ParsingConfig,
+    today: date,
+    scored_halves: tuple[str, ...],
 ) -> str:
+    left_out = [half for half in HALVES if half not in scored_halves]
+    scope = (
+        [f"Not scored in this leaderboard: {', '.join(left_out)}; those columns are blank.", ""]
+        if left_out
+        else []
+    )
     halves = list(HALVES)
     lines = [
         "# Parsing leaderboard",
@@ -446,6 +463,7 @@ def _markdown(
         "pages; TEDS is the mean over its tables. A blank cell is a half the tool was not run on; n/a is "
         "a score the evaluator could not compute, because nothing of that kind was matched.",
         "",
+        *scope,
         "## Overall",
         "",
         *_table(
@@ -505,6 +523,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--snapshot", type=Path, required=True, help="The snapshot directory")
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "config" / "generation_config.yml")
+    parser.add_argument(
+        "--halves",
+        nargs="+",
+        choices=HALVES,
+        default=list(HALVES),
+        help="The halves to score (all four unless given); a half left out is blank in the leaderboard",
+    )
     args = parser.parse_args(argv)
     try:
         snapshot_config = load_snapshot_config(args.config)
@@ -518,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_config=snapshot_config,
             checkout=checkout,
             today=date.today(),
+            halves=tuple(args.halves),
         )
     except (ScoreError, EvaluatorError, ParsingConfigError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

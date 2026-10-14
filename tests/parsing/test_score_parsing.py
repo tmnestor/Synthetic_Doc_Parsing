@@ -133,6 +133,28 @@ def test_each_collected_run_is_scored_against_its_half(tmp_path: Path, scored: t
     assert {checkout for _, _, checkout, _ in stub_calls} == {tmp_path / "checkout"}
 
 
+def test_a_half_left_out_is_not_scored_and_the_leaderboard_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--halves scores only the halves named; a left-out half is blank and named under the heading."""
+    snapshot = _one_run(tmp_path)
+    degraded = tmp_path / "predictions" / "docling" / "degraded"
+    degraded.mkdir(parents=True)  # no run.json: scoring it would be refused
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub())
+    markdown, _ = score(
+        snapshot,
+        output_root=tmp_path,
+        config=load_parsing_config(PARSING_CONFIG_PATH),
+        snapshot_config=SNAPSHOT_CONFIG,
+        checkout=tmp_path,
+        today=TODAY,
+        halves=("plain", "distractor", "labelled_varied"),
+    )
+    text = markdown.read_text()
+    assert "Not scored in this leaderboard: degraded; those columns are blank." in text
+    assert _section(text, "## Overall")[2] == f"| docling | {OVERALL} |  |  |  |"
+
+
 def _section(text: str, heading: str) -> list[str]:
     """The table rows (lines starting with '|') under `heading`, up to the next heading."""
     lines = text.splitlines()
