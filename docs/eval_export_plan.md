@@ -23,7 +23,7 @@
 
 ## Why
 
-The export currently depends on LMM_POC in two ways: `config/generation_config.yml` points at `../LMM_POC/scripts/relabel_evaluation_set.py`, and this repo's own `scripts/relabel_evaluation_set.py` — a **diverged copy** of that file — imports `from common.field_schema import ...`, an LMM_POC package. Neither can run without that checkout present.
+The export currently depends on LMM_POC in two ways: `config/generation_config.yml` points at `../LMM_POC/scripts/relabel_evaluation_set.py` (a sibling checkout), and this repo's own `scripts/relabel_evaluation_set.py`, a **diverged copy** of that file, imports `from common.field_schema import ...`, an LMM_POC package. Neither can run without that checkout present.
 
 The dataset these produce is the deliverable: competing vision-language models are scored on information-extraction accuracy against it. A deliverable this repo cannot build alone is a liability.
 
@@ -66,7 +66,7 @@ Do **NOT** run any `regenerate_*_snapshot.py` script or re-capture the derived b
 
 ### Do not touch
 
-`../LMM_POC/` — another repository. Read it to understand what the current script does; change nothing in it.
+`../LMM_POC/`: another repository. Read it to understand what the current script does; change nothing in it.
 
 ---
 
