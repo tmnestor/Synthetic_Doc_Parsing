@@ -6,6 +6,7 @@ without running the evaluator. The page attribute values are invented.
 """
 
 import csv
+import hashlib
 import json
 import math
 from datetime import date
@@ -133,26 +134,105 @@ def test_each_collected_run_is_scored_against_its_half(tmp_path: Path, scored: t
     assert {checkout for _, _, checkout, _ in stub_calls} == {tmp_path / "checkout"}
 
 
-def test_a_half_left_out_is_not_scored_and_the_leaderboard_says_so(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """--halves scores only the halves named; a left-out half is blank and named under the heading."""
-    snapshot = _one_run(tmp_path)
-    degraded = tmp_path / "predictions" / "docling" / "degraded"
-    degraded.mkdir(parents=True)  # no run.json: scoring it would be refused
-    monkeypatch.setattr(score_parsing, "run_end2end", _stub())
+def _overridden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, degraded_gt: str) -> tuple[Path, list]:
+    """Docling's plain run on snapshot_20990202 and degraded run on snapshot_20990101, scored with the
+    degraded half overridden to the earlier snapshot, whose degraded ground truth is `degraded_gt`."""
+    later = tmp_path / "snapshot_20990202"
+    earlier = tmp_path / "snapshot_20990101"
+    for snapshot in (later, earlier):
+        (snapshot / SNAPSHOT_CONFIG.parsing_dir).mkdir(parents=True)
+        (snapshot / SNAPSHOT_CONFIG.parsing_dir / "plain.json").write_text("[]")
+    (later / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text("[]")
+    (earlier / SNAPSHOT_CONFIG.parsing_dir / "degraded.json").write_text(degraded_gt)
+    root = tmp_path / "out"
+    for half, made_on in (("plain", later), ("degraded", earlier)):
+        (root / "predictions" / "docling" / half).mkdir(parents=True)
+        raw = root / "raw_predictions" / "docling" / half
+        raw.mkdir(parents=True)
+        record: dict[str, object] = {"tool": "docling", "half": half, "snapshot": str(made_on)}
+        record |= {"backend": "default", "tool_version": "1.2.3", "device": "mps"}
+        record |= {"page_count": 1, "seconds": 1.0}
+        (raw / RUN_RECORD).write_text(json.dumps(record))
+    calls: list[Path] = []
+
+    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+        calls.append(gt_json)
+        return _stub()(gt_json, pred_dir, checkout=checkout, work_dir=work_dir)
+
+    monkeypatch.setattr(score_parsing, "run_end2end", stub)
     markdown, _ = score(
-        snapshot,
-        output_root=tmp_path,
+        later,
+        output_root=root,
         config=load_parsing_config(PARSING_CONFIG_PATH),
         snapshot_config=SNAPSHOT_CONFIG,
         checkout=tmp_path,
         today=TODAY,
-        halves=("plain", "distractor", "labelled_varied"),
+        snapshot_for=score_parsing.parse_snapshot_for([f"degraded={earlier}"]),
     )
+    return markdown, calls
+
+
+def test_a_half_overridden_is_scored_against_its_own_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--snapshot-for scores the degraded half on the snapshot its run was made on, and the leaderboard
+    names each half's snapshot and finds the two degraded ground truths byte-identical."""
+    markdown, calls = _overridden(tmp_path, monkeypatch, "[]")
+    parsing = SNAPSHOT_CONFIG.parsing_dir
+    assert calls == [
+        tmp_path / "snapshot_20990202" / parsing / "plain.json",
+        tmp_path / "snapshot_20990101" / parsing / "degraded.json",
+    ]
     text = markdown.read_text()
-    assert "Not scored in this leaderboard: degraded; those columns are blank." in text
-    assert _section(text, "## Overall")[2] == f"| docling | {OVERALL} |  |  |  |"
+    assert (
+        "Snapshot `snapshot_20990202`. Each half is scored against: plain `snapshot_20990202`, distractor "
+        "`snapshot_20990202`, labelled_varied `snapshot_20990202`, degraded `snapshot_20990101`."
+    ) in text
+    digest = hashlib.sha256(b"[]").hexdigest()
+    assert f"is byte-identical in the two snapshots (SHA-256 {digest} and {digest})" in text
+
+
+def test_an_overridden_half_whose_ground_truth_differs_is_flagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    markdown, _ = _overridden(tmp_path, monkeypatch, "[ ]")
+    assert "is DIFFERENT between the two snapshots" in markdown.read_text()
+
+
+@pytest.mark.parametrize(
+    ("value", "named"),
+    [
+        ("degraded", "is not <half>=<snapshot dir>"),
+        ("scanned={dir}", "'scanned'"),
+        ("degraded={missing}", "not a directory"),
+    ],
+)
+def test_an_invalid_snapshot_override_is_refused(tmp_path: Path, value: str, named: str) -> None:
+    value = value.format(dir=tmp_path, missing=tmp_path / "snapshot_20990303")
+    with pytest.raises(ScoreError) as caught:
+        score_parsing.parse_snapshot_for([value])
+    assert_diagnostic_error(caught.value)
+    assert named in str(caught.value) and "--snapshot-for" in str(caught.value)
+
+
+def test_a_half_overridden_twice_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ScoreError) as caught:
+        score_parsing.parse_snapshot_for([f"degraded={tmp_path}", f"degraded={tmp_path}"])
+    assert_diagnostic_error(caught.value)
+    assert "second snapshot" in str(caught.value)
+
+
+def test_the_command_line_refuses_an_invalid_override_and_exits_non_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = scratch_config(tmp_path)
+    snapshot = _one_run(tmp_path / "out")
+    monkeypatch.setattr(score_parsing, "ensure_checkout", lambda config, *, root: tmp_path / "checkout")
+    argv = ["--snapshot", str(snapshot), "--config", str(config), "--snapshot-for", "scanned=x"]
+    assert score_parsing.main(argv) == 1
+    error = capsys.readouterr().err
+    assert_diagnostic_error(error)
+    assert "--snapshot-for scanned=x" in error
 
 
 def _section(text: str, heading: str) -> list[str]:

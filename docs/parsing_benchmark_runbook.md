@@ -254,8 +254,20 @@ For every configured tool and every half with a predictions directory, the pinne
 `../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.csv`. A run's `run.json` must name the tool and half
 scored; a run made on another snapshot is scored only when every image of its half has the same name and
 SHA-256 in both snapshots' `MANIFEST.json` (a re-export that changed only the ground truth), and refused
-otherwise. `--halves` scores only the halves named (all four by default); a half left out is blank in the
-leaderboard, which names it under its heading.
+otherwise. `--snapshot-for <half>=<snapshot dir>` (repeatable) scores one half against another
+snapshot's ground truth, with the same image check against that snapshot. It exists for the degraded
+half: the heavy tier's fold is not reproducible under a fixed seed, so every re-export writes different
+`_v3` images, and degraded runs made on an earlier snapshot can only be scored against that snapshot.
+After a re-export that leaves the degraded ground truth alone, score with
+
+```bash
+conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_data/snapshot_<new> \
+    --snapshot-for degraded=../evaluation_data/snapshot_<runs>
+```
+
+The leaderboard opens by naming the snapshot each half was scored against and, for an overridden half,
+whether its ground truth is byte-identical in the two snapshots (compared by SHA-256); if it is not, the
+degraded runs must be made again on the new snapshot.
 
 - *Overall*, shown as 'n/a (no formulas in stage one)': it needs formula scores, which arrive in stage three,
   and is never replaced by an average of the other components.

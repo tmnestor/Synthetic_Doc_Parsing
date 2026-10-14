@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Score every collected parser run against a snapshot's parsing ground truth, and write the leaderboard.
 
-    python scripts/score_parsing.py --snapshot ../evaluation_data/snapshot_20261013
+    python scripts/score_parsing.py --snapshot ../evaluation_data/snapshot_20261014 \\
+        --snapshot-for degraded=../evaluation_data/snapshot_20261013
 
 For each tool in `tools` of `config/parsing_config.yml` and each half with predictions under
 `<eval_set.output_root>/predictions/<tool>/<half>/`, the pinned evaluator (`run_end2end`, unmodified)
@@ -13,7 +14,10 @@ then the same broken down by document type, degradation tier and layout key (the
 evaluator slices by, read from its metric result), and each run's back-end, version and device, read from
 the `run.json` the runner left beside the raw output. A run whose `run.json` names another tool or half is
 refused, and so is one made on another snapshot unless every image of its half is byte-identical in the
-two (the same SHA-256 in each MANIFEST.json), as after a re-export that changed only the ground truth. The leaderboard ends with a "Tools and licences" block crediting
+two (the same SHA-256 in each MANIFEST.json), as after a re-export that changed only the ground truth.
+`--snapshot-for <half>=<snapshot dir>` (repeatable) scores one half against another snapshot, e.g. the
+one its runs were made on when a re-export changed that half's images; the leaderboard opens by naming
+each half's snapshot and whether an overridden half's ground truth is byte-identical in the two. The leaderboard ends with a "Tools and licences" block crediting
 each scored project, its URL and the licences of its code and weights, read from `credits` in
 `config/parsing_config.yml`.
 
@@ -26,6 +30,7 @@ replaced by an average of the other components.
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import math
@@ -266,7 +271,7 @@ def score(
     snapshot_config: SnapshotConfig,
     checkout: Path,
     today: date,
-    halves: tuple[str, ...] = HALVES,
+    snapshot_for: dict[str, Path] | None = None,
 ) -> tuple[Path, Path]:
     """Score every collected run and write the leaderboard.
 
@@ -278,7 +283,8 @@ def score(
         snapshot_config: The snapshot configuration, naming the parsing directory and half prefixes.
         checkout: The evaluator checkout.
         today: The date the leaderboard is named and headed with.
-        halves: The halves scored; a half left out is blank in every table, and the leaderboard says so.
+        snapshot_for: Half -> the snapshot that half is scored against instead of `snapshot` (the
+            `--snapshot-for` overrides, as `parse_snapshot_for` returns them); None overrides nothing.
 
     Returns:
         The leaderboard's markdown and csv paths.
@@ -288,9 +294,10 @@ def score(
             ground truth, or the evaluator's result lacks a reported metric.
         EvaluatorError: The evaluator failed.
     """
+    scored_on = {half: (snapshot_for or {}).get(half, snapshot) for half in HALVES}
     runs: dict[tuple[str, str], tuple[dict, dict[str, float], dict]] = {}
     for tool in config.tools:
-        for half in halves:
+        for half in HALVES:
             pred = output_root / PREDICTIONS_DIR / tool.name / half
             if not pred.is_dir():
                 continue
@@ -301,10 +308,14 @@ def score(
                 record_path,
                 tool=tool.name,
                 half=half,
-                snapshot=snapshot,
+                snapshot=scored_on[half],
                 snapshot_config=snapshot_config,
             )
-            gt = snapshot / snapshot_config.parsing_dir / f"{snapshot_config.half_prefixes[half]}.json"
+            gt = (
+                scored_on[half]
+                / snapshot_config.parsing_dir
+                / f"{snapshot_config.half_prefixes[half]}.json"
+            )
             if not gt.is_file():
                 raise _diagnostic(
                     "A scored half has no ground truth in the snapshot.",
@@ -322,7 +333,7 @@ def score(
         raise _diagnostic(
             "There is nothing to score.",
             what=f"no configured tool {[tool.name for tool in config.tools]} has a predictions "
-            f"directory for any half {list(halves)}.",
+            f"directory for any half {list(HALVES)}.",
             where=f"{output_root / PREDICTIONS_DIR}",
             expected="predictions/<tool>/<half>/<image stem>.md, e.g. predictions/docling/plain/",
             recover="run scripts/run_local_parser.py and scripts/collect_predictions.py for a tool first.",
@@ -332,9 +343,8 @@ def score(
     stamp = today.strftime("%Y%m%d")
     markdown = output_root / f"leaderboard_{stamp}.md"
     table = output_root / f"leaderboard_{stamp}.csv"
-    markdown.write_text(
-        _markdown(rows, runs, tools, snapshot=snapshot, config=config, today=today, scored_halves=halves)
-    )
+    provenance = _provenance(snapshot, scored_on, snapshot_config=snapshot_config)
+    markdown.write_text(_markdown(rows, runs, tools, provenance=provenance, config=config, today=today))
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(["section", "metric", "tool", "group", *HALVES])
@@ -342,6 +352,76 @@ def score(
         writer.writerow([section, metric, name, group, *(cells.get(half, "") for half in HALVES)])
     table.write_text(buffer.getvalue())
     return markdown, table
+
+
+def _provenance(
+    snapshot: Path, scored_on: dict[str, Path], *, snapshot_config: SnapshotConfig
+) -> list[str]:
+    """The leaderboard's opening lines: the snapshot each half was scored against.
+
+    For a half scored against another snapshot (`--snapshot-for`), they say whether its ground truth is
+    byte-identical in the two, compared by SHA-256.
+    """
+    against = ", ".join(f"{half} `{scored_on[half].name}`" for half in HALVES)
+    lines = [f"Snapshot `{snapshot.name}`. Each half is scored against: {against}."]
+    for half in HALVES:
+        other = scored_on[half]
+        if other == snapshot:
+            continue
+        name = f"{snapshot_config.half_prefixes[half]}.json"
+        theirs = other / snapshot_config.parsing_dir / name
+        ours = snapshot / snapshot_config.parsing_dir / name
+        if not ours.is_file():
+            lines.append(f"`{snapshot.name}` has no {half} ground truth to compare with `{other.name}`'s.")
+            continue
+        digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (theirs, ours)]
+        verdict = "byte-identical in" if digests[0] == digests[1] else "DIFFERENT between"
+        lines.append(
+            f"The {half} half is scored against `{other.name}`, the snapshot its runs were made on; its "
+            f"ground truth (`{snapshot_config.parsing_dir}/{name}`) is {verdict} the two snapshots "
+            f"(SHA-256 {digests[0]} and {digests[1]})."
+        )
+    return lines
+
+
+def parse_snapshot_for(values: list[str]) -> dict[str, Path]:
+    """Read the `--snapshot-for <half>=<snapshot dir>` overrides.
+
+    Args:
+        values: Each `--snapshot-for` value, as given.
+
+    Returns:
+        Half -> the resolved snapshot directory that half is scored against.
+
+    Raises:
+        ScoreError: A value is not `<half>=<dir>`, names an unknown half or one already given, or names a
+            directory that does not exist.
+    """
+    example = "--snapshot-for degraded=../evaluation_data/snapshot_20261013"
+    overrides: dict[str, Path] = {}
+    for value in values:
+        half, sep, directory = value.partition("=")
+        if not sep or not directory:
+            problem = f"{value!r} is not <half>=<snapshot dir>"
+        elif half not in HALVES:
+            problem = f"{value!r} names the half {half!r}, which is not one of {list(HALVES)}"
+        elif half in overrides:
+            problem = f"{value!r} gives the {half} half a second snapshot"
+        elif not Path(directory).is_dir():
+            problem = f"{value!r} names {Path(directory).resolve()}, which is not a directory"
+        else:
+            overrides[half] = Path(directory).resolve()
+            continue
+        raise _diagnostic(
+            "A --snapshot-for override is invalid.",
+            what=f"{problem}.",
+            where=f"the command line -> --snapshot-for {value}",
+            expected=f"<half>=<snapshot dir>, the half one of {list(HALVES)}, given once, the directory an "
+            f"existing snapshot, e.g. {example}",
+            recover="correct or drop the --snapshot-for value; every half not overridden is scored against "
+            "--snapshot.",
+        )
+    return overrides
 
 
 Rows = dict[tuple[str, str, str, str], dict[str, str]]
@@ -436,34 +516,22 @@ def _credits(tools: list[str], config: ParsingConfig) -> list[str]:
 
 
 def _markdown(
-    rows: Rows,
-    runs: dict,
-    tools: list[str],
-    *,
-    snapshot: Path,
-    config: ParsingConfig,
-    today: date,
-    scored_halves: tuple[str, ...],
+    rows: Rows, runs: dict, tools: list[str], *, provenance: list[str], config: ParsingConfig, today: date
 ) -> str:
-    left_out = [half for half in HALVES if half not in scored_halves]
-    scope = (
-        [f"Not scored in this leaderboard: {', '.join(left_out)}; those columns are blank.", ""]
-        if left_out
-        else []
-    )
     halves = list(HALVES)
     lines = [
         "# Parsing leaderboard",
         "",
-        f"Snapshot `{snapshot.name}`, scored {today.day} {today.strftime('%B %Y')} with OmniDocBench "
-        f"at commit `{config.evaluator.commit}`, unmodified, with quick matching.",
+        *provenance,
+        "",
+        f"Scored {today.day} {today.strftime('%B %Y')} with OmniDocBench at commit "
+        f"`{config.evaluator.commit}`, unmodified, with quick matching.",
         "",
         "Edit distances are normalised: 0 is a perfect reading and 1 the worst. TEDS runs from 0 to 1, 1 "
         "being a perfect table. Text, table and reading-order edit distances are means over a half's "
         "pages; TEDS is the mean over its tables. A blank cell is a half the tool was not run on; n/a is "
         "a score the evaluator could not compute, because nothing of that kind was matched.",
         "",
-        *scope,
         "## Overall",
         "",
         *_table(
@@ -524,14 +592,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", type=Path, required=True, help="The snapshot directory")
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "config" / "generation_config.yml")
     parser.add_argument(
-        "--halves",
-        nargs="+",
-        choices=HALVES,
-        default=list(HALVES),
-        help="The halves to score (all four unless given); a half left out is blank in the leaderboard",
+        "--snapshot-for",
+        action="append",
+        default=[],
+        metavar="HALF=DIR",
+        help="Score one half against another snapshot (repeatable), e.g. degraded=<dir>",
     )
     args = parser.parse_args(argv)
     try:
+        snapshot_for = parse_snapshot_for(args.snapshot_for)
         snapshot_config = load_snapshot_config(args.config)
         config = load_parsing_config(PARSING_CONFIG_PATH)
         output_root = snapshot_config.output_root
@@ -543,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_config=snapshot_config,
             checkout=checkout,
             today=date.today(),
-            halves=tuple(args.halves),
+            snapshot_for=snapshot_for,
         )
     except (ScoreError, EvaluatorError, ParsingConfigError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
