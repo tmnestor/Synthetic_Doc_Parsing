@@ -20,13 +20,15 @@ from generators.parsing.omnidocbench import (
     PageContext,
     build_page,
     check_page,
+    evaluator_normalised,
     map_polys,
+    normalised_edit_distance,
     table_html,
 )
 from tests.conftest import assert_diagnostic_error
 from tests.layout_dsl.test_block_scopes import ALL_LAYOUTS
 from tests.layout_dsl.test_table_cells import REAL_LAYOUTS, resolve
-from tests.renderer_helpers import entry_per_layout, layouts_for, render_entry
+from tests.renderer_helpers import corpus_entries, entry_per_layout, layouts_for, render_entry
 
 WHERE = "CASE999 / layout_scratch (plain)"
 CONTEXT = PageContext(
@@ -333,7 +335,7 @@ def test_a_join_with_no_table_written_before_it_fails_four_part(config: ParsingC
 
 
 def test_a_well_formed_page_passes_every_invariant(config: ParsingConfig) -> None:
-    """The hand-built page breaks none of the five invariants."""
+    """The hand-built page breaks none of the six invariants."""
     page = geometry()
     assert (
         check_page(build_page(page, context=CONTEXT, config=config), page, where=WHERE, config=config) == []
@@ -420,6 +422,79 @@ def test_invariant_5_refuses_a_category_outside_the_vocabulary(config: ParsingCo
     page["blocks"][2] = page["blocks"][2]._replace(parse_category="chart")
     (error,) = errors_for(page, config)
     assert "chart" in error and "category_vocabulary" in error
+
+
+def footer_reading(page: dict, *lines: str) -> dict:
+    """`page` with its footer block (body[5].children[0]) redrawn as `lines`, one per ink row."""
+    page["ink"] = [record for record in page["ink"] if record.block != 5]
+    for index, text in enumerate(lines):
+        page["ink"].append(line(text, (20, 260 + 16 * index, 130, 274 + 16 * index), 5))
+    return page
+
+
+def test_invariant_6_refuses_a_footer_line_nearly_repeating_a_scored_block(config: ParsingConfig) -> None:
+    """An ignored block one character from a scored one would strike a correct reading of it; the refusal
+    names both blocks and the distance."""
+    page = footer_reading(geometry(), "Ref 7Q-4411")
+    (error,) = errors_for(page, config)
+    assert "body[5].children[0]" in error and "body[2]" in error
+    assert "'Ref 7Q-4411'" in error and "'Ref 7Q-4410'" in error and "0.111" in error
+    assert "ignored_match_max_distance" in error
+
+
+def test_invariant_6_passes_a_footer_line_unlike_every_scored_block(config: ParsingConfig) -> None:
+    """The hand-built page's footer reads nothing like any scored block."""
+    assert errors_for(footer_reading(geometry(), "Kindly retain", "this slip"), config) == []
+
+
+@pytest.mark.parametrize(
+    ("footer", "distance", "refused"),
+    [
+        ("Ref 7Q-4410 XY", "0.182", True),
+        ("Ref 7Q-4410 XYZ", "0.250", False),
+        ("Ref 7Q-4410 XYZW", "", False),
+    ],
+    ids=["below", "at", "above"],
+)
+def test_invariant_6_matches_strictly_below_the_threshold_as_the_evaluator_does(
+    footer: str, distance: str, refused: bool, config: ParsingConfig
+) -> None:
+    """The evaluator matches at `ignore_matrix < 0.25`. Against 'Ref7Q4410' (normalised), two extra
+    characters are 2/11 apart and refused; three are exactly 3/12 = 0.25 apart and pass; four pass."""
+    assert config.ignored_match_max_distance == 0.25
+    errors = errors_for(footer_reading(geometry(), footer), config)
+    assert len(errors) == int(refused)
+    if refused:
+        assert distance in errors[0]
+
+
+@pytest.mark.parametrize(
+    ("text", "normal"),
+    [
+        ("Invoice No: QX-0417", "InvoiceNoQX0417"),
+        ("Tab\\tand/nnew\nline", "Tabandnewline"),
+        ("Step ③ of \\textcircled{b}", "Step3ofb"),
+        ("Rate $x_{2}^{3}$ applies", "Ratex_23applies"),
+        ("Area \\(y^{2}\\) m", "Areay2m"),
+        ("Fee $ 4.10 and $ 7", "Fee410and7"),
+        ("under_score", "under_score"),
+    ],
+)
+def test_text_is_normalised_as_the_evaluator_normalises_it(text: str, normal: str) -> None:
+    """The evaluator's normalized_text: punctuation and spaces dropped, control spellings removed, circled
+    characters uncircled, a formula span rewritten as its letters and digits, word characters kept."""
+    assert evaluator_normalised(text) == normal
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "distance"),
+    [("", "", 0.0), ("abcd", "", 1.0), ("kitten", "sitting", 3 / 7), ("Wren", "Wren", 0.0)],
+)
+def test_the_distance_is_levenshtein_over_the_longer_length(
+    first: str, second: str, distance: float
+) -> None:
+    """The evaluator's compute_edit_distance_matrix_new."""
+    assert normalised_edit_distance(first, second) == pytest.approx(distance)
 
 
 # --- PageCheck -------------------------------------------------------------------------------------------
@@ -570,3 +645,78 @@ def test_every_real_table_is_written_as_a_rectangular_grid(
             html.unescape(" ".join(re.findall(r"<td[^>]*>(.*?)</td>", written["html"]))).split()
         )
         assert cell_words == Counter(" ".join(r.text for r in ink).split()), layout_id
+
+
+def first_slip_render(config: ParsingConfig, *, barcode: bool) -> tuple[str, dict, dict]:
+    """The first invoice case, in case order, whose distractor render draws the remittance slip (and, with
+    `barcode`, the slip's barcode)."""
+    for case_id, entry in sorted(corpus_entries("invoice").items()):
+        geometry_out: dict = {}
+        render_entry("invoice", entry, distractors=True, geometry_out=geometry_out)
+        page = build_page(
+            geometry_out, context=page_context("invoice", entry["layout"], "distractor"), config=config
+        )
+        blocks = {block.id: block for block in geometry_out["blocks"]}
+        slip = any(det.get("text") == "REMITTANCE ADVICE" for det in page["layout_dets"])
+        coded = any(
+            blocks[det["anno_id"]].kind == "barcode" and blocks[det["anno_id"]].anchor == "foot"
+            for det in page["layout_dets"]
+        )
+        if slip and (coded or not barcode):
+            return f"{case_id} / {entry['layout']} (distractor)", geometry_out, page
+    raise AssertionError(
+        f"no invoice case draws a remittance slip (barcode {barcode}) in its distractor render"
+    )
+
+
+def test_a_real_remittance_slip_is_scored_and_the_page_number_stays_footer(config: ParsingConfig) -> None:
+    """The slip is tear-off content: its detach note, heading and lines are text_block, so the invoice
+    number and amount due it repeats from the body are not ignored lines. The running footer lines keep the
+    footer category, and the page keeps every invariant, the sixth included."""
+    where, geometry_out, page = first_slip_render(config, barcode=False)
+    blocks = {block.id: block for block in geometry_out["blocks"]}
+    foot = [det for det in page["layout_dets"] if blocks[det["anno_id"]].anchor == "foot"]
+    by_text = {det.get("text", ""): det["category_type"] for det in foot}
+    slip = [
+        text
+        for text in by_text
+        if text == "REMITTANCE ADVICE"
+        or text.startswith(("Please detach", "Invoice No:", "Amount due", "Amount enclosed"))
+    ]
+    assert len(slip) == 5, (where, sorted(by_text))
+    assert {by_text[text] for text in slip} == {"text_block"}, where
+    (page_number,) = [text for text in by_text if re.fullmatch(r"Page \d+ of \d+", text)]
+    assert by_text[page_number] == "footer", where
+    assert check_page(page, geometry_out, where=where, config=config) == []
+
+
+def test_a_real_slip_left_as_footer_is_refused_by_invariant_6(config: ParsingConfig) -> None:
+    """Invariant 6 is not vacuous on a real page: with the slip's parse_category removed, the slip's
+    invoice number line repeats the body's and is refused, naming both blocks."""
+    where, geometry_out, page = first_slip_render(config, barcode=False)
+    geometry_out["blocks"] = [
+        block._replace(parse_category=None) if block.anchor == "foot" else block
+        for block in geometry_out["blocks"]
+    ]
+    context = page_context("invoice", page["page_info"]["page_attribute"]["layout_id"], "distractor")
+    errors = check_page(
+        build_page(geometry_out, context=context, config=config), geometry_out, where=where, config=config
+    )
+    numbers = [error for error in errors if "'Invoice No:" in error]
+    assert numbers, errors
+    for error in errors:
+        assert_diagnostic_error(error)
+        assert "(footer, which the evaluator ignores)" in error
+
+
+def test_a_real_remittance_barcode_is_a_figure(config: ParsingConfig) -> None:
+    """The slip's payment barcode is located as a figure, not an ignored footer line."""
+    where, geometry_out, page = first_slip_render(config, barcode=True)
+    blocks = {block.id: block for block in geometry_out["blocks"]}
+    (barcode,) = [
+        det
+        for det in page["layout_dets"]
+        if blocks[det["anno_id"]].kind == "barcode" and blocks[det["anno_id"]].anchor == "foot"
+    ]
+    assert barcode["category_type"] == "figure" and "text" not in barcode, where
+    assert check_page(page, geometry_out, where=where, config=config) == []

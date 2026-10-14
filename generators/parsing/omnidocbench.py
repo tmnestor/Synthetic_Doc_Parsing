@@ -4,7 +4,7 @@ A render's `geometry_out` carries every line of ink it drew, each naming its blo
 its cell, and every block it opened. `build_page` turns those into one OmniDocBench page: a `layout_dets`
 entry per block that drew ink, its `poly` the union of its ink boxes, its category by the precedence of
 Decision 5, its reading order by Decision 6, and its `text` (Decision 3) or, for a table, its `html`
-(Decision 7), with the rows of any table joined to it (Decision 17). `check_page` checks the five
+(Decision 7), with the rows of any table joined to it (Decision 17). `check_page` checks the six
 invariants of the design's section 5.1 against the records the page was built from, and `map_polys`
 re-projects every `poly` onto a new frame (a degraded photograph).
 
@@ -27,6 +27,20 @@ LANGUAGE = "en"
 # The prefix of an overlay site's block kind, `overlay:<type>`.
 OVERLAY_PREFIX = "overlay:"
 _CELL = re.compile(r"<td[^>]*>(.*?)</td>")
+
+# The evaluator's text normalisation (src/core/preprocess/data_preprocess.py at the pinned commit:
+# `normalized_text`, which is `clean_string(textblock2unicode(text))`), mirrored for invariant 6.
+# `replace_textcircle` maps circled digits and letters, and `\textcircled{...}`, to the character inside.
+_CIRCLED = {chr(0x2460 + i): str(i + 1) for i in range(20)}
+_CIRCLED.update({chr(0x24D0 + i): chr(ord("a") + i) for i in range(26)})
+_CIRCLED.update({chr(0x24B6 + i): chr(ord("A") + i) for i in range(26)})
+_TEXTCIRCLED = re.compile(r"\\textcircled\s*\{\s*([^{}]+?)\s*\}")
+# `textblock2unicode` rewrites an inline formula span (`inline_reg`) whose content holds a LaTeX marker.
+_INLINE = re.compile(r"\$(.*?)\$|\\\((.*?)\\\)")
+_LATEX_ESCAPE = re.compile(r"\\([\\_&%^])")
+# `clean_string` keeps word characters and CJK ideographs only.
+_NOT_KEPT = re.compile(r"[^\w\u4e00-\u9fff]")
+_CONTROL_SPELLINGS = ("\\t", "\\n", "\t", "\n", "/t", "/n")
 
 
 class PageContext(NamedTuple):
@@ -358,7 +372,7 @@ def map_polys(
 
 
 def check_page(page: dict, geometry: dict, *, where: str, config: ParsingConfig) -> list[str]:
-    """Check the five invariants of the design's section 5.1 on one page.
+    """Check the six invariants of the design's section 5.1 on one page.
 
     1. Every ink record belongs to exactly one recorded block.
     2. (Decision 8's form.) Every line in a table block carries a cell inside the declared columns.
@@ -366,6 +380,9 @@ def check_page(page: dict, geometry: dict, *, where: str, config: ParsingConfig)
        some table cell's text, collapsed the same way.
     4. Every `poly` lies within the page.
     5. Every block that drew ink has a category, and every `category_type` is in the vocabulary.
+    6. No block in one of the evaluator's ignored categories has text within the evaluator's ignored-match
+       distance of a scored block's text, so the evaluator cannot drop a correct reading of the scored
+       block as a match of the ignored one.
 
     Args:
         page: The page `build_page` (or `map_polys`) wrote from `geometry`.
@@ -384,6 +401,7 @@ def check_page(page: dict, geometry: dict, *, where: str, config: ParsingConfig)
     errors.extend(_text_errors(page, geometry["texts"], where))
     errors.extend(_poly_errors(page, blocks, where))
     errors.extend(_category_errors(page, ink, blocks, where, config))
+    errors.extend(_ignored_match_errors(page, blocks, where, config))
     return errors
 
 
@@ -578,4 +596,120 @@ def _category_errors(
                 "category_vocabulary value.",
             )
         )
+    return errors
+
+
+def _uncircled(text: str) -> str:
+    """The evaluator's `replace_textcircle`: a circled character, or `\\textcircled{x}`, reads as `x`."""
+    text = _TEXTCIRCLED.sub(lambda match: match.group(1).strip(), text)
+    return "".join(_CIRCLED.get(char, char) for char in text)
+
+
+def evaluator_normalised(text: str) -> str:
+    """Normalise text as the pinned evaluator does before it compares a prediction with a ground-truth line.
+
+    Mirrors `normalized_text` in the evaluator's src/core/preprocess/data_preprocess.py, which is
+    `clean_string(textblock2unicode(text))`: circled characters are uncircled; an inline formula span whose
+    content holds a LaTeX marker is rewritten as text; the literal and escaped tab and newline spellings are
+    removed; and every character that is not a word character or a CJK ideograph is dropped. The evaluator
+    rewrites a formula span through pylatexenc's LaTeX-to-text conversion, which is not mirrored: here the
+    span reads as its content, which is what the evaluator falls back to when that conversion fails, and
+    which keeps the same letters, digits and underscores for a plain value. The corpus draws no LaTeX, so no
+    ground-truth line takes that path.
+
+    Args:
+        text: A block's text.
+
+    Returns:
+        The text as the evaluator compares it.
+    """
+    text = _uncircled(text)
+
+    def rewrite(match: re.Match[str]) -> str:
+        content = match.group(1) if match.group(1) is not None else match.group(2)
+        bare = _LATEX_ESCAPE.sub("", content)
+        if not any(char in bare for char in "\\^_"):
+            return match.group(0)
+        return bare.strip()
+
+    text = _uncircled(_INLINE.sub(rewrite, text))
+    for spelling in _CONTROL_SPELLINGS:
+        text = text.replace(spelling, "")
+    return _NOT_KEPT.sub("", text)
+
+
+def normalised_edit_distance(first: str, second: str) -> float:
+    """Return the evaluator's distance: the Levenshtein distance over the longer string's length.
+
+    Mirrors `compute_edit_distance_matrix_new` in the evaluator's src/core/matching/match.py, which gives
+    two empty strings 0.
+    """
+    longest = max(len(first), len(second))
+    if longest == 0:
+        return 0.0
+    previous = list(range(len(second) + 1))
+    for row, left in enumerate(first, start=1):
+        current = [row]
+        for column, right in enumerate(second, start=1):
+            current.append(
+                min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (left != right))
+            )
+        previous = current
+    return previous[-1] / longest
+
+
+def _ignored_match_errors(
+    page: dict, blocks: dict[int, BlockRecord], where: str, config: ParsingConfig
+) -> list[str]:
+    """Invariant 6: no ignored block's text lies within the evaluator's match distance of a scored block's.
+
+    The evaluator (`match_gt2pred_quick` in its src/core/matching/match_quick.py) matches the ignored
+    categories' lines first and drops every prediction whose normalised edit distance to one is below the
+    threshold, so a correct reading of a scored block close to an ignored one is dropped unscored. A block
+    whose normalised text is empty is left out, as the evaluator leaves it out.
+    """
+    threshold = config.ignored_match_max_distance
+    ignored: list[tuple[dict, str]] = []
+    scored: list[tuple[dict, str]] = []
+    for det in page["layout_dets"]:
+        if "text" not in det:
+            continue
+        normal = evaluator_normalised(det["text"])
+        if normal:
+            group = ignored if det["category_type"] in config.ignored_categories else scored
+            group.append((det, normal))
+
+    def path(det: dict) -> str:
+        block = blocks.get(det["anno_id"])
+        return block.path if block is not None else f"anno_id {det['anno_id']}"
+
+    errors = []
+    for ignored_det, ignored_text in ignored:
+        for scored_det, scored_text in scored:
+            # The distance is at least the length difference, so a pair that far apart cannot match.
+            longest = max(len(ignored_text), len(scored_text))
+            if abs(len(ignored_text) - len(scored_text)) / longest >= threshold:
+                continue
+            distance = normalised_edit_distance(ignored_text, scored_text)
+            if distance >= threshold:
+                continue
+            category = ignored_det["category_type"]
+            errors.append(
+                _diagnostic(
+                    "An ignored block nearly repeats a scored block.",
+                    what=f"block {path(ignored_det)} ({category}, which the evaluator ignores) reads "
+                    f"{ignored_det['text']!r}, at normalised edit distance {distance:.3f} from block "
+                    f"{path(scored_det)} ({scored_det['category_type']}) reading {scored_det['text']!r}; "
+                    f"below ignored_match_max_distance {threshold}, the evaluator would drop a correct "
+                    "reading of the scored block as a match of the ignored one.",
+                    where=f"{where}, blocks {path(ignored_det)} and {path(scored_det)}; "
+                    f"{PARSING_CONFIG_PATH} -> ignored_match_max_distance",
+                    expected=f"every {category} block at least {threshold} from every scored block's text, "
+                    "or the repeating block scored, e.g. parse_category: text_block on a remittance slip's "
+                    "invoice number line.",
+                    recover=f"give block {path(ignored_det)} a scored parse_category (text_block, or figure "
+                    "for a code) in its layout YAML if it is document content rather than running page "
+                    "furniture, or change its text so it no longer repeats the scored block.",
+                )
+            )
     return errors

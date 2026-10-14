@@ -78,6 +78,21 @@ def test_the_shipped_config_loads() -> None:
     ]
     assert [tool.backend for tool in config.tools] == ["pipeline", "vlm-engine", "default", "default"]
     assert config.anchors == {"foot": "footer"}
+    # The evaluator's contract at the pinned commit (match_gt2pred_quick in src/core/matching/match_quick.py).
+    assert config.ignored_categories == (
+        "figure_caption",
+        "figure_footnote",
+        "table_caption",
+        "table_footnote",
+        "code_algorithm",
+        "code_algorithm_caption",
+        "header",
+        "footer",
+        "page_footnote",
+        "page_number",
+        "equation_caption",
+    )
+    assert config.ignored_match_max_distance == 0.25
 
 
 def test_the_shipped_maps_cover_exactly_the_primitives_and_overlay_drawers() -> None:
@@ -118,6 +133,8 @@ TOP_LEVEL_KEYS = [
     "category_vocabulary",
     "textless_categories",
     "category_map",
+    "ignored_categories",
+    "ignored_match_max_distance",
     "fold_displacement_max_px",
     "layout_scored_tiers",
     "tools",
@@ -137,6 +154,13 @@ def test_a_missing_top_level_key_is_refused(tmp_path: Path, key: str) -> None:
         ("category_vocabulary", []),
         ("textless_categories", "figure"),
         ("category_map", ["x"]),
+        ("ignored_categories", "footer"),
+        ("ignored_categories", []),
+        ("ignored_categories", ["footer", 3]),
+        ("ignored_match_max_distance", "0.25"),
+        ("ignored_match_max_distance", True),
+        ("ignored_match_max_distance", 0),
+        ("ignored_match_max_distance", 1.5),
         ("fold_displacement_max_px", "3"),
         ("fold_displacement_max_px", True),
         ("fold_displacement_max_px", -1),
@@ -265,6 +289,27 @@ def test_a_duplicated_vocabulary_value_is_refused(tmp_path: Path) -> None:
         "category_vocabulary",
         "table",
         "duplicate",
+    )
+
+
+def test_a_duplicated_ignored_category_is_refused(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["ignored_categories"].append("footer"),
+        "ignored_categories",
+        "footer",
+        "duplicate",
+    )
+
+
+def test_an_ignored_distance_out_of_range_names_the_evaluator_threshold(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d.__setitem__("ignored_match_max_distance", -0.25),
+        "ignored_match_max_distance",
+        "(0, 1]",
+        "ignored_match_max_distance: 0.25",
+        "match_gt2pred_quick",
     )
 
 

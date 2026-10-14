@@ -529,12 +529,15 @@ _invoice_thank_you: &invoice_thank_you
    line_advance: 44, when: DX_THANK_YOU}
 # The website and social handle, each on its own line centred across the full
 # width under the thank-you line, so either prints centred alone or with the other.
+# The website line is scored as text_block, not footer: it carries the seller's
+# domain, which the letterhead email and the PayID repeat closely enough that the
+# evaluator would drop a correct reading of either as a match of an ignored line.
 _invoice_contact_band: &invoice_contact_band
   type: stack
   children:
     - {type: spacer, height: 24, when: DX_WEBSITE}
     - {type: text, content: "{DX_WEBSITE}", align: center, color: gray, budget: DISTRACTOR_HALF,
-       line_advance: 40, when: DX_WEBSITE}
+       line_advance: 40, when: DX_WEBSITE, parse_category: text_block}
     - {type: spacer, height: 12, when: DX_SOCIAL}
     - {type: text, content: "Follow us {DX_SOCIAL}", align: center, color: gray,
        budget: DISTRACTOR_HALF, line_advance: 40, when: DX_SOCIAL}
@@ -546,29 +549,36 @@ _invoice_contact_band: &invoice_contact_band
 # blank for the amount enclosed, and the payment barcode (Code 128 set C: 16
 # digits at 3px per module span 429px with their 10-module quiet zones). The
 # barcode's item requires the amount due, so it is always on a slip.
+# The slip is tear-off content, not running page furniture: its detach note,
+# heading and lines are scored as text_block and its barcode as figure, each by
+# its own parse_category, which outranks the footer category the foot anchor
+# would give it. The evaluator drops every prediction close to an ignored
+# (footer) line, so a slip left as footer would strike correct readings of the
+# invoice number and amount due it repeats from the body.
 _invoice_remittance_gap: &invoice_remittance_gap {type: spacer, height: 48, when: DX_REMITTANCE_TOTAL}
 _invoice_detach_note: &invoice_detach_note
   {type: text, content: "Please detach this portion and return it with your payment",
    role: body, align: center, color: gray, budget: DISTRACTOR_LINE, line_advance: 28,
-   when: DX_REMITTANCE_TOTAL}
+   when: DX_REMITTANCE_TOTAL, parse_category: text_block}
 _invoice_tear_line: &invoice_tear_line
   {type: rule, fill_char: "-", color: gray, pad_above: 0, pad_below: 0, when: DX_REMITTANCE_TOTAL}
 _invoice_remittance_heading: &invoice_remittance_heading
   {type: text, content: "REMITTANCE ADVICE", bold: true, budget: DISTRACTOR_LINE, line_advance: 52,
-   when: DX_REMITTANCE_TOTAL}
+   when: DX_REMITTANCE_TOTAL, parse_category: text_block}
 _invoice_remittance_slip: &invoice_remittance_slip
   type: split
   widths: [850, 850]
   children:
     - - {type: text, content: "Invoice No: {DX_INVOICE_NUMBER}", budget: DISTRACTOR_HALF,
-         line_advance: 44, when: DX_REMITTANCE_TOTAL}
+         line_advance: 44, when: DX_REMITTANCE_TOTAL, parse_category: text_block}
       - {type: pair, label: "Amount due", value: "{DX_REMITTANCE_TOTAL}", currency: symbol,
-         budget: DISTRACTOR_AMOUNT, line_advance: 44, when: DX_REMITTANCE_TOTAL}
+         budget: DISTRACTOR_AMOUNT, line_advance: 44, when: DX_REMITTANCE_TOTAL,
+         parse_category: text_block}
       - {type: text, content: "Amount enclosed: $ ____________", budget: DISTRACTOR_HALF,
-         line_advance: 44, when: DX_REMITTANCE_TOTAL}
+         line_advance: 44, when: DX_REMITTANCE_TOTAL, parse_category: text_block}
     - - {type: barcode, content: "{DX_REMIT_BARCODE}", symbology: code128, height: 90,
          module_px: 3, quiet_zone: 10, human_readable: true, caption_gap: 6, align: right,
-         when: DX_REMIT_BARCODE}
+         when: DX_REMIT_BARCODE, parse_category: figure}
 _invoice_page_number: &invoice_page_number
   {type: text, content: "{DX_PAGE_NUMBER}", role: body, align: right, color: gray,
    budget: DISTRACTOR_LINE, line_advance: 28, when: DX_PAGE_NUMBER}
@@ -577,6 +587,8 @@ _invoice_page_number_gap: &invoice_page_number_gap {type: spacer, height: 24, wh
 # The footer band, drawn upward from the bottom margin (anchor: foot) so it sits at
 # the foot of the page however long the body is: the thank-you line, the website and
 # social contact band, the remittance slip of an unpaid invoice and the page number.
+# The thank-you line, the social handle and the page number keep the footer
+# category the anchor gives them; the website line and the slip are scored.
 # Every block in it is gated on a DX_ key, so a plain render draws none of it and is
 # unchanged. A footer that would reach up into the body fails fast.
 _invoice_footer: &invoice_footer

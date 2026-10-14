@@ -34,6 +34,8 @@ _TOP_LEVEL_KEYS = (
     "category_vocabulary",
     "textless_categories",
     "category_map",
+    "ignored_categories",
+    "ignored_match_max_distance",
     "fold_displacement_max_px",
     "layout_scored_tiers",
     "tools",
@@ -114,6 +116,9 @@ class ParsingConfig:
         primitives: Default category of each block primitive.
         overlays: Default category of each overlay drawer.
         anchors: Default category of each container anchor.
+        ignored_categories: The evaluator's ignored categories, whose lines it matches first and drops.
+        ignored_match_max_distance: The normalised edit distance below which the evaluator matches a
+            prediction to an ignored line.
         fold_displacement_max_px: Largest fold displacement tolerated, in pixels.
         layout_scored_tiers: Degradation tiers scored for layout.
         tools: The parsers scored.
@@ -125,6 +130,8 @@ class ParsingConfig:
     primitives: dict[str, str]
     overlays: dict[str, str]
     anchors: dict[str, str]
+    ignored_categories: tuple[str, ...]
+    ignored_match_max_distance: float
     fold_displacement_max_px: int
     layout_scored_tiers: tuple[str, ...]
     tools: tuple[ToolSpec, ...]
@@ -340,6 +347,35 @@ def _load_category_map(
     return sections["primitives"], sections["overlays"], sections["anchors"]
 
 
+def _load_ignored_categories(raw: Any, *, path: Path) -> tuple[str, ...]:
+    example = "ignored_categories: [figure_caption, header, footer, page_number]"
+    categories = _string_list(raw, path=path, key="ignored_categories", example=example, allow_empty=False)
+    for index, value in enumerate(categories):
+        if value in categories[:index]:
+            raise _fail(
+                what=f"'ignored_categories' lists {value!r} more than once (a duplicate).",
+                path=path,
+                key="ignored_categories",
+                expected=f"each category once, e.g.\n{example}",
+                recover=f"remove the duplicate {value!r} from 'ignored_categories'.",
+            )
+    return categories
+
+
+def _load_ignored_distance(raw: Any, *, path: Path) -> float:
+    if isinstance(raw, bool) or not isinstance(raw, int | float) or not 0 < raw <= 1:
+        raise _fail(
+            what=f"'ignored_match_max_distance' is {raw!r}, not a number in (0, 1].",
+            path=path,
+            key="ignored_match_max_distance",
+            expected="a normalised edit distance above 0 and at most 1, the evaluator's ignored-match "
+            "threshold, e.g.\nignored_match_max_distance: 0.25",
+            recover=f"set 'ignored_match_max_distance' in {path.name} to the threshold the pinned "
+            "evaluator's match_gt2pred_quick compares ignore_matrix against.",
+        )
+    return float(raw)
+
+
 def _load_tiers(raw: Any, *, path: Path) -> tuple[str, ...]:
     example = "layout_scored_tiers: [light, moderate, heavy]"
     tiers = _string_list(raw, path=path, key="layout_scored_tiers", example=example, allow_empty=False)
@@ -553,6 +589,8 @@ def load_parsing_config(path: Path) -> ParsingConfig:
     primitives, overlays, anchors = _load_category_map(
         top["category_map"], path=path, vocabulary=vocabulary
     )
+    ignored = _load_ignored_categories(top["ignored_categories"], path=path)
+    distance = _load_ignored_distance(top["ignored_match_max_distance"], path=path)
     fold = top["fold_displacement_max_px"]
     if isinstance(fold, bool) or not isinstance(fold, int) or fold < 0:
         raise _fail(
@@ -569,6 +607,8 @@ def load_parsing_config(path: Path) -> ParsingConfig:
         primitives=dict(primitives),
         overlays=dict(overlays),
         anchors=dict(anchors),
+        ignored_categories=ignored,
+        ignored_match_max_distance=distance,
         fold_displacement_max_px=fold,
         layout_scored_tiers=_load_tiers(top["layout_scored_tiers"], path=path),
         tools=_load_tools(top["tools"], path=path),

@@ -29,6 +29,18 @@ category_map:
   overlays: {stamp: text_block, handwriting: text_block, ink_marks: abandon, highlight: abandon}
   anchors: {foot: footer}
 
+# The evaluator's ignored categories and the distance at which it matches a prediction to one, both read
+# from src/core/matching/match_quick.py at the pinned commit (match_gt2pred_quick: the `ignores` list and
+# `np.argwhere(ignore_matrix < 0.25)`). The evaluator matches the ground-truth lines of these categories
+# first and drops every prediction whose normalised edit distance to one is below the threshold, so
+# `validate` refuses a page where an ignored block's text lies below it from a scored block's text: a
+# correct reading of the scored block would be dropped. The comparison is strict, as the evaluator's is.
+# These are the evaluator's contract, not this corpus's vocabulary, so the list names categories (such as
+# code_algorithm) that category_vocabulary does not.
+ignored_categories: [figure_caption, figure_footnote, table_caption, table_footnote, code_algorithm,
+  code_algorithm_caption, header, footer, page_footnote, page_number, equation_caption]
+ignored_match_max_distance: 0.25
+
 # The largest vertical displacement, in pixels, a fold may move a block before its ground truth is
 # refused as no longer matching the page.
 fold_displacement_max_px: 3
