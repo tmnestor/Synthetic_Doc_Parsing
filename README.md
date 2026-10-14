@@ -109,6 +109,23 @@ and timings) is written to `../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.
 [`docs/parsing_benchmark_runbook.md`](docs/parsing_benchmark_runbook.md#first-leaderboard-14-october-2026)
 discusses it.
 
+## Tools and licences
+
+Each tool was run unmodified, from its published release and weights, for research. No tool's authors
+endorse this benchmark or its results.
+
+| Tool | Project | Code licence | Model weights licence |
+|---|---|---|---|
+| MinerU | [opendatalab/MinerU](https://github.com/opendatalab/MinerU) | [MinerU Open Source License](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) (Apache-2.0 with additional terms) | [MinerU2.5-Pro](https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B): Apache-2.0; [PDF-Extract-Kit-1.0](https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0): see its page |
+| Docling | [docling-project/docling](https://github.com/docling-project/docling) | [MIT](https://github.com/docling-project/docling/blob/main/LICENSE) | [Layout](https://huggingface.co/docling-project/docling-layout-heron): Apache-2.0; [TableFormer](https://huggingface.co/docling-project/docling-models): Apache-2.0 and CDLA-Permissive-2.0; OCR: see [RapidOCR](https://github.com/RapidAI/RapidOCR) |
+| Marker | [datalab-to/marker](https://github.com/datalab-to/marker), by Datalab | [Apache-2.0](https://github.com/datalab-to/marker/blob/master/LICENSE) | [Modified AI Pubs Open RAIL-M](https://github.com/datalab-to/surya/blob/master/MODEL_LICENSE) |
+
+Marker's scores were produced with Datalab's models
+[`datalab-to/surya-ocr-2-gguf`](https://huggingface.co/datalab-to/surya-ocr-2-gguf) and
+[`datalab-to/surya_layout2`](https://huggingface.co/datalab-to/surya_layout2), unchanged, and are credited
+to Datalab under that model licence, whose full text is at the link above. The models' raw output is not
+published here; the scores are computed from it by the OmniDocBench evaluator.
+
 ## How it fits together
 
 ```mermaid
@@ -197,14 +214,15 @@ the camera warp; blocks the photograph crops are clipped and marked to be ignore
 The snapshot directory is the only thing that is uploaded. Its file names and every non-image file are
 scanned for terms that would reveal how it was made, and one hit refuses the export; what produced it
 (commit, input hashes, any uncommitted changes) is kept beside it in `snapshot_<YYYYMMDD>.provenance/`,
-which is never uploaded. Two items remain open before the first snapshot is published:
+which is never uploaded. One item remains open before the first snapshot is published: the
+labelled-varied half's `label_styles.jsonl` still names layouts by their internal names, which undoes the
+opaque layout keys. The fix belongs in the upstream generator.
 
-- The labelled-varied half's `label_styles.jsonl` still names layouts by their internal names, which
-  undoes the opaque layout keys. The fix belongs in the upstream generator.
-- Each tool's licence governs publishing its scores. Marker's model weights carry terms that restrict use
-  by competitors of their publisher; confirm they permit publication before releasing Marker's scores.
-  The runbook's [licence section](docs/parsing_benchmark_runbook.md#licences-of-the-tools-scored) covers
-  all three tools.
+Each tool's licence governs publishing its scores; the runbook's
+[licence section](docs/parsing_benchmark_runbook.md#licences-of-the-tools-scored) reads all three.
+Marker's model licence bars use by anyone whose employer offers a product or service competing with
+Datalab's; the project owner has confirmed that does not apply here, and the scores carry the attribution
+the licence asks for (above).
 
 ## Programme
 

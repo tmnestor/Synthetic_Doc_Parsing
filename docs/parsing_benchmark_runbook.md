@@ -506,9 +506,14 @@ named permitted use (paragraph 5).
   'Competes' is not defined. Whether 2(c) applies turns on a fact the repository cannot show, namely
   whether the person running the benchmark, or their employer or affiliated entity, offers a document
   conversion or OCR product or service. The project owner must confirm that none does before Marker's
-  scores are published; if one does, the safe course is to leave Marker out.
-- Attribution (paragraph 7): the leaderboard's 'Tools and licences' block credits Marker and its model
-  with their links and licence, and suggests no endorsement. Marker's raw markdown (the model's Output)
+  scores are published; if one does, the safe course is to leave Marker out. *Confirmed 15 October 2026:*
+  the project owner has confirmed that neither they nor their employer offers a product or service that
+  competes with Datalab's, so 2(c) does not apply, and the benchmark's use is research, inside the
+  exception to 2(a) and 2(b). The licence text was re-read from `MODEL_LICENSE` that day and matches the
+  quotations above.
+- Attribution (paragraph 7): the leaderboard's 'Tools and licences' block, and the README's section of
+  the same name, credit Marker and its models with their links and licence, state that the models were
+  used unchanged, and suggest no endorsement. Marker's raw markdown (the model's Output)
   is not published, or is published only under the same licence (paragraph 8). The scores themselves
   are computed by OmniDocBench, not by the model.
 
