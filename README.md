@@ -66,6 +66,22 @@ distractor originals measure what a phone photograph costs.
 File names are generic (`CASE001_receipt.png`), and the published pages carry opaque layout keys
 (`receipt_layout_3`), so a tool cannot infer the template from the name.
 
+### Two ground truths: which one the parsers are scored against
+
+The snapshot carries two ground truths for the same pages, for two different benchmarks. Mixing them up
+is the easiest mistake to make here.
+
+| File | For | What it holds |
+|---|---|---|
+| `parsing/<half>.json` | **This benchmark.** Every parser score is computed against it | A full transcription of each page in OmniDocBench's format: every block of text (headings, names, addresses, labels such as 'Bill To:' and 'Subtotal:', values), its category, its place in the reading order and its position, and every table as html, cell by cell |
+| `<half>/ground_truth.csv` and `.jsonl` | The [extraction benchmark](#the-extraction-benchmark) | One row per page: the file name and 17 field values (ABN, dates, GST, total, line items and so on) |
+
+The pages are drawn from those 17 field values, plus the layout's own fixed text (headings and labels)
+and, on the distractor and later halves, the distractors. Everything drawn, whatever its source, is
+recorded in the parsing ground truth, and `validate` refuses any page where a line of ink belongs to no
+block. On the plain half a page averages about 7 blocks and 150 table cells (bank statement), 12 blocks
+and 14 cells (invoice) or 24 blocks and 7 cells (receipt).
+
 ## Results
 
 Scored 14 October 2026 on an Apple M1 Pro (16 GB), every tool on its Metal (`mps`) device, against
