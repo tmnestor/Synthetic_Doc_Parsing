@@ -116,7 +116,7 @@ endorse this benchmark or its results.
 
 | Tool | Project | Code licence | Model weights licence |
 |---|---|---|---|
-| MinerU | [opendatalab/MinerU](https://github.com/opendatalab/MinerU) | [MinerU Open Source License](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) (Apache-2.0 with additional terms) | [MinerU2.5-Pro](https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B): Apache-2.0; [PDF-Extract-Kit-1.0](https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0): see its page |
+| MinerU | [opendatalab/MinerU](https://github.com/opendatalab/MinerU) | [MinerU Open Source License](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) (Apache-2.0 with additional terms) | [MinerU2.5-Pro](https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B): Apache-2.0; [PDF-Extract-Kit-1.0](https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0): [AGPL-3.0](https://github.com/opendatalab/PDF-Extract-Kit) |
 | Docling | [docling-project/docling](https://github.com/docling-project/docling) | [MIT](https://github.com/docling-project/docling/blob/main/LICENSE) | [Layout](https://huggingface.co/docling-project/docling-layout-heron): Apache-2.0; [TableFormer](https://huggingface.co/docling-project/docling-models): Apache-2.0 and CDLA-Permissive-2.0; OCR: see [RapidOCR](https://github.com/RapidAI/RapidOCR) |
 | Marker | [datalab-to/marker](https://github.com/datalab-to/marker), by Datalab | [Apache-2.0](https://github.com/datalab-to/marker/blob/master/LICENSE) | [Modified AI Pubs Open RAIL-M](https://github.com/datalab-to/surya/blob/master/MODEL_LICENSE) |
 
@@ -214,15 +214,9 @@ the camera warp; blocks the photograph crops are clipped and marked to be ignore
 The snapshot directory is the only thing that is uploaded. Its file names and every non-image file are
 scanned for terms that would reveal how it was made, and one hit refuses the export; what produced it
 (commit, input hashes, any uncommitted changes) is kept beside it in `snapshot_<YYYYMMDD>.provenance/`,
-which is never uploaded. One item remains open before the first snapshot is published: the
-labelled-varied half's `label_styles.jsonl` still names layouts by their internal names, which undoes the
-opaque layout keys. The fix belongs in the upstream generator.
-
-Each tool's licence governs publishing its scores; the runbook's
-[licence section](docs/parsing_benchmark_runbook.md#licences-of-the-tools-scored) reads all three.
-Marker's model licence bars use by anyone whose employer offers a product or service competing with
-Datalab's; the project owner has confirmed that does not apply here, and the scores carry the attribution
-the licence asks for (above).
+which is never uploaded. The runbook's
+[licence section](docs/parsing_benchmark_runbook.md#licences-of-the-tools-scored) sets out the terms
+under which each tool's scores are published.
 
 ## Programme
 

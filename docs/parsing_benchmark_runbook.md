@@ -429,6 +429,12 @@ Scores that the evaluator, not the tool, gets wrong or flatters:
   receipt CASE044, MinerU `vlm-engine` joined the cropped exchange-policy line to the closing thanks line,
   which then scored 0.70.
 
+## Publishing the snapshot
+
+One item stands before the first snapshot is published: the labelled-varied half's `label_styles.jsonl`
+names each page's layout by its internal name, which undoes the opaque layout keys the published pages
+carry. The fix belongs in the upstream generator, which writes that sidecar.
+
 ## Licences of the tools scored
 
 Each tool's code and model weights are licensed separately. The terms below were read from their official
@@ -449,12 +455,19 @@ licences; where a weights licence could not be confirmed from an official source
   in the interface or in public documentation. It says nothing about publishing benchmark results.
 - **Weights.** MinerU2.5-Pro, the `vlm-engine` model, declares `apache-2.0`
   (<https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B>). PDF-Extract-Kit-1.0, the `pipeline`
-  models, sets no licence tag and carries only a heading reading 'license: agpl-3.0'
-  (<https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0>), so its weights licence is not confirmed:
-  see that page.
+  models (layout, OCR, table, formula and reading-order models in one repository), is AGPL-3.0. Its
+  model card's front matter reads 'license: agpl-3.0'
+  (<https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0>), though the hub shows no licence tag for
+  it, and the project it comes from is AGPL-3.0 as a whole
+  (<https://github.com/opendatalab/PDF-Extract-Kit>), whose README says: 'Since this project uses YOLO
+  code and PyMuPDF for file processing, these components require compliance with the AGPL-3.0 license.
+  Therefore, to ensure adherence to the licensing requirements of these dependencies, this repository as
+  a whole adopts the AGPL-3.0 license.' Confirmed from both sources on 15 October 2026.
 - **Finding.** Nothing in the code licence restricts publishing scores, and this benchmark offers no
-  online service; the leaderboard credits MinerU and links its licence in any case. The PDF-Extract-Kit
-  licence should be settled with its authors before the `pipeline` scores are published.
+  online service; the leaderboard credits MinerU and links its licence in any case. AGPL-3.0 places no
+  condition on running the models; its obligations attach to conveying them or to offering users
+  interaction with them over a network, and this benchmark does neither: it runs them locally and
+  publishes only the scores. The `pipeline` scores may therefore be published.
 
 ### Docling
 

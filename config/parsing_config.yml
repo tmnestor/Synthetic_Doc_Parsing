@@ -61,8 +61,9 @@ layout_scored_tiers: [light, moderate]
 # through MLX on the same GPU whatever this says). Every tool here runs locally on Apple silicon.
 # credits is what the leaderboard's closing "Tools and licences" block prints for the tool: its project
 # name and URL and the licences of its code and its model weights, read from the official sources on
-# 14 October 2026. A weights licence not confirmed from an official source reads "see <URL>". Tools of one
-# project (the two MinerU back-ends) carry the same credits and are listed once.
+# 14 October 2026 (PDF-Extract-Kit's on 15 October 2026). A weights licence not confirmed from an
+# official source reads "see <URL>". Tools of one project (the two MinerU back-ends) carry the same
+# credits and are listed once.
 tools:
   - name: mineru_pipeline
     backend: pipeline
@@ -73,7 +74,7 @@ tools:
       project: MinerU
       url: https://github.com/opendatalab/MinerU
       code_licence: MinerU Open Source License (Apache-2.0 with additional terms), https://github.com/opendatalab/MinerU/blob/master/LICENSE.md
-      weights_licence: MinerU2.5-Pro Apache-2.0 (https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B); PDF-Extract-Kit-1.0 see https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0
+      weights_licence: MinerU2.5-Pro Apache-2.0 (https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B); PDF-Extract-Kit-1.0 AGPL-3.0 (https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0, https://github.com/opendatalab/PDF-Extract-Kit)
   - name: mineru_vlm
     backend: vlm-engine
     runner: local
@@ -83,7 +84,7 @@ tools:
       project: MinerU
       url: https://github.com/opendatalab/MinerU
       code_licence: MinerU Open Source License (Apache-2.0 with additional terms), https://github.com/opendatalab/MinerU/blob/master/LICENSE.md
-      weights_licence: MinerU2.5-Pro Apache-2.0 (https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B); PDF-Extract-Kit-1.0 see https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0
+      weights_licence: MinerU2.5-Pro Apache-2.0 (https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B); PDF-Extract-Kit-1.0 AGPL-3.0 (https://huggingface.co/opendatalab/PDF-Extract-Kit-1.0, https://github.com/opendatalab/PDF-Extract-Kit)
   - name: docling
     backend: default
     runner: local
