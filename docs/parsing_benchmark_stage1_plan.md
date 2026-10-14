@@ -599,7 +599,7 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
     unmatched ground-truth lines are paired with leftover fragments and table date cells, which moves
     reading order; a page read as one paragraph scores almost perfect reading order.
   - The ignored-category hazard was real, not theoretical: the invoice remittance slip was `footer` and
-    repeats the body's invoice-number and amount-due lines, so on 31 of the 55 distractor and
+    repeats the body's invoice-number and amount-due lines, so on 30 of the 55 distractor and
     labelled-varied invoices those scored lines lost their prediction for every tool. The slip is now
     scored (`text_block`, its barcode `figure`), as is the invoice website line, and `validate` refuses
     any ignored block within the evaluator's 0.25 of a scored one (`ignored_categories` and
@@ -607,7 +607,8 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
     edit distance for every tool (MinerU `pipeline` 0.528 to 0.569, MinerU `vlm-engine` 0.292 to 0.308,
     Docling 0.160 to 0.177, Marker 0.264 to 0.318; labelled varied alike), because three of the four
     tools leave the slip out, which the scores now charge instead of charging correct readings of the
-    body.
+    body. The evaluator merges a body line and its scored slip twin into one ground-truth entry, so a
+    tool that prints the line once is charged 0.5.
   - Tool behaviours: MinerU `pipeline` reads little of short receipt images (38 of 55 plain receipts
     above text 0.8); MinerU `vlm-engine` drops text it classes as a page header (the first line of every plain
     invoice, most statements' lines above the table); Docling reads 24 of the 55 plain invoices as one page-wide

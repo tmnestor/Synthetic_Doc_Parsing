@@ -349,8 +349,8 @@ Scores that are right, but only once the tool's reading is known:
 
 Scores that the evaluator, not the tool, gets wrong or flatters:
 
-- *The ignored-category hazard, found here and now fixed.* Against `snapshot_20261013`, on 31 of the 55
-  distractor invoices (and the same 31 labelled-varied ones) a scored line lay within normalised edit
+- *The ignored-category hazard, found here and now fixed.* Against `snapshot_20261013`, on 30 of the 55
+  distractor invoices (and the same 30 labelled-varied ones) a scored line lay within normalised edit
   distance 0.25 of a `footer` line, because the remittance slip at the foot, then `footer`, repeats the
   invoice-number and amount-due lines of the body word for word. The quick matcher pairs each ignored
   line with every prediction within normalised edit distance 0.25 and removes them first (design section
@@ -382,6 +382,18 @@ Scores that the evaluator, not the tool, gets wrong or flatters:
   metric is meant to measure. Overall distractor and labelled-varied text edit distance and reading-order
   edit distance (more blocks to order on those invoices) rose by 0.005 to 0.019 for every tool; tables,
   every plain figure and every receipt and statement figure are unchanged.
+
+  A per-line check bears this out. The affected pages are the 30 distractor invoices whose body
+  invoice-number or amount-due line lay within normalised edit distance 0.25 of a footer line in the old
+  ground truth (36 if the company-name, email and PayID lines repeated in the footer are counted). The
+  footer pre-emption is gone: the evaluator now merges the body line and its scored slip twin into one
+  ground-truth entry, so a tool that prints the line once is charged 0.5, which reflects a real omission
+  of the slip copy. Of those 30 pages, the number whose worst such body line is charged above 0.5, before
+  and after, is 29 to 26 for MinerU `pipeline`, 30 to 24 for MinerU `vlm-engine`, 28 to 6 for Docling and
+  26 to 18 for Marker. The CASE002 body invoice-number line moves from 1.00 to 0.50 (MinerU `pipeline`),
+  1.00 to 0.50 (MinerU `vlm-engine`), 0.92 to 0.00 (Docling) and 0.94 to 0.50 (Marker). There is one
+  regression: on CASE002 a MinerU `vlm-engine` amount-due line now pairs with the slip twin and is charged
+  more than before.
 - *A markdown table loses every cell holding a colon.* The pinned evaluator converts a pipe table to html
   and then drops each converted line that matches its table-separator test (`find_md_table_mode` in
   `src/core/preprocess/table_utils.py`), which any colon satisfies, so a cell such as a labelled total or

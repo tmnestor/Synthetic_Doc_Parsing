@@ -358,7 +358,7 @@ What goes wrong, and why:
 
   On the full corpus the hazard was live. In the first scoring (`snapshot_20261013`) the invoice
   remittance slip, a foot-anchored and so `footer` stack, repeated the body's invoice-number and
-  amount-due lines on 31 of the 55 distractor and labelled-varied invoices, and every tool lost its
+  amount-due lines on 30 of the 55 distractor and labelled-varied invoices, and every tool lost its
   correct prediction of those body lines. It is fixed for the slip: the slip is tear-off content that a
   payer returns with the payment, not running page furniture repeated on every page, so its detach note,
   heading and three lines carry `parse_category: text_block` and its barcode `parse_category: figure`,
@@ -366,7 +366,8 @@ What goes wrong, and why:
   foot band is `text_block` too: on two invoices it is 0.24 from the letterhead email or the PayID line.
   It is guarded at `validate` by invariant 6 (section 5.1), which refuses any ignored block this close
   to a scored one, so a new `header` or `footer` block cannot reintroduce it unnoticed. The runbook's
-  'First leaderboard' section gives the scores before and after.
+  'First leaderboard' section gives the scores before and after. The evaluator merges a body line and its
+  scored slip twin into one ground-truth entry, so a tool that prints the line once is charged 0.5.
 
 Recommendations for the owner (each to accept or reject):
 
