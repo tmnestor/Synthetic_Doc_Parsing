@@ -293,9 +293,12 @@ first finding under 'Scores that the evaluator, not the tool, gets wrong or flat
 re-exported as `snapshot_20261014`, and the plain, distractor and labelled-varied runs re-scored against
 it, without running any parser, into `leaderboard_20261014.md` and `.csv`: their images are
 byte-identical in both snapshots, which `score_parsing.py` checks against each `MANIFEST.json`. The
-degraded runs were not re-scored (`--halves plain distractor labelled_varied`): the heavy tier's fold is
-not reproducible, so its 55 images differ between the snapshots and the check refuses them. The degraded
-ground truth is identical in both, so its scores stand as in the earlier leaderboard. Each score below was read against the page
+degraded runs were scored in the same leaderboard against `snapshot_20261013`, the snapshot they were made
+on (`--snapshot-for degraded=../evaluation_data/snapshot_20261013`): the heavy tier's fold is not
+reproducible, so its 55 images differ between the snapshots and the check refuses them against
+`snapshot_20261014`. The degraded ground truth is identical in both apart from each page's dated image
+directory, which the leaderboard's opening lines confirm by hash, and every degraded score equals the
+earlier leaderboard's. Each score below was read against the page
 image, the tool's markdown and the ground-truth page, at least one page per document type for each tool;
 pages are named by case id and role only. Unless a finding says otherwise, the score is right: it
 measures what the tool wrote.

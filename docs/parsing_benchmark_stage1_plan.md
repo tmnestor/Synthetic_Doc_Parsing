@@ -564,18 +564,18 @@ leaderboard rows; `run_local_parser` refuses a remote tool.
 - *First leaderboard.* `leaderboard_20261014.md` and `.csv` under the output root, scoring the plain,
   distractor and labelled-varied runs against `snapshot_20261014`, re-exported after the invoice
   remittance slip was given scored categories; the runs were made on `snapshot_20261013`, whose images
-  for those halves are byte-identical. The degraded half was not re-scored (the heavy tier's images are not
-  reproducible between exports; its ground truth is unchanged), so its figures come from the first
-  scoring, kept with every other before-fix figure as `leaderboard_20261014_before_footer_fix.md` and
-  `.csv`. The runbook's section 'First leaderboard, 14 October 2026' reads both against the page images.
+  for those halves are byte-identical. The degraded half is scored in the same leaderboard against
+  `snapshot_20261013` (`--snapshot-for`), because the heavy tier's images are not reproducible between
+  exports; its ground truth is the same in both. The first scoring is kept as
+  `leaderboard_20261014_before_footer_fix.md` and `.csv`. The runbook's section 'First leaderboard, 14
+  October 2026' reads both against the page images.
 - *Publication blocker.* The published `labelled_varied/label_styles.jsonl` sidecar rows carry the real
   layout id in their `layout` field, so a reader can join `image_file` to `page_info.image_path` and
   recover the real layout behind every opaque parsing layout key. The snapshot must not be uploaded until
   the upstream sidecar writer drops or opaques that field; after that, the parsing leak test should
   widen to every non-image file in the snapshot. This repository leaves the sidecar unchanged.
 - *Headline results* (page means; text and reading order are edit distances, lower is better; TEDS
-  higher is better; halves plain / distractor / labelled varied / degraded, the degraded figures from the
-  first scoring):
+  higher is better; halves plain / distractor / labelled varied / degraded):
 
   | Tool | Text edit | Table TEDS | Table edit | Reading-order edit |
   |---|---|---|---|---|
