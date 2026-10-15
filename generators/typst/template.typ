@@ -19,8 +19,9 @@
 // `body` as a block of its own measured size, aligned within its region, with its box handed to `emit`
 // as a dictionary of points: the page number, the top-left corner (`x`, `y`) and the size (`w`, `h`).
 // The size is the body's own as laid out in its region (a short line is narrower than its column, a
-// wrapped one as wide as its widest line), and the corner is where the alignment puts it. The record is
-// the first thing inside the block, so `here()` is the block's top-left.
+// wrapped one as wide as its widest line), and the corner is where the alignment puts it. Each line of
+// the body keeps the alignment inside that block too, set there explicitly rather than inherited. The
+// record is the first thing inside the block, so `here()` is the block's top-left.
 #let _box-of(body, emit, align) = block(width: 100%, std.align(align, layout(region => {
   let size = measure(body, width: region.width)
   block(width: size.width, {
@@ -28,7 +29,7 @@
       let p = here().position()
       emit((page: p.page, x: p.x.pt(), y: p.y.pt(), w: size.width.pt(), h: size.height.pt()))
     }
-    body
+    std.align(align, body)
   })
 })))
 

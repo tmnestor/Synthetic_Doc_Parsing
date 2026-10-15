@@ -16,6 +16,7 @@ import pypdfium2
 import pytest
 import segno
 
+from generators.layout_dsl.code128 import encode_code128
 from generators.layout_dsl.engine import SCOPED_LEAVES
 from generators.loader import load_layout_registry
 from generators.parsing.omnidocbench import OVERLAY_PREFIX
@@ -51,6 +52,10 @@ ENTRY = {
 }
 TEXT = {"type": "text", "content": "Marrowbank Tide Tables"}
 OTHER_TEXT = {"type": "text", "content": "Sallow Creek Almanac"}
+TABLE_COLUMNS: list[dict] = [
+    {"key": "item", "label": "Item", "align": "left", "x": 0},
+    {"key": "amount", "label": "Amount", "align": "right", "x_right": 0},
+]
 TABLE = {
     "type": "table",
     "rows": "pipe_fields",
@@ -58,10 +63,7 @@ TABLE = {
     "grouping": "none",
     "header": True,
     "params": {"fields": {"item": "INVENTED_ITEMS", "amount": "INVENTED_AMOUNTS"}},
-    "columns": [
-        {"key": "item", "label": "Item", "align": "left", "x": 0},
-        {"key": "amount", "label": "Amount", "align": "right", "x_right": 0},
-    ],
+    "columns": TABLE_COLUMNS,
 }
 
 # One minimal body per gate primitive, each holding at least one block a parser finds.
@@ -499,3 +501,75 @@ def test_a_qrcode_reports_its_drawn_size(tmp_path: Path) -> None:
     side = (modules + 2 * block["quiet_zone"]) * block["module_px"] * scale
     assert record["w"] == pytest.approx(side, abs=0.5)
     assert record["h"] == pytest.approx(side, abs=0.5)
+
+
+def ink_lines(pdf: Path, box: dict) -> list[tuple[float, float]]:
+    """Return each text line drawn inside a record's box, top to bottom, as (top, right edge) in points.
+
+    Characters come from the PDF's text layer; a character belongs to the box when its centre lies in it.
+    """
+    page = pypdfium2.PdfDocument(str(pdf))[0]
+    height = page.get_height()
+    text = page.get_textpage()
+    chars: list[tuple[float, float]] = []
+    for index in range(text.count_chars()):
+        if not text.get_text_range(index, 1).strip():
+            continue
+        left, bottom, right, top = text.get_charbox(index)
+        x, y = (left + right) / 2, height - (top + bottom) / 2
+        if box["x"] <= x <= box["x"] + box["w"] and box["y"] <= y <= box["y"] + box["h"]:
+            # The loose box spans the font's height, so the characters of one line share its top.
+            chars.append((height - text.get_charbox(index, loose=True)[3], right))
+    lines: list[tuple[float, float]] = []
+    for top, right in sorted(chars):
+        if lines and top - lines[-1][0] < 2.0:
+            lines[-1] = (lines[-1][0], max(lines[-1][1], right))
+        else:
+            lines.append((top, right))
+    return lines
+
+
+def test_a_wrapped_right_aligned_text_keeps_each_line_on_its_right_edge(tmp_path: Path) -> None:
+    long = "Marrowbank tide tables and soundings for the reef"
+    source = translate([{"type": "text", "content": long, "align": "right"}], tmp_path).source
+    pdf = tmp_path / "page.pdf"
+    compile_page(source, pdf)
+    (record,) = query(source, "block-record")
+    left, right = roll_column()
+    lines = ink_lines(pdf, record)
+    assert len(lines) >= 2, "the text must wrap for this test to mean anything"
+    assert record["w"] <= right - left + 1e-6
+    for _, line_right in lines:
+        assert line_right == pytest.approx(record["x"] + record["w"], abs=1.0)
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    advance = real_layout([])["defaults"]["line_advance"]["body"] * scale
+    assert record["h"] == pytest.approx(len(lines) * advance, abs=0.5)
+
+
+def test_a_multi_line_cell_in_a_right_aligned_column_keeps_each_line_on_its_right_edge(
+    tmp_path: Path,
+) -> None:
+    item, amount = TABLE_COLUMNS
+    table = {**TABLE, "columns": [item, {**amount, "label": "Amount\nin dollars"}]}
+    source = translate([table], tmp_path).source
+    pdf = tmp_path / "page.pdf"
+    compile_page(source, pdf)
+    (cell,) = [c for c in query(source, "cell-record") if (c["row"], c["col"]) == (0, 1)]
+    lines = ink_lines(pdf, cell)
+    assert len(lines) == 2
+    for _, line_right in lines:
+        assert line_right == pytest.approx(cell["x"] + cell["w"], abs=1.0)
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    advance = real_layout([])["defaults"]["line_advance"]["body"] * scale
+    assert cell["h"] == pytest.approx(2 * advance, abs=0.5)
+
+
+def test_a_barcode_reports_its_drawn_size(tmp_path: Path) -> None:
+    block = BODIES["barcode"][0]
+    (record,) = boxes([block], tmp_path)
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    bars = (len(encode_code128(block["content"])) + 2 * block["quiet_zone"]) * block["module_px"] * scale
+    advance = real_layout([])["defaults"]["line_advance"]["body"]
+    # The bars, the gap, then the caption's one line; the caption is narrower than the bars.
+    assert record["w"] == pytest.approx(bars, abs=0.5)
+    assert record["h"] == pytest.approx((block["height"] + block["caption_gap"] + advance) * scale, abs=0.5)
