@@ -398,8 +398,13 @@ def test_every_table_grouping_and_frame_and_a_split_divider_are_translated() -> 
             "body[0].columns[1].sub_line",
             "right-aligned table column carries a sub_line",
         ),
+        (
+            [TEXT, {"type": "split", "parse_block": True, "children": [[TEXT], [OTHER_TEXT]]}],
+            "body[1].parse_block",
+            "does not yet typeset a parse_block container",
+        ),
     ],
-    ids=["foot-in-stack", "foot-in-split", "nested-banner", "right-sub-line"],
+    ids=["foot-in-stack", "foot-in-split", "nested-banner", "right-sub-line", "parse-block-split"],
 )
 def test_a_placement_the_translator_cannot_make_is_refused_four_part(
     body: list, where: str, names: str, tmp_path: Path

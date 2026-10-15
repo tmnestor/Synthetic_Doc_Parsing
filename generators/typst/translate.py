@@ -393,6 +393,18 @@ def _refuse_untranslated(blocks: list, *, prefix: str, layout_id: str, layout_pa
                     recover=f"change this block's {key}, or teach generators/typst/translate.py (and "
                     "SUPPORTED_OPTIONS there) to typeset it.",
                 )
+        if block.get("parse_block") is True:
+            raise _refusal(
+                f"a '{kind}' container sets parse_block: true, which joins its children's lines into one "
+                "block.",
+                layout_path=layout_path,
+                where=f"{layout_id}.{path}.parse_block",
+                expected="no parse_block key on a container, e.g. {type: split, children: [[...], [...]]}; "
+                "each leaf inside then records a block of its own.",
+                recover="remove parse_block from this container; the translator does not yet typeset a "
+                "parse_block container (generators/typst/translate.py would need to write its children's "
+                "lines into one record).",
+            )
         nested = prefix != "body"
         if nested and block.get("anchor") == "foot":
             raise _refusal(
