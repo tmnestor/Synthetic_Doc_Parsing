@@ -92,12 +92,16 @@ class PageReport:
         box_query_error: The refusal when it did not.
         invariant_errors: Stage one's `check_page` diagnostics.
         layout_errors: `layout_errors` diagnostics.
+        stage_one_differences: Blocks whose category, text or table html differ from stage one's own page
+            for the same case and mode (stage one's overlay blocks excluded); empty when none do.
         bytes_identical: Whether two compiles of one source gave the same PDF.
         ligature_invariant_1_holds: Whether, compiled with ligatures on, every word still has an owner.
         ligature_other_errors: How many other invariant diagnostics the ligature compile raised.
         ligatures_in_text_layer: The ligature characters the ligature compile's text layer holds.
         ligature_candidates: How many ff, fi, fl, ffi or ffl sequences the page's text holds, the places
             a ligature could form.
+        ligature_source_differs: Whether the probe's source differs from the normal source, so the
+            probe really compiled something else.
         ligature_pdf_differs: Whether the ligature compile's PDF differs from the plain compile's, which
             shows the switch took effect.
         overlays_placed: Whether the page carries its overlays (always False until they are placed).
@@ -126,7 +130,9 @@ class PageReport:
     ligature_other_errors: int | None = None
     ligatures_in_text_layer: list[str] = field(default_factory=list)
     ligature_candidates: int = 0
+    ligature_source_differs: bool | None = None
     ligature_pdf_differs: bool | None = None
+    stage_one_differences: list[str] = field(default_factory=list)
     overlays_placed: bool = False
     overlay_sites_in_stage_one: int = 0
     scores: dict[str, float | None] | None = None
@@ -141,6 +147,7 @@ class PageReport:
             and self.page_count == 1
             and not self.invariant_errors
             and not self.layout_errors
+            and not self.stage_one_differences
             and self.bytes_identical
         )
 
@@ -192,6 +199,8 @@ def _render_page(page: PageReport) -> list[str]:
         f"  box query: {'ok' if page.box_query_ok else 'FAILED ' + str(page.box_query_error)}",
         f"  six invariants: {'ok' if not page.invariant_errors else str(len(page.invariant_errors))} "
         f"{'' if not page.invariant_errors else 'FAILED'}".rstrip(),
+        f"  stage-one comparison (block by block, overlays excluded): "
+        f"{'identical' if not page.stage_one_differences else str(page.stage_one_differences)}",
         f"  layout checks: {'ok' if not page.layout_errors else str(len(page.layout_errors)) + ' FAILED'}",
         f"  byte check (two compiles identical): {'ok' if page.bytes_identical else 'FAILED'}",
         f"  ligature probe: invariant 1 holds={page.ligature_invariant_1_holds}; "
@@ -261,13 +270,62 @@ def _ligature_probe(
     context = PageContext(report.png, "n/a", report.layout_id, "typeset_ligatures", "none", True)
     page = build_page(geometry, context=context, config=parsing)
     errors = check_page(page, geometry, where="ligature probe", config=parsing)
-    owner_errors = [e for e in errors if e.startswith("A line of ink belongs to no block.")]
-    report.ligature_invariant_1_holds = owned and not owner_errors
-    report.ligature_other_errors = len(errors) - len(owner_errors)
+    # Invariant 1 is structural: every ink record names a block that was opened. It raises one
+    # diagnostic per unowned record, so the errors beyond those belong to the other five invariants.
+    opened = {block.id for block in geometry["blocks"]}
+    unowned = sum(1 for record in geometry["ink"] if record.block not in opened)
+    report.ligature_invariant_1_holds = owned and unowned == 0
+    report.ligature_other_errors = len(errors) - unowned
+    report.ligature_source_differs = probed != source
     texts = [record.text for record in geometry["ink"]]
     report.ligatures_in_text_layer = _ligatures(texts)
     report.ligature_candidates = sum(len(_CANDIDATE.findall(text)) for text in texts)
     report.ligature_pdf_differs = compiled.pdf != plain_pdf
+
+
+def _collapsed(text: str) -> str:
+    """Collapse every run of whitespace to one space."""
+    return " ".join(text.split())
+
+
+def _stage_one_differences(page: dict, stage_one: dict, *, context: PageContext) -> list[str]:
+    """Compare the typeset page block by block with stage one's page of the same case and mode.
+
+    Blocks are matched by id (`anno_id`); the text of a block, or the html of a table, is compared with
+    whitespace collapsed. Stage one's overlay blocks are left out: overlays are placed by a later task.
+
+    Args:
+        page: The OmniDocBench page built from the read-back geometry.
+        stage_one: The geometry of stage one's own render of the same case and mode.
+        context: The page's context, reused for stage one's page.
+
+    Returns:
+        One line per block that differs, is missing, or is extra; empty when the two agree.
+    """
+    parsing = load_parsing_config(PARSING_CONFIG_PATH)
+    overlays = {block.id for block in stage_one["blocks"] if block.kind.startswith(OVERLAY_PREFIX)}
+    theirs = {
+        det["anno_id"]: det
+        for det in build_page(stage_one, context=context, config=parsing)["layout_dets"]
+        if det["anno_id"] not in overlays
+    }
+    ours = {det["anno_id"]: det for det in page["layout_dets"] if det["anno_id"] not in overlays}
+    differences = []
+    for block in sorted(set(theirs) | set(ours)):
+        one, two = theirs.get(block), ours.get(block)
+        if one is None or two is None:
+            where = "stage one" if one is None else "the typeset page"
+            differences.append(f"block {block} is missing from {where}")
+            continue
+        if one["category_type"] != two["category_type"]:
+            differences.append(
+                f"block {block}: category {two['category_type']!r}, stage one {one['category_type']!r}"
+            )
+        key = "html" if "html" in one or "html" in two else "text"
+        mine, wanted = _collapsed(two.get(key, "")), _collapsed(one.get(key, ""))
+        if mine != wanted:
+            differences.append(f"block {block}: {key} {mine!r}, stage one {wanted!r}")
+    return differences
 
 
 def _typeset_page(
@@ -335,6 +393,7 @@ def _typeset_page(
     page = build_page(geometry, context=context, config=parsing)
     report.invariant_errors = check_page(page, geometry, where=where, config=parsing)
     report.layout_errors = layout_errors(geometry, where=where)
+    report.stage_one_differences = _stage_one_differences(page, stage_one, context=context)
     _ligature_probe(
         translation.source, first.pdf, translation, report, work=work / "ligatures", config=config
     )

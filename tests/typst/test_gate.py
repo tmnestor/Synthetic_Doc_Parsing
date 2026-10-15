@@ -14,13 +14,43 @@ from pathlib import Path
 
 import pytest
 
-from scripts.typeset_gate import GateError, GateReport, run_gate
-from tests.conftest import assert_diagnostic_error
-from tests.parsing.test_perfect_score import _checkout_root, _evaluator_env_exists
+from generators.loader import load_ground_truth, load_layout_registry
+from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
+from generators.parsing.omnidocbench import PageContext, build_page, evaluator_normalised
+from generators.parsing.omnidocbench import normalised_edit_distance
+from generators.pipeline import _RENDERERS
+from generators.typst.translate import GATE_LAYOUTS
 from scripts.omnidocbench_eval import CHECKOUT_NAME, EVALUATOR_ENV
+from scripts.typeset_gate import GateError, GateReport, _stage_one_differences, run_gate
+from tests.conftest import REPO_ROOT, assert_diagnostic_error
+from tests.parsing.test_perfect_score import _checkout_root, _evaluator_env_exists
 
 _ORDERED = ("title", "text_block", "table")
 UNDERSCORE_RUN = re.compile(r"_{4,}")
+SPACE_RUN = re.compile(r" {4,}")
+
+
+def evaluator_shortened(text: str) -> str:
+    """The evaluator's `replace_repeated_chars` (data_preprocess.py, line 23), applied to a prediction."""
+    return SPACE_RUN.sub("    ", UNDERSCORE_RUN.sub("____", text))
+
+
+def expected_text_edit(gt: dict) -> float:
+    """The text score the evaluator gives a page whose prediction is its ground truth, exactly.
+
+    The evaluator shortens runs of four or more underscores or spaces in the prediction only. Each
+    `text_block` is compared after normalisation; the page's score is the sum of the edits over the sum of
+    the ground-truth lengths.
+    """
+    edits = total = 0.0
+    for det in gt["layout_dets"]:
+        if det["category_type"] not in ("text_block", "title"):
+            continue
+        truth = evaluator_normalised(det["text"])
+        predicted = evaluator_normalised(evaluator_shortened(det["text"]))
+        edits += normalised_edit_distance(truth, predicted) * max(len(truth), len(predicted))
+        total += len(truth)
+    return edits / total
 
 
 @pytest.fixture(scope="module")
@@ -43,11 +73,9 @@ def test_a_missing_output_root_is_refused_with_a_diagnostic(tmp_path: Path) -> N
 @pytest.mark.slow
 def test_the_gate_covers_three_layouts_plain_and_with_distractors(report: GateReport) -> None:
     assert len(report.pages) == 6
-    assert sorted({page.layout_id for page in report.pages}) == [
-        "receipt_thermal_80mm",
-        "tax_invoice_standard",
-        "westpac_standard",
-    ]
+    assert sorted({page.layout_id for page in report.pages}) == sorted(
+        layout_id for _, layout_id in GATE_LAYOUTS
+    )
     assert sorted(page.mode for page in report.pages) == ["distractor"] * 3 + ["plain"] * 3
 
 
@@ -58,6 +86,7 @@ def test_every_page_passes_every_check(report: GateReport) -> None:
         assert page.invariant_errors == [], page
         assert page.layout_errors == [], page
         assert page.bytes_identical, page
+        assert page.stage_one_differences == [], page
         assert page.page_count == 1, page
         assert page.passed, page
     assert report.passed
@@ -74,7 +103,9 @@ def test_overlays_are_reported_as_not_yet_placed(report: GateReport) -> None:
 @pytest.mark.slow
 def test_the_ligature_probe_reports_its_outcome(report: GateReport) -> None:
     for page in report.pages:
-        assert isinstance(page.ligature_invariant_1_holds, bool), page
+        assert page.ligature_source_differs is True, page
+        assert page.ligature_invariant_1_holds is True, page
+        assert page.ligature_other_errors == 0, page
         assert isinstance(page.ligatures_in_text_layer, list), page
 
 
@@ -101,15 +132,31 @@ def test_the_evaluator_scores_each_pages_ground_truth_perfectly(report: GateRepo
         ordered = [det["order"] for det in gt["layout_dets"] if det["category_type"] in _ORDERED]
         scores = page.scores
         assert scores is not None, page
-        texts = [det.get("text", "") for det in gt["layout_dets"]]
-        if any(UNDERSCORE_RUN.search(text) for text in texts):
-            # The evaluator shortens a run of four or more underscores in a prediction (data_preprocess.py,
-            # line 23) but not in the ground truth, so a blank-to-fill-in line costs a small, known edit.
-            assert 0 < (scores["text_block_edit_dist"] or 0) < 0.02, (page.png, scores)
-        else:
-            assert scores["text_block_edit_dist"] == 0, (page.png, scores)
+        # Exactly 0 unless the page holds a run the evaluator shortens in the prediction.
+        assert scores["text_block_edit_dist"] == pytest.approx(expected_text_edit(gt), abs=1e-12), (
+            page.png,
+            scores,
+        )
         if tables:
             assert scores["table_teds"] == 1, (page.png, scores)
             assert scores["table_edit_dist"] == 0, (page.png, scores)
         expected = (1 if tables else 0) / len(ordered)
         assert scores["reading_order_edit_dist"] == pytest.approx(expected, abs=1e-12), (page.png, scores)
+
+
+def test_the_stage_one_comparison_names_a_word_dropped_from_the_typeset_page() -> None:
+    layout_file, layout_id = next(gate for gate in GATE_LAYOUTS if "receipts" in gate[0])
+    entries = load_ground_truth(REPO_ROOT / "ground_truth" / "receipts.yml")
+    case_id = next(str(c) for c in sorted(entries, key=str) if entries[c]["layout"] == layout_id)
+    entry = {**entries[case_id], "case_id": case_id}
+    layout = load_layout_registry(REPO_ROOT / layout_file)[layout_id]
+    stage_one: dict = {}
+    _RENDERERS["receipts"](entry, layout, distractors=False, geometry_out=stage_one)
+    context = PageContext("x.png", "receipt", layout_id, "typeset_plain", "none", True)
+    page = build_page(stage_one, context=context, config=load_parsing_config(PARSING_CONFIG_PATH))
+    assert _stage_one_differences(page, stage_one, context=context) == []
+    det = next(d for d in page["layout_dets"] if d.get("text", "").count(" ") >= 1)
+    det["text"] = det["text"].split(" ", 1)[1]
+    differences = _stage_one_differences(page, stage_one, context=context)
+    assert len(differences) == 1
+    assert f"block {det['anno_id']}" in differences[0]
