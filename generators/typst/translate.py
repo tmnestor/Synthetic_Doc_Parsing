@@ -13,7 +13,7 @@ Typesetting replaces pixel fitting: a text's string, or a pair's value, is writt
 stage one wrapped it to joined by a space) at its role's nominal size, and Typst wraps it within its
 region; a table cell keeps the lines stage one drew in it, each at the size it was drawn. Every length is
 a stage-one pixel value from the layout, converted to points by `page_scale`: at the canvas resolution
-for a sheet, whose canvas is centred across the A4 width, and at the roll's width for a receipt.
+for a sheet, whose content is centred across the A4 width, and at the roll's width for a receipt.
 
 Overlays (the marks a distractor page draws over the finished body) are not yet placed: a page carries
 its body's blocks only.
@@ -64,6 +64,8 @@ SUPPORTED_OPTIONS: dict[str, dict[str, tuple[object, ...]]] = {
 
 _PT_PER_MM = 72 / 25.4
 _ALIGNS = {"left": "left", "center": "center", "right": "right"}
+# The leaves whose own `align:` places them in their region; every other block sits at its left edge.
+_SELF_ALIGNED = frozenset({"text", "logo", "barcode", "qrcode"})
 
 
 class TranslateError(RuntimeError):
@@ -364,15 +366,20 @@ class _Writer:
             )
             ink = self.stage_one.ink[drawn.ink_start : drawn.ink_end]
             call = self.writers[kind](block, region, path, ink, drawn, in_block or opens)
+            # A leaf is drawn at its own size and placed by its record (or, inside a block an enclosing
+            # container opened, by `dsl-align`), so the record's box is where the leaf sits.
+            align = _ALIGNS[str(self.param(block, "align"))] if kind in _SELF_ALIGNED else "left"
             if opens:
-                call = self.record(path, call)
+                call = self.record(path, call, align)
+            elif kind in SCOPED_LEAVES:
+                call = f"dsl-align(align: {align}, {call})"
             if block.get("anchor") == "foot":
                 call = f"dsl-foot({call})"
             calls.append(call)
         return calls
 
-    def record(self, path: str, call: str) -> str:
-        """Wrap a block's call in the `block-record` of the block stage one opened at `path`."""
+    def record(self, path: str, call: str, align: str) -> str:
+        """Wrap a block's call in the `block-record` stage one opened at `path`, placed at `align`."""
         record = self.records[path]
 
         def value(item: object) -> str:
@@ -381,8 +388,8 @@ class _Writer:
         return (
             f'block-record(id: {record.id}, kind: "{record.kind}", path: "{record.path}", '
             f"anchor: {value(record.anchor)}, category: {value(record.parse_category)}, "
-            f"order: {record.parse_order}, columns: {value(record.columns)}, join: {value(record.join)},\n"
-            f"{call})"
+            f"order: {record.parse_order}, columns: {value(record.columns)}, join: {value(record.join)}, "
+            f"align: {align},\n{call})"
         )
 
     def travel(self, drawn: DrawnBlock) -> str:
@@ -398,9 +405,8 @@ class _Writer:
         lines = [record.text for record in ink]
         if not lines:
             return self.travel(drawn)
-        align = _ALIGNS[str(self.param(block, "align"))]
         style = self.block_style(block, bold=bool(self.param(block, "bold")))
-        return f"dsl-text(align: {align}, {style}, {_string(' '.join(lines))})"
+        return f"dsl-text({style}, {_string(' '.join(lines))})"
 
     def pair(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
@@ -504,9 +510,8 @@ class _Writer:
         )
         notch = _chevron_depth(size) if style == "chevron" else 0
         fill = _colour(self.param(block, "color"))
-        align = _ALIGNS[str(self.param(block, "align"))]
         return (
-            f'dsl-logo(size: {self.pt(size)}, style: "{style}", fill: {fill}, align: {align}, '
+            f'dsl-logo(size: {self.pt(size)}, style: "{style}", fill: {fill}, '
             f"notch: {self.pt(notch)}, initials: {initials})"
         )
 
@@ -536,11 +541,10 @@ class _Writer:
             )
             caption_call = f"dsl-line({style}, {_string(caption.text)})"
         unit = int(block["module_px"])
-        align = _ALIGNS[str(self.param(block, "align"))]
         return (
             f"dsl-barcode(runs: {_array([f'({start}, {length})' for start, length in runs])}, "
             f"modules: {len(modules)}, unit: {self.pt(unit)}, height: {self.pt(int(block['height']))}, "
-            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {_colour(fill)}, align: {align}, "
+            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {_colour(fill)}, "
             f"gap: {self.pt(int(block['caption_gap']))}, caption: {caption_call})"
         )
 
@@ -557,10 +561,9 @@ class _Writer:
         ]
         unit = int(block["module_px"])
         fill = _colour(self.param(block, "color"))
-        align = _ALIGNS[str(self.param(block, "align"))]
         return (
             f"dsl-qrcode(runs: {_array(runs)}, modules: {len(matrix)}, unit: {self.pt(unit)}, "
-            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {fill}, align: {align})"
+            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {fill})"
         )
 
     def table(
@@ -744,11 +747,10 @@ def translate_page(
     scale = page_scale(layout, page, canvas_dpi=config.canvas_dpi)
     writer = _Writer(stage_one, layout, layout_id=layout_id, layout_path=layout_path, scale=scale)
     margin = int(layout["margin"])
-    # The canvas is centred across the page (a roll's fills it): the content keeps stage one's left offset
-    # within the canvas, so a symmetric stage-one margin stays symmetric on the page.
+    # The content is centred across the page with equal left and right margins, whatever stage one's
+    # canvas margins were; a roll's content keeps its symmetric stage-one margins.
     page_pixels = page.width_mm * _PT_PER_MM / scale
-    left = (page_pixels - _pixel_width(layout, page)) / 2 + margin
-    right = page_pixels - left - int(layout["content_width"])
+    left = right = (page_pixels - int(layout["content_width"])) / 2
     height = "auto" if page.height_mm is None else f"{page.height_mm:g}mm"
     body = writer.blocks(
         layout["body"], Region(x=margin, width=int(layout["content_width"])), "body", in_block=False

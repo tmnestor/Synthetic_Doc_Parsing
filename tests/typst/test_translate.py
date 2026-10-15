@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pypdfium2
 import pytest
+import segno
 
 from generators.layout_dsl.engine import SCOPED_LEAVES
 from generators.loader import load_layout_registry
@@ -213,15 +214,20 @@ def test_a_sheet_converts_pixels_at_the_canvas_resolution() -> None:
     assert page_scale(sheet, A4, canvas_dpi=CONFIG.canvas_dpi) == pytest.approx(72 / CONFIG.canvas_dpi)
 
 
-def test_a_sheet_centres_its_canvas_within_the_page_width(tmp_path: Path) -> None:
-    invoices = REPO_ROOT / "config" / "layouts" / "invoices.yml"
-    layout = copy.deepcopy(load_layout_registry(invoices)["tax_invoice_standard"])
+@pytest.mark.parametrize(
+    ("stem", "layout_id"), [("invoices", "tax_invoice_standard"), ("bank_statements", "westpac_standard")]
+)
+def test_a_sheet_centres_its_content_within_the_page_width(
+    stem: str, layout_id: str, tmp_path: Path
+) -> None:
+    layout_path = REPO_ROOT / "config" / "layouts" / f"{stem}.yml"
+    layout = copy.deepcopy(load_layout_registry(layout_path)[layout_id])
     layout.update(body=[TEXT], field_providers=[], distractor_items=[])
     source = translate_page(
         layout,
-        {**ENTRY, "layout": "tax_invoice_standard"},
-        layout_id="tax_invoice_standard",
-        layout_path=invoices,
+        {**ENTRY, "layout": layout_id},
+        layout_id=layout_id,
+        layout_path=layout_path,
         page=A4,
         distractors=False,
         config=CONFIG,
@@ -231,11 +237,11 @@ def test_a_sheet_centres_its_canvas_within_the_page_width(tmp_path: Path) -> Non
     assert found is not None, source
     left, right, top = (float(found.group(i)) for i in (1, 2, 3))
     scale = 72 / CONFIG.canvas_dpi
-    canvas = layout["page_dimensions"]["width"] * scale
+    content = layout["content_width"] * scale
     a4_width = 210.0 * 72 / 25.4
-    assert left == pytest.approx((a4_width - canvas) / 2 + layout["margin"] * scale, abs=1e-3)
-    assert right == pytest.approx(left, abs=1e-3)
-    assert left + right + layout["content_width"] * scale == pytest.approx(a4_width, abs=1e-3)
+    # The content's own margins are equal, whatever the canvas's margins were.
+    assert left == pytest.approx(right, abs=1e-3)
+    assert left + content + right == pytest.approx(a4_width, abs=1e-3)
     assert top == pytest.approx(layout["margin"] * scale, abs=1e-3)
 
 
@@ -432,3 +438,64 @@ def test_a_gate_case_compiles_to_one_page_without_warnings(
     compile_page(translation.source, pdf)
     assert len(pypdfium2.PdfDocument(str(pdf))) == 1
     assert len(query(translation.source, "block-record")) == len(translation.blocks)
+
+
+# --- each record's box is its element's own -------------------------------------------------------------
+
+
+def roll_column() -> tuple[float, float]:
+    """Return the left and right edges, in points, of the scratch receipt layout's content column."""
+    layout = real_layout([])
+    scale = page_scale(layout, ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    left = layout["margin"] * scale
+    return left, left + layout["content_width"] * scale
+
+
+def boxes(body: list, tmp_path: Path) -> list[dict]:
+    """Compile `body` on the scratch receipt layout and return its block records in draw order."""
+    source = translate(body, tmp_path).source
+    compile_page(source, tmp_path / "page.pdf")
+    return query(source, "block-record")
+
+
+def test_a_short_left_aligned_text_reports_its_own_width(tmp_path: Path) -> None:
+    (record,) = boxes([{"type": "text", "content": "Wren"}], tmp_path)
+    left, right = roll_column()
+    assert record["x"] == pytest.approx(left, abs=1.0)
+    assert 0 < record["w"] < (right - left) / 4
+
+
+def test_a_right_aligned_text_ends_at_its_column_edge(tmp_path: Path) -> None:
+    (record,) = boxes([{"type": "text", "content": "Wren", "align": "right"}], tmp_path)
+    left, right = roll_column()
+    assert record["x"] + record["w"] == pytest.approx(right, abs=1.0)
+    assert record["w"] < (right - left) / 4
+
+
+def test_a_right_aligned_text_in_a_split_ends_at_its_own_column_edge(tmp_path: Path) -> None:
+    body = [
+        {"type": "split", "children": [[TEXT], [{"type": "text", "content": "Wren", "align": "right"}]]}
+    ]
+    _, record = boxes(body, tmp_path)
+    _, right = roll_column()
+    assert record["x"] + record["w"] == pytest.approx(right, abs=1.0)
+
+
+def test_a_centred_logo_reports_a_box_centred_in_its_column(tmp_path: Path) -> None:
+    (record,) = boxes([{**BODIES["logo"][0], "align": "center"}], tmp_path)
+    left, right = roll_column()
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    assert record["x"] + record["w"] / 2 == pytest.approx((left + right) / 2, abs=1.0)
+    assert record["w"] == pytest.approx(BODIES["logo"][0]["size"] * scale, abs=0.5)
+
+
+def test_a_qrcode_reports_its_drawn_size(tmp_path: Path) -> None:
+    block = BODIES["qrcode"][0]
+    (record,) = boxes([block], tmp_path)
+    modules = len(
+        segno.make(block["content"], error=block["error_level"], micro=False, boost_error=False).matrix
+    )
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    side = (modules + 2 * block["quiet_zone"]) * block["module_px"] * scale
+    assert record["w"] == pytest.approx(side, abs=0.5)
+    assert record["h"] == pytest.approx(side, abs=0.5)
