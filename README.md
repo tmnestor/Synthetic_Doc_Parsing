@@ -5,10 +5,10 @@
 | | |
 |---|---|
 | **Category** | Synthetic document parsing benchmark |
-| **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU pipeline, MinerU 2.5 Pro VLM (1.2B), Docling, Marker |
+| **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU VLM, MinerU pipeline, Docling, Marker ([the tools](#the-tools-tested)) |
 | **Approach** | Ground truth is written by the code that draws each page, so it is exact without annotation: no GPU pre-annotation or expert correction is needed, and every printed line is checked to belong to a block ([how](#how-the-ground-truth-is-made)). Limits: three single-page document types with fairly sparse pages; multi-page documents and PDFs come next |
 | **Details** | [Results](#results), [what is measured](#what-it-measures), [the pages](#the-pages), [the runbook](docs/parsing_benchmark_runbook.md) |
-| **Summary** | As of 14 October 2026, MinerU 2.5 Pro VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
+| **Summary** | As of 14 October 2026, MinerU VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
 
 ## Overview
 
@@ -21,6 +21,22 @@ construction. Scoring uses the published OmniDocBench evaluator, pinned to one c
 this repository writes ground truth in OmniDocBench's format and does not write a scorer.
 
 ---
+
+## The tools tested
+
+Four tools, one of them in two forms. Both MinerU entries are the same release, MinerU 3.4.5, run with
+its two different back-ends: they share the package and its output format, but read a page in entirely
+different ways.
+
+| Name used here | What it is | How it reads a page | Weights | Time per page |
+|---|---|---|---|---|
+| MinerU VLM | MinerU 3.4.5, back-end `vlm-engine` | One vision-language model (MinerU 2.5 Pro, 1.2 billion parameters) looks at the whole page and writes the markdown | Apache-2.0 | 25 to 35 s |
+| MinerU pipeline | MinerU 3.4.5, back-end `pipeline` | A chain of small specialised models: layout detection, OCR (PaddleOCR), table recognition, reading order | AGPL-3.0 | 3 to 9 s |
+| Docling | Docling 2.120.2, standard pipeline | A layout model, a table model (TableFormer) and OCR (RapidOCR) | Apache-2.0, CDLA-Permissive-2.0 (OCR weights unconfirmed) | 5 to 12 s |
+| Marker | Marker 2.0.0 | Datalab's layout and OCR models | Modified AI Pubs Open RAIL-M | 49 to 89 s |
+
+All four ran unmodified on the same Apple M1 Pro laptop. The config names in the runbook and the
+leaderboard files are `mineru_vlm`, `mineru_pipeline`, `docling` and `marker`.
 
 ## What it measures
 
@@ -104,33 +120,33 @@ made on, whose degraded ground truth is identical).
 
 | Tool | plain | distractor | labelled_varied | degraded |
 |---|---|---|---|---|
-| MinerU 3.4.5, `vlm-engine` | **0.241** | 0.269 | 0.261 | 0.203 |
+| MinerU VLM (`vlm-engine`) | **0.241** | 0.269 | 0.261 | 0.203 |
 | Docling 2.120.2 | 0.290 | **0.255** | **0.251** | 0.249 |
 | Marker 2.0.0 | 0.360 | 0.336 | 0.329 | **0.132** |
-| MinerU 3.4.5, `pipeline` | 0.637 | 0.539 | 0.536 | 0.546 |
+| MinerU pipeline (`pipeline`) | 0.637 | 0.539 | 0.536 | 0.546 |
 
 **Table TEDS** (higher is better)
 
 | Tool | plain | distractor | labelled_varied | degraded |
 |---|---|---|---|---|
-| MinerU 3.4.5, `vlm-engine` | **0.601** | **0.516** | **0.547** | 0.085 |
+| MinerU VLM (`vlm-engine`) | **0.601** | **0.516** | **0.547** | 0.085 |
 | Docling 2.120.2 | 0.425 | 0.451 | 0.460 | 0.026 |
 | Marker 2.0.0 | 0.427 | 0.491 | 0.495 | 0.090 |
-| MinerU 3.4.5, `pipeline` | 0.458 | 0.397 | 0.381 | **0.115** |
+| MinerU pipeline (`pipeline`) | 0.458 | 0.397 | 0.381 | **0.115** |
 
 **Reading-order edit distance** (lower is better)
 
 | Tool | plain | distractor | labelled_varied | degraded |
 |---|---|---|---|---|
-| MinerU 3.4.5, `vlm-engine` | **0.284** | **0.346** | **0.342** | 0.167 |
+| MinerU VLM (`vlm-engine`) | **0.284** | **0.346** | **0.342** | 0.167 |
 | Docling 2.120.2 | 0.297 | 0.368 | 0.371 | 0.351 |
 | Marker 2.0.0 | 0.459 | 0.451 | 0.443 | **0.143** |
-| MinerU 3.4.5, `pipeline` | 0.634 | 0.596 | 0.595 | 0.586 |
+| MinerU pipeline (`pipeline`) | 0.634 | 0.596 | 0.595 | 0.586 |
 
-MinerU's `vlm-engine` leads on clean pages. On photographed receipts no tool reads tables well (TEDS
+MinerU VLM leads on clean pages. On photographed receipts no tool reads tables well (TEDS
 below 0.12 for all four). Marker's strong degraded text score reflects how it reads a receipt photograph
 (as plain text rather than a table), not better recognition; the runbook explains this and how each tool
-behaves. Time per page runs from 3 to 9 seconds (MinerU `pipeline`) to 49 to 89 seconds (Marker).
+behaves. Time per page runs from 3 to 9 seconds (MinerU pipeline) to 49 to 89 seconds (Marker).
 
 The full leaderboard (structure-only TEDS, table edit distance, every breakdown, each run's versions
 and timings) is written to `../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.csv`, and
@@ -208,7 +224,7 @@ conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_
 
 The tools are `mineru_pipeline`, `mineru_vlm`, `docling` and `marker`; the halves are `plain`,
 `distractor`, `labelled_varied` and `degraded`. All sixteen runs take about 17 hours on the machine
-above, most of it Marker and MinerU's `vlm-engine`; run one tool at a time, since each uses the GPU.
+above, most of it Marker and MinerU VLM; run one tool at a time, since each uses the GPU.
 [`docs/parsing_benchmark_runbook.md`](docs/parsing_benchmark_runbook.md) covers every step in detail:
 model weights, where each tool writes, scoring a half against an earlier snapshot, and the leaderboard's
 layout.
