@@ -45,6 +45,7 @@ from generators.parsing.omnidocbench import (  # noqa: E402
 )
 from generators.pipeline import _RENDERERS  # noqa: E402
 from generators.snapshot.config import load_snapshot_config  # noqa: E402
+from generators.typst.compare import stage_one_differences  # noqa: E402
 from generators.typst.compile import TypstError, compile_page, rasterise  # noqa: E402
 from generators.typst.config import (  # noqa: E402
     TYPESET_CONFIG_PATH,
@@ -283,51 +284,6 @@ def _ligature_probe(
     report.ligature_pdf_differs = compiled.pdf != plain_pdf
 
 
-def _collapsed(text: str) -> str:
-    """Collapse every run of whitespace to one space."""
-    return " ".join(text.split())
-
-
-def _stage_one_differences(page: dict, stage_one: dict, *, context: PageContext) -> list[str]:
-    """Compare the typeset page block by block with stage one's page of the same case and mode.
-
-    Blocks are matched by id (`anno_id`); the text of a block, or the html of a table, is compared with
-    whitespace collapsed. Stage one's overlay blocks are left out: overlays are placed by a later task.
-
-    Args:
-        page: The OmniDocBench page built from the read-back geometry.
-        stage_one: The geometry of stage one's own render of the same case and mode.
-        context: The page's context, reused for stage one's page.
-
-    Returns:
-        One line per block that differs, is missing, or is extra; empty when the two agree.
-    """
-    parsing = load_parsing_config(PARSING_CONFIG_PATH)
-    overlays = {block.id for block in stage_one["blocks"] if block.kind.startswith(OVERLAY_PREFIX)}
-    theirs = {
-        det["anno_id"]: det
-        for det in build_page(stage_one, context=context, config=parsing)["layout_dets"]
-        if det["anno_id"] not in overlays
-    }
-    ours = {det["anno_id"]: det for det in page["layout_dets"] if det["anno_id"] not in overlays}
-    differences = []
-    for block in sorted(set(theirs) | set(ours)):
-        one, two = theirs.get(block), ours.get(block)
-        if one is None or two is None:
-            where = "stage one" if one is None else "the typeset page"
-            differences.append(f"block {block} is missing from {where}")
-            continue
-        if one["category_type"] != two["category_type"]:
-            differences.append(
-                f"block {block}: category {two['category_type']!r}, stage one {one['category_type']!r}"
-            )
-        key = "html" if "html" in one or "html" in two else "text"
-        mine, wanted = _collapsed(two.get(key, "")), _collapsed(one.get(key, ""))
-        if mine != wanted:
-            differences.append(f"block {block}: {key} {mine!r}, stage one {wanted!r}")
-    return differences
-
-
 def _typeset_page(
     layout_file: str, layout_id: str, mode: str, *, directory: Path, config: TypesetConfig
 ) -> tuple[PageReport, dict | None]:
@@ -393,7 +349,7 @@ def _typeset_page(
     page = build_page(geometry, context=context, config=parsing)
     report.invariant_errors = check_page(page, geometry, where=where, config=parsing)
     report.layout_errors = layout_errors(geometry, where=where)
-    report.stage_one_differences = _stage_one_differences(page, stage_one, context=context)
+    report.stage_one_differences = stage_one_differences(page, stage_one, context=context)
     _ligature_probe(
         translation.source, first.pdf, translation, report, work=work / "ligatures", config=config
     )

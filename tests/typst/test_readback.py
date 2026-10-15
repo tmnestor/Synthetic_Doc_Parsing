@@ -169,7 +169,14 @@ def test_the_page_passes_stage_ones_checks(two_blocks: tuple[Translation, Compil
 
 def test_a_two_line_cell_keeps_its_lines_in_order(tmp_path: Path) -> None:
     item, amount = TABLE_COLUMNS
-    table = {**TABLE, "columns": [item, {**amount, "label": "Amount\nin dollars"}]}
+    # A two-line label needs a header two lines tall, as every shipped two-line header declares; a
+    # one-line header would have stage one draw the second line over the first row.
+    two_lines = 2 * real_layout([])["defaults"]["line_advance"]["body"]
+    table = {
+        **TABLE,
+        "header_height": two_lines,
+        "columns": [item, {**amount, "label": "Amount\nin dollars"}],
+    }
     translation = translate([table], tmp_path)
     _, geometry = read_back(translation, tmp_path)
     header = [line.text for line in geometry["ink"] if line.cell == Cell(0, 1, 1)]

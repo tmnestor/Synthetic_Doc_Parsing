@@ -29,8 +29,9 @@ MINIMAL = "\n".join(
         f'#import "/{CONFIG.template}": *',
         "#set page(width: 80mm, height: auto, margin: 10pt)",
         "#show: typeset",
-        '#block-record(id: 0, kind: "text", path: "body[0]", align: left, dsl-text(font: "Liberation Mono", '
-        'size: 9pt, bold: false, fill: black, ascent: 7pt, advance: 11pt, "Brackenridge Ferry Timetable"))',
+        '#block-record(id: 0, kind: "text", path: "body[0]", align: left, dsl-lines((dsl-line(font: '
+        '"Liberation Mono", size: 9pt, bold: false, fill: black, ascent: 7pt, advance: 11pt, '
+        '"Brackenridge Ferry Timetable"),)))',
         "",
     ]
 )

@@ -9,18 +9,22 @@ writes one template call (`generators/typst/template.typ`) per drawn block, each
 wrapped in a `block-record` and each table cell in a `cell-record`, so a typeset page carries the same
 text as its stage-one twin.
 
-Typesetting replaces pixel fitting: a text's string, or a pair's value, is written whole (the lines
-stage one wrapped it to joined by a space) at its role's nominal size, and Typst wraps it within its
-region; a table cell keeps the lines stage one drew in it, each at the size it was drawn. Every length is
-a stage-one pixel value from the layout, converted to points by `page_scale`: at the canvas resolution
-for a sheet, whose content is centred across the A4 width, and at the roll's width for a receipt.
+Typst never fits text (Ruling P7): every line of text is one stage one drew, at the size, in the face and
+colour and with the string stage one's fitting gave it, read from that same draw (`_TracingDraw`). A
+field stage one shrank is set at the shrunk size; one it wrapped keeps its lines; one it drew as one line
+stays one line (`dsl-line` never wraps). Typst places the lines: a block's lines one under another at
+the pitch stage one drew them, aligned in their region; a table's cells, rules and shading each where
+stage one drew them, inside a block as tall as stage one's table. Every length is a stage-one pixel value,
+converted to points by `page_scale`: at the canvas resolution for a sheet, whose content is centred
+across the A4 width, and at the roll's width for a receipt.
 
 Overlays (the marks a distractor page draws over the finished body) are not yet placed: a page carries
 its body's blocks only.
 """
 
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,22 +34,26 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 from generators.common import font_path, font_spec
 from generators.distractors.paths import REPO_ROOT
-from generators.exporters.geometry import BlockRecord, BoxRecorder, InkRecord
-from generators.layout_budgets import field_budget
+from generators.exporters.geometry import BlockRecord, BoxRecorder, Cell, InkRecord
 from generators.layout_dsl.binding import interpolate
 from generators.layout_dsl.context import Region, RenderContext
 from generators.layout_dsl.defaults import resolve_param
-from generators.layout_dsl.engine import SCOPED_CONTAINERS, SCOPED_LEAVES, DrawnBlock, render_body
+from generators.layout_dsl.engine import (
+    PRIMITIVE_DRAWERS,
+    SCOPED_CONTAINERS,
+    SCOPED_LEAVES,
+    DrawnBlock,
+    render_body,
+)
 from generators.layout_dsl.primitives_codes import _chevron_depth, _fit_initials, barcode_geometry
-from generators.layout_dsl.primitives_table import _resolve_row_height
 from generators.layout_dsl.primitives_text import line_advance, resolve_role
+from generators.layout_dsl.schema import FRAMES, GROUPINGS
 from generators.loader import load_layout_registry
 from generators.typst.config import PageSpec, TypesetConfig
 
-# The primitive types the translator writes; a layout using any other is refused.
-TRANSLATED: frozenset[str] = frozenset(
-    {"barcode", "logo", "panel", "pair", "qrcode", "rule", "spacer", "split", "stack", "table", "text"}
-)
+# The primitive types the translator writes: every primitive stage one draws. A layout using any other
+# is refused.
+TRANSLATED: frozenset[str] = frozenset(PRIMITIVE_DRAWERS)
 
 # The gate layouts of the plan's Decision 9, each with the file that holds it.
 GATE_LAYOUTS: tuple[tuple[str, str], ...] = (
@@ -57,9 +65,8 @@ GATE_LAYOUTS: tuple[tuple[str, str], ...] = (
 # Options a translated primitive may carry, by type, with the values the translator typesets. A block
 # carrying any other value is refused rather than drawn some other way. An absent key reads as None.
 SUPPORTED_OPTIONS: dict[str, dict[str, tuple[object, ...]]] = {
-    "table": {"grouping": ("none",), "frame": ("plain", "filled", "bordered")},
-    "split": {"divider": (None, False)},
-    "qrcode": {"caption": (None,)},
+    "table": {"grouping": GROUPINGS, "frame": FRAMES},
+    "split": {"divider": (None, False, True)},
 }
 
 _PT_PER_MM = 72 / 25.4
@@ -83,23 +90,212 @@ class Translation:
         texts: The string drawn for each scored field, as stage one's recorder holds it.
         ink: Stage one's ink records for the same draw, in draw order. The read-back takes from them what
             the PDF cannot say: each code mark's payload, and the role of the lines in each block or cell.
+        overshoot: For each block whose stage-one ink runs out of the column it was drawn in, how far, in
+            points at the page's scale, past the column's (left, right) edge; a block whose ink stays in
+            its column is absent. The layout checks allow the typeset block no further (Ruling P9).
     """
 
     source: str
     blocks: list[BlockRecord]
     texts: dict[str, str]
     ink: list[InkRecord]
+    overshoot: dict[int, tuple[float, float]]
+
+
+@dataclass(frozen=True)
+class _Drawn:
+    """One line of text stage one drew, as its draw call gave it.
+
+    Attributes:
+        text: The string drawn.
+        x: The x it was drawn at (the pen's start), in pixels.
+        width: Its advance width at its size, in pixels: the line runs from `x` to `x + width`.
+        y: The y it was drawn at (the top of the face's ascent), in pixels.
+        face: The family name Typst finds the face by.
+        size: The font size, in pixels.
+        bold: Whether the face is the bold one.
+        ascent: The face's ascent at `size`, in pixels.
+        descent: The face's descent at `size`, in pixels.
+        fill: The colour it was drawn in, as Pillow took it.
+        path: The path of the block whose scope was open, or None outside any.
+        cell: The table cell it was drawn in, or None.
+    """
+
+    text: str
+    x: int
+    width: float
+    y: int
+    face: str
+    size: int
+    bold: bool
+    ascent: int
+    descent: int
+    fill: object
+    path: str | None
+    cell: Cell | None
+
+
+@dataclass(frozen=True)
+class _Paint:
+    """One filled rectangle stage one painted (a rule, a frame's edge, a shaded band), inside a block.
+
+    Attributes:
+        box: (left, top, right, bottom) in pixels, every edge inclusive, as Pillow paints it.
+        fill: The colour, as Pillow took it.
+        path: The path of the block whose scope was open, or None outside any.
+    """
+
+    box: tuple[int, int, int, int]
+    fill: object
+    path: str | None
+
+
+class _TracingRecorder(BoxRecorder):
+    """Stage one's recorder, which also says which block's scope, and which cell, is open."""
+
+    def __init__(self, width: int, height: int) -> None:
+        super().__init__(width, height)
+        self.open_path: str | None = None
+        self.open_cell: Cell | None = None
+
+    @contextmanager
+    def block_scope(
+        self,
+        kind: str,
+        *,
+        path: str,
+        anchor: str | None,
+        parse_category: str | None,
+        parse_order: int,
+        join: str | None,
+    ) -> Iterator[None]:
+        """Open stage one's block scope, noting its path while it is the outermost one open."""
+        outer = self.open_path
+        self.open_path = path if outer is None else outer
+        try:
+            with super().block_scope(
+                kind,
+                path=path,
+                anchor=anchor,
+                parse_category=parse_category,
+                parse_order=parse_order,
+                join=join,
+            ):
+                yield
+        finally:
+            self.open_path = outer
+            if outer is None:
+                self.open_cell = None
+
+    def set_cell(self, cell: Cell | None) -> None:
+        """Mark the cell ink is drawn in, as stage one's recorder does, noting it."""
+        super().set_cell(cell)
+        self.open_cell = cell
+
+
+class _TracingDraw(ImageDraw.ImageDraw):
+    """A Pillow drawing surface that keeps every line of text and every rectangle or straight line drawn.
+
+    Stage one's primitives draw through it unchanged; the translator reads back what they drew: each
+    line's string, face, size, colour and place, and each rule and shaded band a table paints.
+    """
+
+    def __init__(self, image: Image.Image, recorder: _TracingRecorder) -> None:
+        super().__init__(image)
+        self.recorder = recorder
+        self.lines: list[_Drawn] = []
+        self.paints: list[_Paint] = []
+
+    def text(
+        self, xy: Any, text: Any, fill: Any = None, font: Any = None, *args: Any, **kwargs: Any
+    ) -> None:
+        """Draw a line of text, keeping it."""
+        if font is not None and isinstance(text, str) and "\n" not in text:
+            size, bold = font_spec(font)
+            ascent, descent = font.getmetrics()
+            self.lines.append(
+                _Drawn(
+                    text,
+                    int(xy[0]),
+                    float(font.getlength(text)),
+                    int(xy[1]),
+                    str(font.getname()[0]),
+                    size,
+                    bold,
+                    int(ascent),
+                    int(descent),
+                    fill,
+                    self.recorder.open_path,
+                    self.recorder.open_cell,
+                )
+            )
+        super().text(xy, text, fill, font, *args, **kwargs)
+
+    def line(self, xy: Any, fill: Any = None, width: int = 0, joint: str | None = None) -> None:
+        """Draw a straight line, keeping it as the band of pixels it paints when it is level or upright."""
+        points = _points(xy)
+        thickness = max(1, width)
+        for (x0, y0), (x1, y1) in zip(points, points[1:], strict=False):
+            if y0 == y1 or x0 == x1:
+                low = (thickness - 1) // 2
+                box = (
+                    (min(x0, x1), y0 - low, max(x0, x1), y0 - low + thickness - 1)
+                    if y0 == y1
+                    else (x0 - low, min(y0, y1), x0 - low + thickness - 1, max(y0, y1))
+                )
+                self.paints.append(_Paint(box, fill, self.recorder.open_path))
+        super().line(xy, fill, width, joint)
+
+    def rectangle(self, xy: Any, fill: Any = None, outline: Any = None, width: int = 1) -> None:
+        """Draw a rectangle, keeping its filled area and each edge of its outline."""
+        (x0, y0), (x1, y1) = _points(xy)[:2]
+        path = self.recorder.open_path
+        if fill is not None:
+            self.paints.append(_Paint((x0, y0, x1, y1), fill, path))
+        if outline is not None and width > 0:
+            w = width - 1
+            for box in (
+                (x0, y0, x1, y0 + w),
+                (x0, y1 - w, x1, y1),
+                (x0, y0, x0 + w, y1),
+                (x1 - w, y0, x1, y1),
+            ):
+                self.paints.append(_Paint(box, outline, path))
+        super().rectangle(xy, fill, outline, width)
+
+
+def _points(xy: Any) -> list[tuple[int, int]]:
+    """Return Pillow coordinates (pairs, or a flat sequence) as a list of integer points."""
+    flat: list[float] = []
+    for item in xy:
+        if isinstance(item, (tuple, list)):
+            flat.extend(item)
+        else:
+            flat.append(item)
+    return [(int(flat[i]), int(flat[i + 1])) for i in range(0, len(flat) - 1, 2)]
 
 
 @dataclass(frozen=True)
 class _StageOne:
-    """What stage one's engine drew for the page: its records, its ink and each drawn block's share."""
+    """What stage one's engine drew for the page: its records, its ink and each drawn block's share.
+
+    Attributes:
+        blocks: Its block records.
+        texts: The string recorded for each scored field.
+        ink: Its ink records.
+        drawn: Each drawn block's share of the ink and the cursor, by path.
+        entry: The provider-enriched entry the body was drawn from.
+        lines: Every line of text drawn, in draw order.
+        paints: Every rule, frame edge and shaded band painted, in draw order.
+    """
 
     blocks: list[BlockRecord]
     texts: dict[str, str]
     ink: list[InkRecord]
     drawn: dict[str, DrawnBlock]
     entry: dict
+    lines: list[_Drawn]
+    paints: list[_Paint]
 
 
 def _child_lists(block: dict, path: str) -> list[tuple[str, list]]:
@@ -197,6 +393,40 @@ def _refuse_untranslated(blocks: list, *, prefix: str, layout_id: str, layout_pa
                     recover=f"change this block's {key}, or teach generators/typst/translate.py (and "
                     "SUPPORTED_OPTIONS there) to typeset it.",
                 )
+        nested = prefix != "body"
+        if nested and block.get("anchor") == "foot":
+            raise _refusal(
+                f"a '{kind}' block nested inside a container is anchored to the foot of the page.",
+                layout_path=layout_path,
+                where=f"{layout_id}.{path}.anchor",
+                expected="anchor: foot only on a block directly in the layout's body, e.g. "
+                "body: [..., {type: stack, anchor: foot, children: [...]}].",
+                recover="move the foot-anchored block out to the body, or teach "
+                "generators/typst/translate.py to place a nested foot block.",
+            )
+        if nested and kind == "banner":
+            raise _refusal(
+                "a 'banner' block is nested inside a container, but a banner paints from the page's own "
+                "top-left corner.",
+                layout_path=layout_path,
+                where=f"{layout_id}.{path}",
+                expected="a banner directly in the layout's body, e.g. body: [{type: banner, ...}, ...].",
+                recover="move the banner out to the body, or teach generators/typst/translate.py to "
+                "place a nested banner.",
+            )
+        if kind == "table":
+            for index, column in enumerate(block.get("columns", [])):
+                if column.get("sub_line") is not None and column.get("align") == "right":
+                    raise _refusal(
+                        "a right-aligned table column carries a sub_line, which stage one draws "
+                        "left-aligned from the column's anchor.",
+                        layout_path=layout_path,
+                        where=f"{layout_id}.{path}.columns[{index}].sub_line",
+                        expected="sub_line only on a left-aligned column, e.g. "
+                        "{key: description, align: left, x: 0, sub_line: {key: reference}}.",
+                        recover="move the sub_line to a left-aligned column, or teach "
+                        "generators/typst/translate.py to place a cell's lines at two alignments.",
+                    )
         for child_prefix, children in _child_lists(block, path):
             _refuse_untranslated(
                 children, prefix=child_prefix, layout_id=layout_id, layout_path=layout_path
@@ -215,7 +445,8 @@ def _draw_stage_one(
         width, height = int(layout["width"]), int(layout["canvas_ceiling"])
     else:
         width, height = int(layout["page_dimensions"]["width"]), int(layout["page_dimensions"]["height"])
-    recorder = BoxRecorder(width, height)
+    recorder = _TracingRecorder(width, height)
+    surface = _TracingDraw(Image.new("RGB", (width, height), "white"), recorder)
     enriched: dict = {}
     drawn: dict[str, DrawnBlock] = {}
     render_body(
@@ -223,7 +454,7 @@ def _draw_stage_one(
         entry,
         layout_id=layout_id,
         layout_path=str(layout_path),
-        draw=ImageDraw.Draw(Image.new("RGB", (width, height), "white")),
+        draw=surface,
         region=Region(x=int(layout["margin"]), width=int(layout["content_width"])),
         y=int(layout["margin"]),
         distractors=distractors,
@@ -231,7 +462,15 @@ def _draw_stage_one(
         entry_out=enriched,
         drawn_out=drawn,
     )
-    return _StageOne(recorder.block_records(), recorder.texts(), recorder.ink_records(), drawn, enriched)
+    return _StageOne(
+        recorder.block_records(),
+        recorder.texts(),
+        recorder.ink_records(),
+        drawn,
+        enriched,
+        surface.lines,
+        surface.paints,
+    )
 
 
 @functools.cache
@@ -254,8 +493,12 @@ def _string(text: str) -> str:
 
 
 def _colour(value: object) -> str:
-    """Return a layout colour (a name or hex string) as a Typst `rgb(...)` call."""
-    return f"rgb{tuple(ImageColor.getrgb(str(value)))}"
+    """Return a colour (a layout's name or hex string, or a Pillow RGB tuple) as a Typst `rgb(...)` call."""
+    if isinstance(value, tuple):
+        return f"rgb{tuple(int(channel) for channel in value[:3])}"
+    if not isinstance(value, str):
+        raise TypeError(f"cannot write the colour {value!r} as rgb(...): expected a name, hex or RGB tuple")
+    return f"rgb{tuple(ImageColor.getrgb(value)[:3])}"
 
 
 def _array(items: list[str]) -> str:
@@ -272,17 +515,42 @@ class _Writer:
     """Write one page's body as template calls, reading each drawn block's content from stage one."""
 
     def __init__(
-        self, stage_one: _StageOne, layout: dict, *, layout_id: str, layout_path: Path, scale: float
+        self,
+        stage_one: _StageOne,
+        layout: dict,
+        *,
+        layout_id: str,
+        layout_path: Path,
+        scale: float,
+        page_origin: tuple[float, float],
+        page_width: float,
     ) -> None:
+        """Prepare to write a page.
+
+        Args:
+            stage_one: What stage one drew for the page.
+            layout: The resolved layout dict.
+            layout_id: The layout's id.
+            layout_path: The layout YAML, named in a refusal.
+            scale: Points per stage-one pixel (`page_scale`).
+            page_origin: Where the page's content area starts, in stage-one pixels from the page's own
+                top-left corner: its left and top margins.
+            page_width: The page's width in stage-one pixels.
+        """
         self.stage_one = stage_one
         self.layout = layout
         self.layout_id = layout_id
         self.layout_path = str(layout_path)
         self.scale = scale
+        self.page_origin = page_origin
+        self.page_width = page_width
         self.records = {record.path: record for record in stage_one.blocks}
+        self.overshoot: dict[int, tuple[float, float]] = {}
         self.scratch = ImageDraw.Draw(Image.new("RGB", (1, 1), "white"))
         self.writers: dict[str, Callable[[dict, Region, str, list[InkRecord], DrawnBlock, bool], str]] = {
             "text": self.text,
+            "block": self.text,
+            "banner": self.banner,
             "pair": self.pair,
             "rule": self.rule,
             "spacer": self.spacer,
@@ -331,17 +599,31 @@ class _Writer:
             f"fill: {_colour(fill)}, ascent: {self.pt(ascent)}, advance: {self.pt(advance)}"
         )
 
-    def block_style(self, block: dict, *, bold: bool) -> str:
-        """Return a text-bearing block's line style at its role's nominal size."""
-        size = resolve_role(self.layout, str(self.param(block, "role")))
-        advance = line_advance(self.layout, block, layout_id=self.layout_id, layout_path=self.layout_path)
-        return self.line_style(
-            family=str(self.param(block, "family")),
-            size=size,
-            bold=bold,
-            fill=self.param(block, "color"),
-            advance=advance,
+    def drawn_lines(self, path: str) -> list[_Drawn]:
+        """Return every line of text stage one drew inside the block at `path`, in draw order."""
+        return [line for line in self.stage_one.lines if line.path == path and line.text.strip()]
+
+    def line(self, line: _Drawn, advance: float) -> str:
+        """Write one drawn line as stage one drew it, in a line box `advance` pixels tall."""
+        return (
+            f"dsl-line(width: {self.pt(line.width)}, "
+            f'font: "{line.face}", size: {self.pt(line.size)}, bold: {str(line.bold).lower()}, '
+            f"fill: {_colour(line.fill)}, ascent: {self.pt(line.ascent)}, advance: {self.pt(advance)}, "
+            f"{_string(line.text)})"
         )
+
+    def pitched(self, lines: list[_Drawn], *, last: float, path: str) -> list[str]:
+        """Write lines one under another at the pitch stage one drew them, the last `last` pixels tall."""
+        written: list[str] = []
+        for index, line in enumerate(lines):
+            advance = lines[index + 1].y - line.y if index + 1 < len(lines) else last
+            if advance <= 0:
+                raise RuntimeError(
+                    f"{self.layout_id}.{path}: stage one drew {line.text!r} at y={line.y} and the next line "
+                    f"no lower, so the lines cannot stack"
+                )
+            written.append(self.line(line, advance))
+        return written
 
     # --- the walk -------------------------------------------------------------------------------------
 
@@ -374,12 +656,35 @@ class _Writer:
             align = _ALIGNS[str(self.param(block, "align"))] if kind in _SELF_ALIGNED else "left"
             if opens:
                 call = self.record(path, call, align)
+                self.note_overshoot(path, region)
             elif kind in SCOPED_LEAVES:
                 call = f"dsl-align(align: {align}, {call})"
+            if kind == "banner":
+                call = self.banner_frame(block, path, call)
             if block.get("anchor") == "foot":
                 call = f"dsl-foot({call})"
             calls.append(call)
         return calls
+
+    def note_overshoot(self, path: str, region: Region) -> None:
+        """Note how far, if at all, the lines stage one drew for a block run out of the column it was drawn in.
+
+        A line spans its advance width from where it was drawn, as a typeset line's box spans its own, so
+        the two engines' overshoots compare like with like.
+        """
+        block_id = self.records[path].id
+        lines = self.drawn_lines(path)
+        ink = [record.box for record in self.stage_one.ink if record.block == block_id and not record.mark]
+        if not lines or not ink:
+            return
+        # Only a side the ink itself passes is allowed any overshoot (ink boxes' right edges are exclusive,
+        # as is the region's), so a block stage one kept inside its column gets none.
+        left = region.x - min(line.x for line in lines) if min(box[0] for box in ink) < region.x else 0.0
+        passes_right = max(box[2] for box in ink) > region.right
+        right = max(line.x + line.width for line in lines) - region.right if passes_right else 0.0
+        left, right = max(0.0, left), max(0.0, right)
+        if left or right:
+            self.overshoot[block_id] = (left * self.scale, right * self.scale)
 
     def record(self, path: str, call: str, align: str) -> str:
         """Wrap a block's call in the `block-record` stage one opened at `path`, placed at `align`."""
@@ -404,37 +709,75 @@ class _Writer:
     def text(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
     ) -> str:
-        """`text`: the one string stage one drew, its wrapped lines joined, at its role's size."""
-        lines = [record.text for record in ink]
+        """`text` and `block`: the lines stage one drew, one under another at the pitch it drew them."""
+        lines = self.drawn_lines(path)
         if not lines:
             return self.travel(drawn)
-        style = self.block_style(block, bold=bool(self.param(block, "bold")))
-        return f"dsl-text({style}, {_string(' '.join(lines))})"
+        written = self.pitched(lines, last=drawn.y_end - lines[-1].y, path=path)
+        lead = lines[0].y - drawn.y_start
+        call = f"dsl-lines({_array(written)})"
+        # A first line stage one left blank (it draws nothing, yet takes its pitch) opens with its gap.
+        return call if lead == 0 else f"{{\ndsl-spacer(height: {self.pt(lead)})\n{call}\n}}"
+
+    def banner(
+        self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
+    ) -> str:
+        """`banner`: its one line of text, which `banner_frame` places on the bar."""
+        lines = self.drawn_lines(path)
+        if not lines:
+            return "[]"
+        return f"dsl-lines({_array([self.line(line, line.ascent + line.descent) for line in lines])})"
+
+    def banner_frame(self, block: dict, path: str, call: str) -> str:
+        """Place a banner's bar across the page from its top-left corner, and its text where stage one drew it.
+
+        Stage one paints the bar from the page's own corner, whatever the cursor, and draws its text at the
+        page's `text_y`, so neither moves the flow.
+        """
+        left, top = self.page_origin
+        text_y = int(self.param(block, "banner_text_y", "text_y"))
+        return (
+            f"dsl-banner(dx: {self.pt(-left)}, dy: {self.pt(-top)}, width: {self.pt(self.page_width)}, "
+            f"height: {self.pt(int(block['height']))}, fill: {_colour(block['color'])}, "
+            f"text-dy: {self.pt(text_y - top)},\n{call})"
+        )
 
     def pair(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
     ) -> str:
-        """`pair`: its label as stage one composes it, and the value stage one drew after it."""
-        label = interpolate(block["label"], self.stage_one.entry["fields"])
-        label += str(self.param(block, "pair_separator", "separator"))
-        lines = [record.text for record in ink]
-        if label.strip():
-            if not lines or lines[0] != label:
+        """`pair`: its label line as stage one drew it, and beside it the value lines stage one fitted."""
+        label_text = interpolate(block["label"], self.stage_one.entry["fields"])
+        label_text += str(self.param(block, "pair_separator", "separator"))
+        lines = self.drawn_lines(path)
+        if not lines:
+            return self.travel(drawn)
+        value_align = str(self.param(block, "pair_value_align", "value_align"))
+        if block.get("budget") is None and value_align == "left":
+            # Stage one drew the label and the value as one string, on one line.
+            return f"dsl-lines({_array(self.pitched(lines, last=drawn.y_end - lines[0].y, path=path))})"
+        label: _Drawn | None = None
+        if label_text.strip():
+            if lines[0].text != label_text:
                 raise _refusal(
-                    f"stage one drew {lines[:1]} first for this pair, not its label {label!r}.",
+                    f"stage one drew {lines[0].text!r} first for this pair, not its label {label_text!r}.",
                     layout_path=Path(self.layout_path),
                     where=f"{self.layout_id}.{path}",
                     expected="a pair's label drawn as its first line, then its value.",
                     recover="report this: the pair primitive and the translator disagree on what a "
                     "pair draws.",
                 )
-            lines = lines[1:]
-        if not lines and not label.strip():
-            return self.travel(drawn)
-        value_align = _ALIGNS[str(self.param(block, "pair_value_align", "value_align"))]
-        style = self.block_style(block, bold=bool(self.param(block, "bold")))
-        value = _string(" ".join(lines))
-        return f"dsl-pair(value-align: {value_align}, label: {_string(label)}, {style}, {value})"
+            label, lines = lines[0], lines[1:]
+        label_call = "none" if label is None else self.line(label, drawn.y_end - label.y)
+        if not lines:
+            return f"dsl-pair(value-align: {_ALIGNS[value_align]}, label: {label_call}, [])"
+        values = self.pitched(lines, last=drawn.y_end - lines[-1].y, path=path)
+        # Stage one draws the label and the value from one top; Typst sets the value's first line on the
+        # label's baseline, so the two read as one line.
+        shift = 0 if label is None else label.ascent - lines[0].ascent
+        return (
+            f"dsl-pair(value-align: {_ALIGNS[value_align]}, shift: {self.pt(shift)}, label: {label_call}, "
+            f"dsl-lines({_array(values)}))"
+        )
 
     def rule(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
@@ -459,7 +802,7 @@ class _Writer:
     def split(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
     ) -> str:
-        """`split`: its columns at the widths stage one divides its region into."""
+        """`split`: its columns at the widths stage one divides its region into, and its divider if any."""
         gap = int(self.param(block, "split_gap", "gap"))
         widths = block.get("widths")
         columns = block["children"]
@@ -472,7 +815,14 @@ class _Writer:
             for column, (children, column_region) in enumerate(zip(columns, regions, strict=True))
         ]
         widths_pt = _array([self.pt(r.width) for r in regions])
-        return f"dsl-split(widths: {widths_pt}, gap: {self.pt(gap)},\n" + ",\n".join(bodies) + ")"
+        divider = "none"
+        if block.get("divider"):
+            divider = f"{self.pt(1)} + {_colour(self.param(block, 'split_divider_color', 'divider_color'))}"
+        return (
+            f"dsl-split(widths: {widths_pt}, gap: {self.pt(gap)}, divider: {divider},\n"
+            + ",\n".join(bodies)
+            + ")"
+        )
 
     def stack(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
@@ -554,7 +904,7 @@ class _Writer:
     def qrcode(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
     ) -> str:
-        """`qrcode`: the symbol stage one encodes for its content, as runs of dark modules."""
+        """`qrcode`: the symbol stage one encodes for its content, as runs of dark modules, and its caption."""
         content = next(record.text for record in ink if record.mark)
         matrix = segno.make(content, error=str(block["error_level"]), micro=False, boost_error=False).matrix
         runs = [
@@ -564,86 +914,68 @@ class _Writer:
         ]
         unit = int(block["module_px"])
         fill = _colour(self.param(block, "color"))
+        caption = "none"
+        lines = self.drawn_lines(path)
+        if lines:
+            # Stage one draws the caption directly under the symbol and advances one line past it.
+            caption = f"dsl-lines({_array(self.pitched(lines, last=drawn.y_end - lines[-1].y, path=path))})"
         return (
             f"dsl-qrcode(runs: {_array(runs)}, modules: {len(matrix)}, unit: {self.pt(unit)}, "
-            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {fill})"
+            f"quiet: {self.pt(int(block['quiet_zone']) * unit)}, fill: {fill}, caption: {caption})"
         )
 
     def table(
         self, block: dict, region: Region, path: str, ink: list[InkRecord], drawn: DrawnBlock, inside: bool
     ) -> str:
-        """`table`: a grid whose every cell is a `cell-record` holding the lines stage one drew in it."""
+        """`table`: every cell a `cell-record` holding the lines stage one drew in it, placed where stage one
+        drew them, over the rules and shading stage one painted, in a block as tall as stage one's table.
+        """
         record = self.records[path]
         columns = block["columns"]
-        bounds = _column_bounds(
-            columns,
-            self.param(block, "table_dividers", "dividers"),
-            region,
-            lambda name: int(
-                field_budget(self.layout, self.layout_id, name, layout_path=self.layout_path)["width"]
-            ),
-        )
-        frame = str(block["frame"])
         header = bool(self.param(block, "table_header", "header"))
-        advance = line_advance(self.layout, block, layout_id=self.layout_id, layout_path=self.layout_path)
-        row_height = _resolve_row_height(block, self.context(region))
-        row_inset = int(self.param(block, "table_row_inset_y", "row_inset_y"))
-        header_height = int(block["header_height"]) if "header_height" in block else advance
-        family = str(self.param(block, "family"))
+        top = drawn.y_start
 
-        cells: dict[tuple[int, int], list[InkRecord]] = {}
-        spans: dict[int, int] = {}
-        for line in ink:
-            if line.cell is not None:
-                cells.setdefault((line.cell.row, line.cell.column), []).append(line)
-                if line.cell.span > 1:
-                    spans[line.cell.row] = line.cell.span
-        rows = max((row for row, _ in cells), default=-1) + 1
+        def placed(x: int, y: int) -> tuple[int, int]:
+            return x - region.x, y - top
 
-        written: list[str] = []
-        for row in range(rows):
-            for col in range(len(columns) if row not in spans else 1):
-                lines = cells.get((row, col), [])
-                if row in spans:
-                    left, right, top = 0, 0, 0
-                    bottom = max(0, row_height - advance)
-                    align = "left"
-                elif header and row == 0:
-                    left, right, align = _label_insets(columns[col], bounds[col], region)
-                    count = len(str(columns[col]["label"]).split("\n"))
-                    if block.get("label_inset_y") is not None:
-                        top = int(block["label_inset_y"])
-                    elif frame in ("bordered", "filled"):
-                        top = max(0, (header_height - advance * count) // 2)
-                    else:
-                        top = 0
-                    bottom = max(0, header_height - top - advance * count)
-                else:
-                    left, right, align = _cell_insets(columns[col], bounds[col], region)
-                    top = row_inset
-                    bottom = max(0, row_height - row_inset - advance)
-                styled = [
-                    "dsl-line("
-                    + self.line_style(
-                        family=family, size=line.size, bold=line.bold, fill="black", advance=advance
-                    )
-                    + f", {_string(line.text)})"
-                    for line in lines
-                ]
-                inset = (
-                    f"(left: {self.pt(left)}, right: {self.pt(right)}, top: {self.pt(top)}, "
-                    f"bottom: {self.pt(bottom)})"
+        items: list[str] = []
+        for paint in self.stage_one.paints:
+            if paint.path != path:
+                continue
+            left, upper = placed(paint.box[0], paint.box[1])
+            items.append(
+                f"dsl-rect(dx: {self.pt(left)}, dy: {self.pt(upper)}, "
+                f"width: {self.pt(paint.box[2] - paint.box[0] + 1)}, "
+                f"height: {self.pt(paint.box[3] - paint.box[1] + 1)}, fill: {_colour(paint.fill)})"
+            )
+
+        cells: dict[Cell, list[_Drawn]] = {}
+        for line in self.drawn_lines(path):
+            if line.cell is None:
+                raise RuntimeError(
+                    f"{self.layout_id}.{path}: stage one drew {line.text!r} outside any cell"
                 )
-                written.append(
-                    f"dsl-cell(block: {record.id}, row: {row}, col: {col}, "
-                    f"span: {spans.get(row, 1)}, inset: {inset}, align: {_ALIGNS[align]}, {_array(styled)})"
+            cells.setdefault(line.cell, []).append(line)
+        for cell, lines in cells.items():
+            if header and cell.row == 0:
+                spec = {"x": columns[cell.column]["label_x"]} if "label_x" in columns[cell.column] else None
+                anchor = _anchor(spec or columns[cell.column], region)
+                align = str(columns[cell.column].get("label_align", columns[cell.column].get("align")))
+            elif cell.span > 1:
+                anchor, align = 0, "left"  # a date sub-header row, drawn from the table's left edge
+            else:
+                anchor, align = (
+                    _anchor(columns[cell.column], region),
+                    str(columns[cell.column].get("align")),
                 )
-        fill = _colour(block["fill_color"]) if block.get("fill_color") is not None else "none"
-        widths = _array([self.pt(end - start) for start, end in bounds])
-        return (
-            f'dsl-table(widths: {widths}, frame: "{frame}", fill: {fill}, stroke: {self.pt(1)} + black, '
-            f"header: {str(header).lower()},\n" + ",\n".join(written) + ")"
-        )
+            dx, width = (0, anchor) if align == "right" else (anchor, region.width - anchor)
+            written = self.pitched(lines, last=lines[-1].ascent + lines[-1].descent, path=path)
+            items.append(
+                f"dsl-cell(block: {record.id}, row: {cell.row}, col: {cell.column}, span: {cell.span}, "
+                f"dx: {self.pt(dx)}, dy: {self.pt(lines[0].y - top)}, width: {self.pt(width)}, "
+                f"align: {_ALIGNS.get(align, 'left')}, {_array(written)})"
+            )
+        return f"dsl-table(height: {self.pt(drawn.y_end - top)},\n" + ",\n".join(items) + ")"
 
 
 def _runs(bits: str) -> list[tuple[int, int]]:
@@ -660,58 +992,8 @@ def _runs(bits: str) -> list[tuple[int, int]]:
 
 
 def _anchor(spec: dict, region: Region) -> int:
-    """Return a column's (or divider's) anchor, in pixels from the region's left edge."""
+    """Return a column's (or a header label's) anchor, in pixels from the region's left edge."""
     return int(spec["x"]) if "x" in spec else region.width + int(spec["x_right"])
-
-
-def _column_bounds(
-    columns: list, dividers: object, region: Region, budget_width: Callable[[str], int]
-) -> list[tuple[int, int]]:
-    """Return each column's (start, end), in pixels from the region's left edge.
-
-    The table's dividers bound its columns when there is one between each pair. Otherwise a column
-    starts at its own anchor when it is left-aligned and ends at it when it is right-aligned; between a
-    left-aligned column and a right-aligned one, the boundary is the right column's header `label_x`, else
-    the left column's anchor plus its fit budget's width (`budget_width`), else the midpoint of the two
-    anchors.
-    """
-    anchors = [_anchor(column, region) for column in columns]
-    if isinstance(dividers, list) and len(dividers) == len(columns) - 1:
-        cuts = [_anchor(divider, region) for divider in dividers]
-    else:
-        cuts = []
-        for index in range(len(columns) - 1):
-            this, after = columns[index], columns[index + 1]
-            if after.get("align") != "right":
-                cuts.append(anchors[index + 1])
-            elif this.get("align") == "right":
-                cuts.append(anchors[index])
-            elif "label_x" in after:
-                cuts.append(int(after["label_x"]))
-            elif "budget" in this:
-                cuts.append(min(anchors[index] + budget_width(str(this["budget"])), anchors[index + 1]))
-            else:
-                cuts.append((anchors[index] + anchors[index + 1]) // 2)
-    edges = [0, *cuts, region.width]
-    return list(zip(edges, edges[1:], strict=False))
-
-
-def _cell_insets(column: dict, bound: tuple[int, int], region: Region) -> tuple[int, int, str]:
-    """Return a data cell's left and right insets within its column, and its alignment."""
-    anchor = _anchor(column, region)
-    if column.get("align") == "right":
-        return 0, max(0, bound[1] - anchor), "right"
-    return max(0, anchor - bound[0]), 0, "left"
-
-
-def _label_insets(column: dict, bound: tuple[int, int], region: Region) -> tuple[int, int, str]:
-    """Return a header label's insets and alignment: at its own `label_x` when it declares one."""
-    spec = {"x": column["label_x"]} if "label_x" in column else column
-    align = str(column.get("label_align", column.get("align")))
-    anchor = _anchor(spec, region)
-    if align == "right":
-        return 0, max(0, bound[1] - anchor), "right"
-    return max(0, anchor - bound[0]), 0, "left"
 
 
 def translate_page(
@@ -748,12 +1030,20 @@ def translate_page(
         layout, entry, layout_id=layout_id, layout_path=layout_path, page=page, distractors=distractors
     )
     scale = page_scale(layout, page, canvas_dpi=config.canvas_dpi)
-    writer = _Writer(stage_one, layout, layout_id=layout_id, layout_path=layout_path, scale=scale)
     margin = int(layout["margin"])
     # The content is centred across the page with equal left and right margins, whatever stage one's
     # canvas margins were; a roll's content keeps its symmetric stage-one margins.
     page_pixels = page.width_mm * _PT_PER_MM / scale
     left = right = (page_pixels - int(layout["content_width"])) / 2
+    writer = _Writer(
+        stage_one,
+        layout,
+        layout_id=layout_id,
+        layout_path=layout_path,
+        scale=scale,
+        page_origin=(left, margin),
+        page_width=page_pixels,
+    )
     height = "auto" if page.height_mm is None else f"{page.height_mm:g}mm"
     body = writer.blocks(
         layout["body"], Region(x=margin, width=int(layout["content_width"])), "body", in_block=False
@@ -769,4 +1059,10 @@ def translate_page(
             "",
         ]
     )
-    return Translation(source=source, blocks=stage_one.blocks, texts=stage_one.texts, ink=stage_one.ink)
+    return Translation(
+        source=source,
+        blocks=stage_one.blocks,
+        texts=stage_one.texts,
+        ink=stage_one.ink,
+        overshoot=writer.overshoot,
+    )

@@ -21,7 +21,8 @@ from generators.parsing.omnidocbench import normalised_edit_distance
 from generators.pipeline import _RENDERERS
 from generators.typst.translate import GATE_LAYOUTS
 from scripts.omnidocbench_eval import CHECKOUT_NAME, EVALUATOR_ENV
-from scripts.typeset_gate import GateError, GateReport, _stage_one_differences, run_gate
+from generators.typst.compare import stage_one_differences
+from scripts.typeset_gate import GateError, GateReport, run_gate
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.parsing.test_perfect_score import _checkout_root, _evaluator_env_exists
 
@@ -154,9 +155,9 @@ def test_the_stage_one_comparison_names_a_word_dropped_from_the_typeset_page() -
     _RENDERERS["receipts"](entry, layout, distractors=False, geometry_out=stage_one)
     context = PageContext("x.png", "receipt", layout_id, "typeset_plain", "none", True)
     page = build_page(stage_one, context=context, config=load_parsing_config(PARSING_CONFIG_PATH))
-    assert _stage_one_differences(page, stage_one, context=context) == []
+    assert stage_one_differences(page, stage_one, context=context) == []
     det = next(d for d in page["layout_dets"] if d.get("text", "").count(" ") >= 1)
     det["text"] = det["text"].split(" ", 1)[1]
-    differences = _stage_one_differences(page, stage_one, context=context)
+    differences = stage_one_differences(page, stage_one, context=context)
     assert len(differences) == 1
     assert f"block {det['anno_id']}" in differences[0]

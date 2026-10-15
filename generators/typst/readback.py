@@ -48,6 +48,9 @@ MARK_KINDS = frozenset({"logo", "barcode", "qrcode"})
 BASELINE_SHARE = 0.25
 # Typst measures in floating point; a difference below this, in pixels, is noise, not a misplaced box.
 _NOISE_PX = 1e-3
+# Ruling P9: a block stage one drew past its column may run out of it as far as stage one's ink did, plus
+# this much, in points, for the two engines' differing glyph metrics and stage one's whole pixels.
+OVERSHOOT_TOLERANCE_PT = 1.0
 # Role precedence when one block or cell holds lines of several roles.
 _ROLE_RANK = {"scored": 0, "distractor": 1, "text": 2}
 
@@ -75,11 +78,15 @@ class Measured(NamedTuple):
         page: The page's width and height.
         boxes: Each block's own box, (left, top, right, bottom), by block id.
         columns: Each block's column, (left, right), by block id.
+        allowances: How far each block may run out of its column's (left, right) edge: stage one's own
+            overshoot for the block plus `OVERSHOOT_TOLERANCE_PT` on a side stage one overshot, nothing on
+            a side it kept (Ruling P9). A block absent here must stay inside its column.
     """
 
     page: tuple[float, float]
     boxes: dict[int, Box]
     columns: dict[int, tuple[float, float]]
+    allowances: dict[int, tuple[float, float]] = {}
 
     @property
     def size(self) -> tuple[int, int]:
@@ -295,6 +302,11 @@ def _lines(words: list[_Word]) -> list[list[_Word]]:
     return [sorted(line, key=lambda w: w.box[0]) for line in lines]
 
 
+def _allowance(overshoot_pt: float, scale: float) -> float:
+    """Return how far, in pixels, a block may pass one column edge stage one's ink passed by `overshoot_pt`."""
+    return (overshoot_pt + OVERSHOOT_TOLERANCE_PT) * scale if overshoot_pt > 0 else 0.0
+
+
 def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation) -> dict:
     """Reshape a compiled page into stage one's `geometry` dict.
 
@@ -322,6 +334,10 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
         columns={
             block: (queried.column_pt[0] * scale, queried.column_pt[1] * scale)
             for block, queried in matched.items()
+        },
+        allowances={
+            block: (_allowance(left, scale), _allowance(right, scale))
+            for block, (left, right) in translation.overshoot.items()
         },
     )
     cells: dict[int, list[tuple[Cell, Box]]] = {}
@@ -422,7 +438,9 @@ def layout_errors(geometry: dict, *, where: str) -> list[str]:
     """Check the page's layout: no block off its page or out of its column, and no two blocks overlap.
 
     An overlay may lie over the page beneath it, so a pair with an overlay in it is never an overlap.
-    Boxes are compared unrounded, so two blocks that merely touch are not refused.
+    Boxes are compared unrounded, so two blocks that merely touch are not refused. A block stage one itself
+    drew past its column may pass it by its allowance (`Measured.allowances`, Ruling P9) and no further;
+    the overlap check allows nothing.
 
     Args:
         geometry: A geometry `page_geometry` returned.
@@ -457,12 +475,16 @@ def layout_errors(geometry: dict, *, where: str) -> list[str]:
                 )
             )
         column = measured.columns.get(block_id)
-        if column is not None and (left < column[0] - _NOISE_PX or right > column[1] + _NOISE_PX):
+        spill_left, spill_right = measured.allowances.get(block_id, (0.0, 0.0))
+        if column is not None and (
+            left < column[0] - spill_left - _NOISE_PX or right > column[1] + spill_right + _NOISE_PX
+        ):
             errors.append(
                 _diagnostic(
                     "A block runs out of its column.",
                     what=f"block {path} spans x {shown[0]} to {shown[2]} (pixels), out of its column, "
-                    f"which spans {column[0]:.2f} to {column[1]:.2f}.",
+                    f"which spans {column[0]:.2f} to {column[1]:.2f}, further than stage one's own ink "
+                    f"for it allows ({spill_left:.2f} left, {spill_right:.2f} right).",
                     where=f"{where}, block {path}",
                     expected="every block's left and right edges within its column's, e.g. a box from "
                     f"{column[0]:.2f} to {column[0]:.2f} + its width.",

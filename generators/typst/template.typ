@@ -7,8 +7,9 @@
 // mechanics only.
 
 // Decision 5: no hyphenation, no ligatures and no justification, so the PDF's text layer holds exactly
-// the letters the ground truth records. Typst still wraps at spaces. Blocks stack with no gap of their
-// own: every vertical distance on the page is one the layout states.
+// the letters the ground truth records. Text is never wrapped here: every line is one stage one drew, at
+// the size it drew it (`dsl-line`). Blocks stack with no gap of their own: every vertical distance on the
+// page is one the layout states.
 #let typeset(body) = {
   set text(hyphenate: false, ligatures: false, lang: "en")
   set par(justify: false, leading: 0pt, spacing: 0pt)
@@ -28,6 +29,10 @@
   let column = here().position()
   std.align(align, layout(region => {
     let size = measure(body, width: region.width)
+    // Measured within its region, a line wider than the region reports the region's width; measured
+    // unbounded, it reports its own. The wider of the two is the body's, so a line stage one drew past
+    // its column is boxed (and refused by the layout checks) where it really lies.
+    let size = (width: calc.max(size.width, measure(body).width), height: size.height)
     block(width: size.width, {
       context {
         let p = here().position()
@@ -65,17 +70,29 @@
 
 // Every leaf below is drawn at its own size; the record (or `dsl-align`) around it places it.
 
-// `text`: one value, wrapped by Typst within its region.
-#let dsl-text(..style, body) = _line-style(..style, body)
+// One line exactly as stage one drew it, in its own style: a box as wide as its text, so Typst never
+// wraps it, whatever the width of its region. Given the `width` stage one's line advanced (a string's
+// glyph advances differ a little between the two engines), the letters are tracked apart or together so
+// the line spans exactly that width.
+#let dsl-line(width: none, ..style, body) = _line-style(..style, context {
+  let natural = measure[#body].width
+  let gaps = body.clusters().len() - 1
+  let tracked = if width == none or gaps < 1 { [#body] } else {
+    text(tracking: (width - natural) / gaps, body)
+  }
+  box(width: measure(tracked).width, tracked)
+})
 
-// `pair`: a label and its value, the value either following the label or pinned to the right edge.
-// A right-aligned value spans the region; a following one is as wide as the label and value.
-#let dsl-pair(value-align: left, label: "", ..style, value) = _line-style(..style,
-  if value-align == right {
-    grid(columns: (auto, 1fr), label, std.align(right, value))
-  } else {
-    label + value
-  })
+// Lines one under another (`text`, `block`), each a `dsl-line`; the record around them aligns each.
+#let dsl-lines(lines) = lines.join(linebreak())
+
+// `pair`: its label line, then its value lines beside it, the value either following the label or
+// pinned to the right edge. The value is moved down `shift` so its first line shares the label's
+// baseline, as one line does on the page. A right-aligned value spans the region; a following one is
+// as wide as the label and value.
+#let dsl-pair(value-align: left, shift: 0pt, label: none, value) = grid(
+  columns: if value-align == right { (auto, 1fr) } else { (auto, auto) },
+  label, std.align(value-align, move(dy: shift, value)))
 
 // `rule`: a drawn line `thickness` tall, or (`dashed`) a dashed line through a line box `advance`
 // tall, standing for stage one's row of repeated glyphs without putting them in the text layer.
@@ -93,9 +110,19 @@
 // `spacer`: a fixed vertical gap.
 #let dsl-spacer(height: 0pt) = v(height)
 
-// `split`: child block lists side by side, in columns of the given widths separated by `gap`.
-#let dsl-split(widths: (), gap: 0pt, ..columns) = grid(columns: widths, column-gutter: gap,
-  ..columns.pos())
+// `split`: child block lists side by side, in columns of the given widths separated by `gap`. With a
+// `divider` stroke, a vertical rule runs down the middle of each gap, as tall as the tallest column.
+#let dsl-split(widths: (), gap: 0pt, divider: none, ..columns) = {
+  if divider == none {
+    grid(columns: widths, column-gutter: gap, ..columns.pos())
+  } else {
+    // Each gap is two half-gap columns, so a rule on the line between them runs down its middle.
+    let tracks = widths.map(w => (w,)).intersperse((gap / 2, gap / 2)).flatten()
+    let cells = columns.pos().map(c => (c,)).intersperse(([], [])).flatten()
+    let rules = range(1, widths.len()).map(i => grid.vline(x: 3 * i - 1, stroke: divider))
+    grid(columns: tracks, ..rules, ..cells)
+  }
+}
 
 // `stack`: child blocks one under another.
 #let dsl-stack(body) = block(width: 100%, body)
@@ -107,23 +134,26 @@
 #let dsl-panel(padding: 0pt, stroke: 1pt + black, height: auto, body) = block(width: 100%,
   height: height, inset: padding, stroke: stroke, body)
 
-// One line in its own style: a table cell's line, or a barcode's caption.
-#let dsl-line(..style, body) = _line-style(..style, body)
+// A filled rectangle placed `dx`, `dy` from the top-left of its container: a table's rule, frame or
+// shading, as stage one painted it.
+#let dsl-rect(dx: 0pt, dy: 0pt, width: 0pt, height: 0pt, fill: black) = place(top + left, dx: dx,
+  dy: dy, rect(width: width, height: height, fill: fill, stroke: none))
 
-// One table cell: a `cell-record` inset within its grid cell and aligned as its column is.
-#let dsl-cell(block: 0, row: 0, col: 0, span: 1, inset: (:), align: left, lines) = grid.cell(
-  colspan: span, inset: inset, cell-record(block: block, row: row, col: col, span: span, align: align,
-    lines.join(linebreak())))
+// One table cell: a `cell-record` holding its lines, placed `dy` below the table's top in a column
+// `width` wide that starts `dx` from the table's left edge, and aligned in it as its anchor is.
+#let dsl-cell(block: 0, row: 0, col: 0, span: 1, dx: 0pt, dy: 0pt, width: 0pt, align: left, lines) = place(
+  top + left, dx: dx, dy: dy, std.block(width: width, cell-record(block: block, row: row, col: col,
+    span: span, align: align, lines.join(linebreak()))))
 
-// `table`: a grid of cells. `filled` shades the header row, `bordered` rules every cell, `plain` draws
-// no frame.
-#let dsl-table(widths: (), frame: "plain", fill: none, stroke: 1pt + black, header: false, ..cells) = {
-  grid(
-    columns: widths,
-    fill: (x, y) => if frame == "filled" and header and y == 0 { fill } else { none },
-    stroke: if frame == "bordered" { stroke } else { none },
-    ..cells.pos(),
-  )
+// `table`: a block as tall as stage one's table, holding its rules and shading, then its cells, each
+// placed where stage one drew it.
+#let dsl-table(height: 0pt, ..items) = std.block(width: 100%, height: height, items.pos().join())
+
+// `banner`: a full-bleed bar placed `dx`, `dy` from the top-left of the page's content area (the
+// page's own corner), and its text `text-dy` below that area's top.
+#let dsl-banner(dx: 0pt, dy: 0pt, width: 0pt, height: 0pt, fill: black, text-dy: 0pt, body) = {
+  place(top + left, dx: dx, dy: dy, rect(width: width, height: height, fill: fill, stroke: none))
+  place(top + left, dy: text-dy, std.block(width: 100%, body))
 }
 
 // `logo`: a filled circle, square or chevron with the name's initials centred inside it.
@@ -160,11 +190,17 @@
 }
 
 // `qrcode`: dark modules drawn row by row from runs `(row, start, length)` in modules, inside a quiet
-// zone.
-#let dsl-qrcode(runs: (), modules: 0, unit: 1pt, quiet: 0pt, fill: black) = box(
-  width: modules * unit + 2 * quiet, height: modules * unit + 2 * quiet, {
+// zone, then its caption, if any, directly beneath and centred under the symbol.
+#let dsl-qrcode(runs: (), modules: 0, unit: 1pt, quiet: 0pt, fill: black, caption: none) = {
+  let symbol = box(width: modules * unit + 2 * quiet, height: modules * unit + 2 * quiet, {
     for run in runs {
       place(top + left, dx: quiet + run.at(1) * unit, dy: quiet + run.at(0) * unit,
         rect(width: run.at(2) * unit, height: unit, fill: fill, stroke: none))
     }
   })
+  if caption == none {
+    symbol
+  } else {
+    grid(columns: (auto,), align: center, symbol, caption)
+  }
+}

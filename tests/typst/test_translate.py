@@ -15,14 +15,18 @@ from pathlib import Path
 import pypdfium2
 import pytest
 import segno
+from PIL import ImageFont
 
+from generators.common import load_font
 from generators.layout_dsl.code128 import encode_code128
-from generators.layout_dsl.engine import SCOPED_LEAVES
+from generators.layout_dsl.engine import PRIMITIVE_DRAWERS, SCOPED_LEAVES
+from generators.layout_dsl.schema import FRAMES, GROUPINGS
 from generators.loader import load_layout_registry
 from generators.parsing.omnidocbench import OVERLAY_PREFIX
 from generators.typst.config import TYPESET_CONFIG_PATH, PageSpec, layout_page, load_typeset_config
 from generators.typst.translate import (
     GATE_LAYOUTS,
+    SUPPORTED_OPTIONS,
     TRANSLATED,
     Translation,
     TranslateError,
@@ -40,7 +44,7 @@ A4 = PageSpec(width_mm=210.0, height_mm=297.0)
 GATE_DOC_TYPES = {"invoices": "invoice", "receipts": "receipt", "bank_statements": "bank_statement"}
 
 # Invented values: none appear in ground_truth/.
-ENTRY = {
+ENTRY: dict = {
     "case_id": "CASE998",
     "layout": LAYOUT_ID,
     "fields": {
@@ -56,7 +60,7 @@ TABLE_COLUMNS: list[dict] = [
     {"key": "item", "label": "Item", "align": "left", "x": 0},
     {"key": "amount", "label": "Amount", "align": "right", "x_right": 0},
 ]
-TABLE = {
+TABLE: dict = {
     "type": "table",
     "rows": "pipe_fields",
     "frame": "bordered",
@@ -66,10 +70,12 @@ TABLE = {
     "columns": TABLE_COLUMNS,
 }
 
-# One minimal body per gate primitive, each holding at least one block a parser finds.
+# One minimal body per primitive the receipt layout can draw, each holding at least one block a parser
+# finds.
 BODIES: dict[str, list] = {
     "text": [TEXT],
     "pair": [{"type": "pair", "label": "Yield", "value": "{TOTAL_AMOUNT}"}],
+    "block": [{"type": "block", "heading": "Harbour Notes", "lines": ["Moorings", "", "Slipway"]}],
     "rule": [TEXT, {"type": "rule"}, OTHER_TEXT],
     "spacer": [TEXT, {"type": "spacer", "height": 9}, OTHER_TEXT],
     "split": [{"type": "split", "children": [[TEXT], [OTHER_TEXT]]}],
@@ -159,19 +165,51 @@ def test_the_gate_primitives_are_every_type_the_gate_layouts_use() -> None:
     for layout_file, layout_id in GATE_LAYOUTS:
         expected |= own_walk(load_layout_registry(REPO_ROOT / layout_file)[layout_id]["body"])
     assert gate_primitives() == frozenset(expected)
-    assert set(BODIES) == expected
+    assert expected <= set(BODIES)
 
 
-def test_the_translator_handles_exactly_the_gate_primitives() -> None:
-    assert TRANSLATED == gate_primitives()
+def test_the_translator_handles_every_primitive_stage_one_draws() -> None:
+    assert TRANSLATED == frozenset(PRIMITIVE_DRAWERS)
+
+
+def test_every_primitive_a_layout_uses_is_translated() -> None:
+    used: set[str] = set()
+    for layout_file in sorted((REPO_ROOT / "config" / "layouts").glob("*.yml")):
+        for layout in load_layout_registry(layout_file).values():
+            used |= own_walk(layout["body"])
+    assert used <= TRANSLATED
+    # Every primitive but `banner`, which paints from a sheet's corner, has a body on the receipt layout.
+    assert set(BODIES) == TRANSLATED - {"banner"}
+
+
+def test_no_shipped_layout_opens_a_block_around_a_container() -> None:
+    # Read-back joins the words on one baseline into one line (Decision 3). Inside one block holding a
+    # split, that would interleave its columns row by row, unlike stage one's column-by-column draw, so a
+    # layout setting `parse_block: true` needs the read-back taught first.
+    def opened(blocks: list) -> list[str]:
+        found = []
+        for block in blocks:
+            if block.get("parse_block") is True:
+                found.append(str(block["type"]))
+            children = block.get("children") or []
+            for column in children if block["type"] == "split" else [children]:
+                found += opened(column)
+        return found
+
+    for layout_file in sorted((REPO_ROOT / "config" / "layouts").glob("*.yml")):
+        for layout_id, layout in load_layout_registry(layout_file).items():
+            assert opened(layout["body"]) == [], layout_id
+
+
+# The template call each primitive's body is written as: a text, a block and a pair drawn as one string
+# are written as the lines stage one drew.
+CALLS = {"text": "dsl-lines(", "block": "dsl-lines(", "pair": "dsl-lines("}
 
 
 @pytest.mark.parametrize("kind", sorted(BODIES))
-def test_each_gate_primitive_translates_to_its_template_call_and_its_records(
-    kind: str, tmp_path: Path
-) -> None:
+def test_each_primitive_translates_to_its_template_call_and_its_records(kind: str, tmp_path: Path) -> None:
     translation = translate(BODIES[kind], tmp_path)
-    assert f"dsl-{kind}(" in translation.source
+    assert CALLS.get(kind, f"dsl-{kind}(") in translation.source
     assert translation.blocks, "every minimal body holds a block a parser finds"
     records = call_args(translation.source, "block-record")
     assert len(records) == len(translation.blocks)
@@ -258,8 +296,8 @@ def test_a_text_is_written_as_the_value_stage_one_draws(tmp_path: Path) -> None:
         [TEXT, {"type": "pair", "label": "Yield", "value": "{TOTAL_AMOUNT}"}], tmp_path
     ).source
     assert '"Marrowbank Tide Tables"' in source
-    assert 'label: "Yield: "' in source
-    assert '"41.07"' in source
+    # Stage one draws an unbudgeted, left-aligned pair as one string.
+    assert '"Yield: 41.07"' in source
 
 
 def test_a_block_gated_off_by_when_is_not_written(tmp_path: Path) -> None:
@@ -290,7 +328,7 @@ def test_a_table_has_one_cell_record_per_cell(tmp_path: Path) -> None:
             "body[1].children[1][0]",
             "marquee",
         ),
-        ([{"type": "block", "lines": ["Hollin"], "when": "ABSENT_FIELD"}], "body[0]", "block"),
+        ([{"type": "lantern", "lines": ["Hollin"], "when": "ABSENT_FIELD"}], "body[0]", "lantern"),
     ],
 )
 def test_an_untranslated_primitive_is_refused_four_part(
@@ -306,13 +344,72 @@ def test_an_untranslated_primitive_is_refused_four_part(
 
 
 def test_an_untranslated_table_option_is_refused_four_part(tmp_path: Path) -> None:
-    grouped = {**TABLE, "grouping": "inline"}
+    grouped = {**TABLE, "grouping": "fortnightly"}
     with pytest.raises(TranslateError) as exc_info:
         translate([TEXT, grouped], tmp_path)
     message = str(exc_info.value)
     assert_diagnostic_error(exc_info.value)
     assert f"{RECEIPTS_PATH.resolve()} -> {LAYOUT_ID}.body[1].grouping" in message
-    assert "'inline'" in message
+    assert "'fortnightly'" in message
+
+
+def test_every_table_grouping_and_frame_and_a_split_divider_are_translated() -> None:
+    assert set(SUPPORTED_OPTIONS["table"]["grouping"]) == set(GROUPINGS)
+    assert set(SUPPORTED_OPTIONS["table"]["frame"]) == set(FRAMES)
+    assert True in SUPPORTED_OPTIONS["split"]["divider"]
+    assert "qrcode" not in SUPPORTED_OPTIONS, "a qrcode's caption is translated, whatever it says"
+
+
+@pytest.mark.parametrize(
+    ("body", "where", "names"),
+    [
+        (
+            [{"type": "stack", "children": [TEXT, {**OTHER_TEXT, "anchor": "foot"}]}],
+            "body[0].children[1].anchor",
+            "anchored to the foot",
+        ),
+        (
+            [
+                {
+                    "type": "split",
+                    "children": [[TEXT], [{"type": "stack", "anchor": "foot", "children": [TEXT]}]],
+                }
+            ],
+            "body[0].children[1][0].anchor",
+            "anchored to the foot",
+        ),
+        (
+            [
+                {
+                    "type": "stack",
+                    "children": [{"type": "banner", "content": "Ferry", "height": 40, "color": "navy"}],
+                }
+            ],
+            "body[0].children[0]",
+            "'banner' block is nested",
+        ),
+        (
+            [
+                {
+                    **TABLE,
+                    "columns": [TABLE_COLUMNS[0], {**TABLE_COLUMNS[1], "sub_line": {"key": "item"}}],
+                }
+            ],
+            "body[0].columns[1].sub_line",
+            "right-aligned table column carries a sub_line",
+        ),
+    ],
+    ids=["foot-in-stack", "foot-in-split", "nested-banner", "right-sub-line"],
+)
+def test_a_placement_the_translator_cannot_make_is_refused_four_part(
+    body: list, where: str, names: str, tmp_path: Path
+) -> None:
+    with pytest.raises(TranslateError) as exc_info:
+        translate(body, tmp_path)
+    message = str(exc_info.value)
+    assert_diagnostic_error(exc_info.value)
+    assert f"{RECEIPTS_PATH.resolve()} -> {LAYOUT_ID}.{where}" in message
+    assert names in message
 
 
 # --- the records are stage one's -----------------------------------------------------------------------
@@ -407,7 +504,7 @@ def test_a_compiled_page_reports_each_record_with_its_box(tmp_path: Path) -> Non
     for cell in cells:
         assert cell["block"] == table["id"]
         assert {"span", "page", "x", "y", "w", "h"} <= set(cell)
-        assert table["x"] <= cell["x"] and cell["x"] + cell["w"] <= table["x"] + table["w"] + 1e-6
+        assert table["x"] <= cell["x"] + 1e-3 and cell["x"] + cell["w"] <= table["x"] + table["w"] + 1e-3
 
 
 @pytest.mark.parametrize("kind", sorted(BODIES))
@@ -530,15 +627,18 @@ def ink_lines(pdf: Path, box: dict) -> list[tuple[float, float]]:
 
 
 def test_a_wrapped_right_aligned_text_keeps_each_line_on_its_right_edge(tmp_path: Path) -> None:
-    long = "Marrowbank tide tables and soundings for the reef"
-    source = translate([{"type": "text", "content": long, "align": "right"}], tmp_path).source
+    long = "Marrowbank tide tables and soundings for the reef, the bar and the outer moorings"
+    block = {"type": "text", "content": long, "align": "right", "budget": "DISTRACTOR_PARAGRAPH"}
+    translation = translate([block], tmp_path)
     pdf = tmp_path / "page.pdf"
-    compile_page(source, pdf)
-    (record,) = query(source, "block-record")
+    compile_page(translation.source, pdf)
+    (record,) = query(translation.source, "block-record")
     left, right = roll_column()
     lines = ink_lines(pdf, record)
     assert len(lines) >= 2, "the text must wrap for this test to mean anything"
-    assert record["w"] <= right - left + 1e-6
+    # Exactly the lines stage one wrapped it to: Typst does not re-flow them.
+    assert len(lines) == len(translation.ink)
+    assert record["w"] <= right - left + 1e-3
     for _, line_right in lines:
         assert line_right == pytest.approx(record["x"] + record["w"], abs=1.0)
     scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
@@ -546,11 +646,53 @@ def test_a_wrapped_right_aligned_text_keeps_each_line_on_its_right_edge(tmp_path
     assert record["h"] == pytest.approx(len(lines) * advance, abs=0.5)
 
 
+def test_each_line_is_set_at_the_size_stage_one_fitted_it_to(tmp_path: Path) -> None:
+    # PAYMENT_LINE shrinks a line to fit the roll's width, onto one line.
+    long = "Marrowbank tide tables and soundings for the reef bar"
+    block = {"type": "text", "content": long, "budget": "PAYMENT_LINE"}
+    translation = translate([block], tmp_path)
+    assert len(translation.ink) == 1
+    nominal = real_layout([])["font_sizes"]["body"]
+    sizes = {record.size for record in translation.ink}
+    assert len(sizes) == 1 and sizes.pop() < nominal, (
+        "stage one must shrink the text for this to mean anything"
+    )
+    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    for record in translation.ink:
+        assert f"size: {record.size * scale:.4f}pt" in translation.source
+        assert _string_literal(record.text) in translation.source
+
+
+def test_a_line_stage_one_drew_past_its_column_stays_one_line_and_is_boxed_where_it_lies(
+    tmp_path: Path,
+) -> None:
+    long = "Marrowbank tide tables and soundings for the reef, the bar and the outer moorings"
+    translation = translate([{"type": "text", "content": long}], tmp_path)
+    pdf = tmp_path / "page.pdf"
+    compile_page(translation.source, pdf)
+    (record,) = query(translation.source, "block-record")
+    left, right = roll_column()
+    assert len(ink_lines(pdf, record)) == 1
+    assert record["x"] == pytest.approx(left, abs=1.0)
+    assert record["w"] > right - left, "the box is the line's own, past the column, as stage one drew it"
+
+
+def _string_literal(text: str) -> str:
+    """Return text as the translator writes it in a Typst string literal."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def test_a_multi_line_cell_in_a_right_aligned_column_keeps_each_line_on_its_right_edge(
     tmp_path: Path,
 ) -> None:
     item, amount = TABLE_COLUMNS
-    table = {**TABLE, "columns": [item, {**amount, "label": "Amount\nin dollars"}]}
+    layout = real_layout([])
+    advance = layout["defaults"]["line_advance"]["body"]
+    table = {
+        **TABLE,
+        "header_height": 2 * advance,
+        "columns": [item, {**amount, "label": "Amount\nin dollars"}],
+    }
     source = translate([table], tmp_path).source
     pdf = tmp_path / "page.pdf"
     compile_page(source, pdf)
@@ -559,9 +701,12 @@ def test_a_multi_line_cell_in_a_right_aligned_column_keeps_each_line_on_its_righ
     assert len(lines) == 2
     for _, line_right in lines:
         assert line_right == pytest.approx(cell["x"] + cell["w"], abs=1.0)
-    scale = page_scale(real_layout([]), ROLL, canvas_dpi=CONFIG.canvas_dpi)
-    advance = real_layout([])["defaults"]["line_advance"]["body"] * scale
-    assert cell["h"] == pytest.approx(2 * advance, abs=0.5)
+    scale = page_scale(layout, ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    # The first line takes its pitch; the last is as tall as its face.
+    font = load_font(layout["font_sizes"]["body"], family="liberation_mono", bold=True)
+    assert isinstance(font, ImageFont.FreeTypeFont)
+    ascent, descent = font.getmetrics()
+    assert cell["h"] == pytest.approx((advance + ascent + descent) * scale, abs=0.5)
 
 
 def test_a_barcode_reports_its_drawn_size(tmp_path: Path) -> None:
@@ -573,3 +718,102 @@ def test_a_barcode_reports_its_drawn_size(tmp_path: Path) -> None:
     # The bars, the gap, then the caption's one line; the caption is narrower than the bars.
     assert record["w"] == pytest.approx(bars, abs=0.5)
     assert record["h"] == pytest.approx((block["height"] + block["caption_gap"] + advance) * scale, abs=0.5)
+
+
+def test_a_qrcode_caption_sits_under_its_symbol(tmp_path: Path) -> None:
+    block = {**BODIES["qrcode"][0], "caption": "Scan for tides"}
+    translation = translate([block], tmp_path)
+    assert '"Scan for tides"' in translation.source
+    compile_page(translation.source, tmp_path / "page.pdf")
+    (record,) = query(translation.source, "block-record")
+    modules = len(
+        segno.make(block["content"], error=block["error_level"], micro=False, boost_error=False).matrix
+    )
+    layout = real_layout([])
+    scale = page_scale(layout, ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    side = (modules + 2 * block["quiet_zone"]) * block["module_px"]
+    # The symbol, then the caption's one line directly beneath it.
+    assert record["h"] == pytest.approx(
+        (side + layout["defaults"]["line_advance"]["body"]) * scale, abs=0.5
+    )
+
+
+def test_a_split_divider_runs_down_the_middle_of_its_gap(tmp_path: Path) -> None:
+    short = [[{"type": "text", "content": "Wren"}], [{"type": "text", "content": "Tern"}]]
+    split = {"type": "split", "gap": 20, "divider": True, "children": short}
+    source = translate([split], tmp_path).source
+    pdf = tmp_path / "page.pdf"
+    compile_page(source, pdf)
+    first, second = query(source, "block-record")
+    layout = real_layout([])
+    scale = page_scale(layout, ROLL, canvas_dpi=CONFIG.canvas_dpi)
+    left, _ = roll_column()
+    half = (layout["content_width"] - 20) / 2
+    middle = left + (half + 10) * scale
+    image = pypdfium2.PdfDocument(str(pdf))[0].render(scale=4).to_pil().convert("L")
+    row = round((first["y"] + first["h"] / 2) * 4)
+    assert min(image.getpixel((round(middle * 4) + dx, row)) for dx in (-2, -1, 0, 1, 2)) < 128
+    assert image.getpixel((round((middle - 4) * 4), row)) > 200, "only the divider is drawn in the gap"
+
+
+def test_a_sub_line_is_drawn_in_its_own_colour_and_size(tmp_path: Path) -> None:
+    item, amount = TABLE_COLUMNS
+    sub_line = {"key": "note", "color": "#999999", "offset_y": 24, "height": 20}
+    table = {
+        **TABLE,
+        "params": {"fields": {**TABLE["params"]["fields"], "note": "INVENTED_NOTES"}},
+        "columns": [{**item, "sub_line": sub_line}, amount],
+    }
+    entry = {**ENTRY, "fields": {**ENTRY["fields"], "INVENTED_NOTES": "Ref 4471 | Ref 9032"}}
+    translation = translate([table], tmp_path, entry=entry)
+    grey = "fill: rgb(153, 153, 153)"
+    notes = [line for line in translation.source.splitlines() if "Ref 4471" in line or "Ref 9032" in line]
+    assert notes and all(grey in line for line in notes)
+    assert grey not in "\n".join(line for line in translation.source.splitlines() if line not in notes)
+    compile_page(translation.source, tmp_path / "page.pdf")
+
+
+def test_a_banner_paints_from_the_page_corner_and_sets_its_text_where_stage_one_draws_it(
+    tmp_path: Path,
+) -> None:
+    banks = REPO_ROOT / "config" / "layouts" / "bank_statements.yml"
+    registry = load_layout_registry(banks)
+    layout_id = next(
+        i for i, layout in registry.items() if any(b["type"] == "banner" for b in layout["body"])
+    )
+    layout = copy.deepcopy(registry[layout_id])
+    banner = {
+        "type": "banner",
+        "content": "Gullwing Tidal Survey",
+        "height": 120,
+        "color": "#0061B5",
+        "text_y": 30,
+    }
+    layout.update(
+        body=[banner, {"type": "spacer", "height": 140}, TEXT], field_providers=[], distractor_items=[]
+    )
+    translation = translate_page(
+        layout,
+        {**ENTRY, "layout": layout_id},
+        layout_id=layout_id,
+        layout_path=banks,
+        page=A4,
+        distractors=False,
+        config=CONFIG,
+        overlay_dir=tmp_path,
+    )
+    assert "dsl-banner(" in translation.source
+    pdf = tmp_path / "page.pdf"
+    compile_page(translation.source, pdf)
+    text, below = query(translation.source, "block-record")
+    scale = 72 / CONFIG.canvas_dpi
+    a4_width = 210.0 * 72 / 25.4
+    assert text["y"] == pytest.approx(30 * scale, abs=0.5)
+    assert text["x"] == pytest.approx((a4_width - layout["content_width"] * scale) / 2, abs=0.5)
+    assert below["y"] == pytest.approx((layout["margin"] + 140) * scale, abs=0.5), (
+        "the banner moves no flow"
+    )
+    image = pypdfium2.PdfDocument(str(pdf))[0].render(scale=1).to_pil().convert("RGB")
+    # The bar runs from the page's own corner, full bleed.
+    assert image.getpixel((1, 1)) == pytest.approx((0, 97, 181), abs=3)
+    assert image.getpixel((image.width - 2, round(119 * scale) - 1)) == pytest.approx((0, 97, 181), abs=3)
