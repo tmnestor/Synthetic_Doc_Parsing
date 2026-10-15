@@ -342,6 +342,7 @@ layouts:
 # one layout.
   receipt_thermal_80mm:
     width: 420
+    page: {width_mm: 80}
     margin: 12
     content_width: 396
     # Receipts are variable-height: the body is drawn onto a canvas this tall
@@ -386,6 +387,7 @@ layouts:
 
   receipt_thermal_57mm:
     width: 310
+    page: {width_mm: 57}
     margin: 8
     content_width: 294
     canvas_ceiling: 4000
@@ -419,6 +421,7 @@ layouts:
 
   receipt_retail_tax:
     width: 420
+    page: {width_mm: 80}
     margin: 12
     content_width: 396
     canvas_ceiling: 4000
@@ -452,6 +455,7 @@ layouts:
 
   receipt_fuel:
     width: 420
+    page: {width_mm: 80}
     margin: 12
     content_width: 396
     canvas_ceiling: 4000
@@ -485,6 +489,9 @@ layouts:
 
   receipt_professional:
     width: 440
+    # 440 px at the 5.25 px/mm of the 80 mm rolls above is 83.8 mm, which no thermal roll is sold at;
+    # it is the same 80 mm roll with a 20 px wider printable box, so it is typeset on 80 mm.
+    page: {width_mm: 80}
     margin: 12
     content_width: 416
     canvas_ceiling: 4000
@@ -518,6 +525,9 @@ layouts:
 
   receipt_hospitality:
     width: 440
+    # 440 px at the 5.25 px/mm of the 80 mm rolls above is 83.8 mm, which no thermal roll is sold at;
+    # it is the same 80 mm roll with a 20 px wider printable box, so it is typeset on 80 mm.
+    page: {width_mm: 80}
     margin: 12
     content_width: 416
     canvas_ceiling: 4000

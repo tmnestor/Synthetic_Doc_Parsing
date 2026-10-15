@@ -78,6 +78,15 @@ dependencies:
   # 3.12 syntax: `X | Y` unions, `contextlib.chdir`).
   - python=3.12
   - pip
+
+  # --- Stage-two typesetting (generators/typst/) --------------------------
+  # Both come from conda-forge, never pip. Typst compiles each layout to a
+  # native PDF, and its output is version-dependent, so the version is pinned
+  # exactly and config/typeset_config.yml:typst_version must equal it (checked
+  # at startup against `typst --version`). pypdfium2 rasterises those PDFs.
+  # Both are the newest releases at least two weeks old on 15 October 2026.
+  - typst=0.15.1
+  - pypdfium2=5.13.0
   - pip:
 
       # --- Core runtime: generation, rendering, export ---------------------

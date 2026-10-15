@@ -265,8 +265,12 @@ _PAGE_LAYOUT_KEYS = frozenset(
         "page_dimensions",  # bank_statement.py, invoice.py, draw_banner
         "width",  # receipt.py: the thermal roll's pixel width
         "canvas_ceiling",  # receipt.py: the pre-crop canvas height
+        "page",  # generators/typst/config.layout_page: the physical page; the PIL renderer ignores it
     }
 )
+
+# The sizes a layout's `page: {size: ...}` may name, in the physical dimensions Typst typesets onto.
+PAGE_SIZES_MM: dict[str, tuple[float, float]] = {"a4": (210.0, 297.0)}
 
 # Keys no render path reads, but which the corpus tooling around the renderers
 # does. They are not dead: deleting one breaks seeding or a ground-truth
@@ -630,6 +634,92 @@ def _refuse_tables_beneath(block: dict, *, layout_path: str, key_path: str) -> N
                 "              - {type: table, rows: ..., columns: [...], frame: ruled, grouping: none}",
                 recover=f"set parse_block: false on {key_path}, or move the table out of it.",
             )
+
+
+def validate_page(layout: dict, *, layout_path: str, layout_id: str) -> tuple[str, float | str]:
+    """Check a layout's required `page:` key, the physical page it is typeset onto.
+
+    Exactly one of `size` (a named sheet, `a4`) or `width_mm` (a receipt roll, whose height follows its
+    content) is given. The PIL renderer never reads the key; the Typst translator does.
+
+    Args:
+        layout: The resolved layout dict.
+        layout_path: Path to the layout YAML, for the diagnostic.
+        layout_id: The layout's id.
+
+    Returns:
+        `("size", name)` or `("width_mm", millimetres)`.
+
+    Raises:
+        LayoutSchemaError: If the key is absent or malformed.
+    """
+    key_path = f"{layout_id}.page"
+    if "page" not in layout:
+        raise _err(
+            f"layout '{layout_id}' has no 'page' key.",
+            layout_path=layout_path,
+            key_path=key_path,
+            expected="page: {size: a4} for an invoice or bank statement, or page: {width_mm: 80} for a "
+            "receipt roll of that width in millimetres.",
+            recover=f"add a 'page:' key to {layout_id}: size for a sheet, width_mm for a roll.",
+        )
+    page = layout["page"]
+    if not isinstance(page, dict):
+        raise _err(
+            f"page is {page!r}, not a mapping.",
+            layout_path=layout_path,
+            key_path=key_path,
+            expected="a mapping with exactly one of size or width_mm, e.g. page: {size: a4}.",
+            recover=f"replace {key_path} with page: {{size: a4}} or page: {{width_mm: 80}}.",
+        )
+    unknown = sorted(set(page) - {"size", "width_mm"})
+    if unknown:
+        raise _err(
+            f"page carries key(s) {unknown} that nothing reads.",
+            layout_path=layout_path,
+            key_path=key_path,
+            expected="only size or width_mm, e.g. page: {size: a4}.",
+            recover=f"remove {unknown} from {key_path}.",
+        )
+    if "size" in page and "width_mm" in page:
+        raise _err(
+            "page declares both size and width_mm.",
+            layout_path=layout_path,
+            key_path=key_path,
+            expected="exactly one: size for a sheet (page: {size: a4}), width_mm for a roll "
+            "(page: {width_mm: 80}).",
+            recover=f"remove one of size or width_mm from {key_path}.",
+        )
+    if "size" in page:
+        size = page["size"]
+        if not isinstance(size, str) or size not in PAGE_SIZES_MM:
+            raise _err(
+                f"page.size is {size!r}, not one of {sorted(PAGE_SIZES_MM)}.",
+                layout_path=layout_path,
+                key_path=f"{key_path}.size",
+                expected=f"one of {sorted(PAGE_SIZES_MM)}, e.g. page: {{size: a4}}.",
+                recover=f"set {key_path}.size to a4, or use width_mm for a roll.",
+            )
+        return "size", size
+    if "width_mm" in page:
+        width = page["width_mm"]
+        if isinstance(width, bool) or not isinstance(width, int | float) or not 0 < width < float("inf"):
+            raise _err(
+                f"page.width_mm is {width!r}, not a positive number.",
+                layout_path=layout_path,
+                key_path=f"{key_path}.width_mm",
+                expected="a positive number of millimetres, e.g. page: {width_mm: 80}.",
+                recover=f"set {key_path}.width_mm to the roll width in millimetres, e.g. 80.",
+            )
+        return "width_mm", float(width)
+    raise _err(
+        "page declares neither size nor width_mm.",
+        layout_path=layout_path,
+        key_path=key_path,
+        expected="exactly one: size for a sheet (page: {size: a4}), width_mm for a roll "
+        "(page: {width_mm: 80}).",
+        recover=f"add size or width_mm to {key_path}.",
+    )
 
 
 def _validate_parse_keys(block: dict, *, layout_path: str, key_path: str) -> None:
@@ -3396,6 +3486,8 @@ def validate_layout(
             "              overlay: []",
             recover="add overlay: [] to the layout.",
         )
+
+    validate_page(layout, layout_path=layout_path, layout_id=layout_id)
 
     # A layout key nothing reads is worse than no key at all: it tells an
     # operator the document is configured a way it is not. The invoice YAML

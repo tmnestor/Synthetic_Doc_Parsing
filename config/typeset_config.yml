@@ -1,0 +1,20 @@
+# Stage two typesetting: how each layout is compiled to a native PDF by Typst and rasterised. Loaded and
+# validated at startup by generators/typst/config.py; every key is required and there are no Python defaults.
+
+# The Typst release PDFs are compiled with. Its output is version-dependent, so this must equal the exact
+# version pinned in environment.yml and reported by `typst --version`; a mismatch is refused at startup.
+typst_version: "0.15.1"
+
+# Directory (relative to the repository root) of the .ttf files Typst may use. Typst is run with system
+# fonts ignored, so the rendered glyphs come from here alone.
+font_dir: fonts
+
+# Seconds since the Unix epoch stamped on every PDF as its creation date, so a rebuild is byte-identical.
+# 1767225600 is 1 January 2026, 00.00 UTC.
+creation_timestamp: 1767225600
+
+# Dots per inch at which a PDF page is rasterised to an image.
+raster_dpi: 300
+
+# The Typst template (relative to the repository root) every layout is typeset with.
+template: generators/typst/template.typ

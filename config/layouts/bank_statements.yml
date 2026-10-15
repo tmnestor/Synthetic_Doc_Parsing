@@ -1,4 +1,5 @@
 _bank_base: &bank_base
+  page: {size: a4}
   page_dimensions: {width: 1800, height: 3508}
   content_width: 1600
 
@@ -769,6 +770,7 @@ layouts:
       DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
     bank: National Australia Bank
     logo_text: NAB Classic Banking
+    page: {size: a4}
     page_dimensions:
       width: 1800
       height: 3508
@@ -801,6 +803,7 @@ layouts:
       DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
     bank: National Australia Bank
     logo_text: NAB Classic Banking
+    page: {size: a4}
     page_dimensions:
       width: 1800
       height: 3508
@@ -833,6 +836,7 @@ layouts:
       DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
     bank: Australia and New Zealand Banking Group
     logo_text: ANZ
+    page: {size: a4}
     page_dimensions:
       width: 1800
       height: 3508
@@ -865,6 +869,7 @@ layouts:
       DISTRACTOR_PROMO: {width: 1568, fit: shrink_then_wrap, min_font: 16, max_lines: 2}
     bank: Australia and New Zealand Banking Group
     logo_text: ANZ
+    page: {size: a4}
     page_dimensions:
       width: 1800
       height: 3508

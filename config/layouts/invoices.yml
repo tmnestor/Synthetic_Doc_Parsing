@@ -28,6 +28,7 @@
 # "Date of supply"), never a scored field's. Distractor text fits through the
 # DISTRACTOR_* budgets, each sized to the column it draws in.
 _invoice_page: &invoice_page
+  page: {size: a4}
   page_dimensions:
     width: 1900
     height: 3508
