@@ -455,6 +455,10 @@ Mirroring the source tree, test first:
 
 ## 6. Stage two: Typst spike (outline)
 
+> Superseded on 15 October 2026 by [`parsing_benchmark_stage2_design.md`](parsing_benchmark_stage2_design.md):
+> stage two now typesets stage one's documents as native PDFs, since about half of real intake is native
+> PDF of the same kinds. The outline below is kept as written.
+
 One multi-page document with two-column flowing text, a table broken across a page, running headers and
 footers, and a captioned figure, output as a PDF with a text layer and as 300 dpi PNGs rasterised from
 it. It passes the gate when:
