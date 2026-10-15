@@ -194,6 +194,8 @@ class RenderContext:
             `body[3].children`; the walker appends each block's position to name the block it scopes.
         block_anchor: The `anchor:` of the nearest enclosing container that declares one (e.g. `foot`), or
             None; a block with no anchor of its own records this one.
+        drawn_out: Optional (opt-in): when given, the walker records in it, by block path, every block
+            it draws onto the recorded page (see `generators.layout_dsl.engine.DrawnBlock`).
     """
 
     draw: ImageDraw.ImageDraw
@@ -208,6 +210,7 @@ class RenderContext:
     dx_gated: bool = False
     block_path: str = "body"
     block_anchor: str | None = None
+    drawn_out: dict | None = None
 
     def within(self, region: Region) -> "RenderContext":
         """Return a copy of this context scoped to a different region.

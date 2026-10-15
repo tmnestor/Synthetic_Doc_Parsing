@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
+from typing import NamedTuple
 
 from PIL import ImageDraw
 
@@ -62,6 +63,22 @@ SCOPED_CONTAINERS = frozenset({"panel", "split", "stack"})
 
 class EngineError(RuntimeError):
     """Raised when a block cannot be dispatched at render time."""
+
+
+class DrawnBlock(NamedTuple):
+    """What one block drew onto the recorded page, as `render_body(drawn_out=...)` reports it.
+
+    Attributes:
+        ink_start: The index in the recorder's ink records of the first line or mark the block drew.
+        ink_end: One past the index of its last; equal to `ink_start` when it drew no ink.
+        y_start: The y-cursor the block was drawn from (after any `anchor: foot` placement).
+        y_end: The y-cursor it returned.
+    """
+
+    ink_start: int
+    ink_end: int
+    y_start: int
+    y_end: int
 
 
 # Every runtime error a primitive (or a helper it calls) can raise while drawing.
@@ -164,8 +181,14 @@ def render_blocks(blocks: list, ctx: RenderContext, y: int) -> int:
             if own_anchor == "foot":
                 # Drawn upward from the bottom margin; fails fast if it would meet the body above.
                 y = foot_origin(block, block_ctx, y, drawer, at=f"{ctx.layout_id}.body[{position}]")
+            # Only the recorded page is reported: foot_origin's measuring pass draws with no recorder.
+            recorder = ctx.ink_recorder if ctx.drawn_out is not None else None
+            ink_start = len(recorder.ink_records()) if recorder is not None else 0
+            y_start = y
             with _block_scope(block, str(kind), ctx, path=here, anchor=anchor):
                 y = drawer(block, block_ctx, y)
+            if recorder is not None and ctx.drawn_out is not None:
+                ctx.drawn_out[here] = DrawnBlock(ink_start, len(recorder.ink_records()), y_start, y)
         except _DSL_ERRORS as err:
             # Each nesting level prepends its own segment as the error unwinds, so
             # the final path reads outermost-first: body[2].children[0].
@@ -221,6 +244,7 @@ def render_body(
     recorder: BoxRecorder | None = None,
     entry_out: dict | None = None,
     labels: LabelChoice | None = None,
+    drawn_out: dict[str, DrawnBlock] | None = None,
 ) -> int:
     """Render a layout's whole body onto a drawing surface.
 
@@ -242,6 +266,10 @@ def render_body(
         labels: The render's label choice, handed to the layout's label provider; None for a plain or
             distractor render, which draws every label site with its own wording (see
             `apply_field_providers`).
+        drawn_out: Optional dict (opt-in); when given with a recorder, filled in place with a `DrawnBlock`
+            for every block drawn onto the page, keyed by its path (`body[3].children[1]`), in the order
+            each finishes (a container after its children). A block `when:` gates off is absent. Stage
+            two's translator reads each block's content from it.
 
     Returns:
         The y-cursor after the last block.
@@ -281,6 +309,7 @@ def render_body(
         recorder=recorder,
         render_children=render_blocks,
         ink_recorder=recorder,
+        drawn_out=drawn_out,
     )
     try:
         return render_blocks(layout["body"], ctx, y)
