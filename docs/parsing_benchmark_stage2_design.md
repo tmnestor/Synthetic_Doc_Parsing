@@ -164,6 +164,27 @@ On a no-go, stage two falls back to mirroring stage one's PIL drawing into PDFs 
 draws each line to both the image and a PDF), which gives native PDFs of the same pages with less
 realistic typesetting. The gate's findings are recorded in this document either way.
 
+**Gate run, 15 October 2026: go.** `scripts/typeset_gate.py` typeset the first case of each gate layout
+(one tax invoice, one 80 mm receipt, one bank statement), plain and with distractors, six pages in all.
+Every page passed: every block's box was reported (read with `typst eval`, since `typst query` is
+deprecated in Typst 0.15.1 and its warning would fail the page); the six invariants and the layout
+checks held; each page's block texts and table html equal stage one's for the same case, block by block
+(whitespace collapsed); two compiles were byte-identical; each page is one A4 page or one roll. The
+evaluator scored each ground truth, given as its own prediction, perfectly, up to two evaluator
+artefacts: stage one's index-0 reading-order artefact (one edit on a page with a table), and its
+preprocessing, which shortens a run of underscores, so the invoice's "Amount enclosed: $ ____" line
+costs an exactly predictable 0.0097 of text edit distance. With ligatures switched on, invariant 1 still
+held and no ligature reached any text layer; ligatures stay off all the same (section 3).
+
+Two findings changed the design. Stage one's sheet canvases are A4 height at 300 dpi but narrower than
+A4, so invoices and bank statements convert at 300 dpi and are centred on the A4 page (scaling by width
+had made pages a third taller than A4). And Typst wrapped a short receipt line ("Staff:" and the name)
+where stage one had shrunk it to fit; the project owner chose shrinking, so every text line is typeset
+at the size and with the line breaks stage one's fitting drew, and Typst only places it.
+
+The gate's distractor pages carried no overlays (handwriting, ink marks, highlights, stamps), which the
+next step adds; the project owner gave the go on that basis.
+
 ## 8. Tests
 
 - Each primitive's translation, against a small fixed layout.
