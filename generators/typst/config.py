@@ -17,11 +17,12 @@ from generators.distractors.paths import REPO_ROOT
 from generators.layout_dsl.schema import PAGE_SIZES_MM, validate_page
 
 TYPESET_CONFIG_PATH = REPO_ROOT / "config" / "typeset_config.yml"
-_KEYS = ("typst_version", "font_dir", "creation_timestamp", "raster_dpi", "template")
+_KEYS = ("typst_version", "font_dir", "creation_timestamp", "canvas_dpi", "raster_dpi", "template")
 _EXAMPLE = (
     'typst_version: "0.15.1"\n'
     "font_dir: fonts\n"
     "creation_timestamp: 1767225600\n"
+    "canvas_dpi: 300\n"
     "raster_dpi: 300\n"
     "template: generators/typst/template.typ"
 )
@@ -40,6 +41,7 @@ class TypesetConfig:
         typst_version: The Typst release the PDFs are compiled with, equal to the installed one.
         font_dir: Directory (relative to the repository root) of the `.ttf` files Typst may use.
         creation_timestamp: Seconds since the Unix epoch stamped on every PDF as its creation date.
+        canvas_dpi: Resolution of stage one's sheet canvases, at which a sheet's pixels convert to points.
         raster_dpi: Resolution at which a PDF page is rasterised.
         template: The Typst template (relative to the repository root) every layout is typeset with.
     """
@@ -47,6 +49,7 @@ class TypesetConfig:
     typst_version: str
     font_dir: str
     creation_timestamp: int
+    canvas_dpi: int
     raster_dpi: int
     template: str
 
@@ -129,15 +132,16 @@ def _check_types(data: dict, *, path: Path) -> None:
             expected="Unix seconds, e.g. creation_timestamp: 1767225600 (1 January 2026, 00.00 UTC).",
             recover=f"set 'creation_timestamp' in {path.name} to an integer number of seconds.",
         )
-    dpi = data["raster_dpi"]
-    if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi <= 0:
-        raise _fail(
-            what=f"'raster_dpi' is {dpi!r}, not a positive integer.",
-            path=path,
-            key="raster_dpi",
-            expected="a positive integer of dots per inch, e.g. raster_dpi: 300.",
-            recover=f"set 'raster_dpi' in {path.name} to a positive integer.",
-        )
+    for key in ("canvas_dpi", "raster_dpi"):
+        dpi = data[key]
+        if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi <= 0:
+            raise _fail(
+                what=f"'{key}' is {dpi!r}, not a positive integer.",
+                path=path,
+                key=key,
+                expected=f"a positive integer of dots per inch, e.g. {key}: 300.",
+                recover=f"set '{key}' in {path.name} to a positive integer.",
+            )
 
 
 def load_typeset_config(path: Path) -> TypesetConfig:
@@ -177,7 +181,7 @@ def load_typeset_config(path: Path) -> TypesetConfig:
             path=path,
             key="(top level)",
             expected=f"a YAML mapping, e.g.\n{_EXAMPLE}",
-            recover=f"rewrite {path.name} as a mapping of the five keys.",
+            recover=f"rewrite {path.name} as a mapping of the six keys.",
         )
     unknown = sorted(set(data) - set(_KEYS))
     if unknown:
@@ -213,6 +217,7 @@ def load_typeset_config(path: Path) -> TypesetConfig:
         typst_version=data["typst_version"],
         font_dir=data["font_dir"],
         creation_timestamp=data["creation_timestamp"],
+        canvas_dpi=data["canvas_dpi"],
         raster_dpi=data["raster_dpi"],
         template=data["template"],
     )

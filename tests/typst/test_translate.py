@@ -12,6 +12,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import pypdfium2
 import pytest
 
 from generators.layout_dsl.engine import SCOPED_LEAVES
@@ -33,6 +34,7 @@ from tests.renderer_helpers import corpus_entries, layouts_for, render_entry
 
 CONFIG = load_typeset_config(TYPESET_CONFIG_PATH)
 ROLL = PageSpec(width_mm=80.0, height_mm=None)
+A4 = PageSpec(width_mm=210.0, height_mm=297.0)
 GATE_DOC_TYPES = {"invoices": "invoice", "receipts": "receipt", "bank_statements": "bank_statement"}
 
 # Invented values: none appear in ground_truth/.
@@ -192,7 +194,7 @@ def test_a_sheet_has_its_fixed_height(tmp_path: Path) -> None:
         {**ENTRY, "layout": "tax_invoice_standard"},
         layout_id="tax_invoice_standard",
         layout_path=invoices,
-        page=PageSpec(width_mm=210.0, height_mm=297.0),
+        page=A4,
         distractors=False,
         config=CONFIG,
         overlay_dir=tmp_path,
@@ -200,14 +202,41 @@ def test_a_sheet_has_its_fixed_height(tmp_path: Path) -> None:
     assert re.search(r"#set page\(width: 210(\.0+)?mm, height: 297(\.0+)?mm,", sheet.source)
 
 
-def test_pixels_convert_at_the_page_width_over_the_layout_width() -> None:
-    receipts = load_layout_registry(REPO_ROOT / "config" / "layouts" / "receipts.yml")
-    invoices = load_layout_registry(REPO_ROOT / "config" / "layouts" / "invoices.yml")
-    roll = receipts[LAYOUT_ID]
-    sheet = invoices["tax_invoice_standard"]
-    assert page_scale(roll, ROLL) == pytest.approx(80.0 / roll["width"] * 72 / 25.4)
-    a4 = PageSpec(width_mm=210.0, height_mm=297.0)
-    assert page_scale(sheet, a4) == pytest.approx(210.0 / sheet["page_dimensions"]["width"] * 72 / 25.4)
+def test_a_roll_converts_pixels_at_its_width_over_the_layout_width() -> None:
+    roll = load_layout_registry(REPO_ROOT / "config" / "layouts" / "receipts.yml")[LAYOUT_ID]
+    expected = 80.0 / roll["width"] * 72 / 25.4
+    assert page_scale(roll, ROLL, canvas_dpi=CONFIG.canvas_dpi) == pytest.approx(expected)
+
+
+def test_a_sheet_converts_pixels_at_the_canvas_resolution() -> None:
+    sheet = load_layout_registry(REPO_ROOT / "config" / "layouts" / "invoices.yml")["tax_invoice_standard"]
+    assert page_scale(sheet, A4, canvas_dpi=CONFIG.canvas_dpi) == pytest.approx(72 / CONFIG.canvas_dpi)
+
+
+def test_a_sheet_centres_its_canvas_within_the_page_width(tmp_path: Path) -> None:
+    invoices = REPO_ROOT / "config" / "layouts" / "invoices.yml"
+    layout = copy.deepcopy(load_layout_registry(invoices)["tax_invoice_standard"])
+    layout.update(body=[TEXT], field_providers=[], distractor_items=[])
+    source = translate_page(
+        layout,
+        {**ENTRY, "layout": "tax_invoice_standard"},
+        layout_id="tax_invoice_standard",
+        layout_path=invoices,
+        page=A4,
+        distractors=False,
+        config=CONFIG,
+        overlay_dir=tmp_path,
+    ).source
+    found = re.search(r"margin: \(left: ([\d.]+)pt, right: ([\d.]+)pt, top: ([\d.]+)pt", source)
+    assert found is not None, source
+    left, right, top = (float(found.group(i)) for i in (1, 2, 3))
+    scale = 72 / CONFIG.canvas_dpi
+    canvas = layout["page_dimensions"]["width"] * scale
+    a4_width = 210.0 * 72 / 25.4
+    assert left == pytest.approx((a4_width - canvas) / 2 + layout["margin"] * scale, abs=1e-3)
+    assert right == pytest.approx(left, abs=1e-3)
+    assert left + right + layout["content_width"] * scale == pytest.approx(a4_width, abs=1e-3)
+    assert top == pytest.approx(layout["margin"] * scale, abs=1e-3)
 
 
 def test_text_is_set_in_the_font_the_layout_names(tmp_path: Path) -> None:
@@ -382,8 +411,11 @@ def test_each_gate_primitive_compiles_and_reports_its_records(kind: str, tmp_pat
     ]
 
 
+@pytest.mark.parametrize("distractors", [False, True], ids=["plain", "distractor"])
 @pytest.mark.parametrize(("layout_file", "layout_id"), GATE_LAYOUTS)
-def test_a_gate_case_compiles_without_warnings(layout_file: str, layout_id: str, tmp_path: Path) -> None:
+def test_a_gate_case_compiles_to_one_page_without_warnings(
+    layout_file: str, layout_id: str, distractors: bool, tmp_path: Path
+) -> None:
     layout, entry = gate_case(Path(layout_file).stem, layout_id)
     layout_path = REPO_ROOT / layout_file
     translation = translate_page(
@@ -392,9 +424,11 @@ def test_a_gate_case_compiles_without_warnings(layout_file: str, layout_id: str,
         layout_id=layout_id,
         layout_path=layout_path,
         page=layout_page(layout, layout_path=str(layout_path), layout_id=layout_id),
-        distractors=True,
+        distractors=distractors,
         config=CONFIG,
         overlay_dir=tmp_path,
     )
-    compile_page(translation.source, tmp_path / "page.pdf")
+    pdf = tmp_path / "page.pdf"
+    compile_page(translation.source, pdf)
+    assert len(pypdfium2.PdfDocument(str(pdf))) == 1
     assert len(query(translation.source, "block-record")) == len(translation.blocks)

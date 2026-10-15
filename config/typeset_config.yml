@@ -13,6 +13,12 @@ font_dir: fonts
 # 1767225600 is 1 January 2026, 00.00 UTC.
 creation_timestamp: 1767225600
 
+# Dots per inch of stage one's sheet canvases (invoices and bank statements are drawn on canvases exactly
+# A4 high at this resolution, 3508 px, and narrower than A4). Their pixels convert to points at this
+# resolution, so each font and gap keeps its stage-one physical size; the canvas is centred across the A4
+# width. Receipts instead scale their pixel width to the roll width, since their height follows content.
+canvas_dpi: 300
+
 # Dots per inch at which a PDF page is rasterised to an image.
 raster_dpi: 300
 

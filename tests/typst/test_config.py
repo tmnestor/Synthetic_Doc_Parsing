@@ -23,7 +23,7 @@ from generators.typst.config import (
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 
 SHIPPED = REPO_ROOT / "config" / "typeset_config.yml"
-KEYS = ("typst_version", "font_dir", "creation_timestamp", "raster_dpi", "template")
+KEYS = ("typst_version", "font_dir", "creation_timestamp", "canvas_dpi", "raster_dpi", "template")
 
 Mutation = Callable[[dict[str, Any]], None]
 
@@ -59,6 +59,7 @@ def test_the_shipped_config_loads() -> None:
     assert config.typst_version == "0.15.1"
     assert config.font_dir == "fonts"
     assert config.creation_timestamp == 1767225600
+    assert config.canvas_dpi == 300
     assert config.raster_dpi == 300
     assert config.template == "generators/typst/template.typ"
 
@@ -124,15 +125,19 @@ def test_an_unknown_key_is_refused(tmp_path: Path) -> None:
         ("raster_dpi", "300"),
         ("raster_dpi", 300.0),
         ("raster_dpi", True),
+        ("canvas_dpi", "300"),
+        ("canvas_dpi", 300.0),
+        ("canvas_dpi", True),
     ],
 )
 def test_each_mistyped_key_is_refused(tmp_path: Path, key: str, value: object) -> None:
     refused(tmp_path, lambda data: data.__setitem__(key, value), key, repr(value))
 
 
+@pytest.mark.parametrize("key", ["raster_dpi", "canvas_dpi"])
 @pytest.mark.parametrize("dpi", [0, -300])
-def test_a_raster_dpi_that_is_not_positive_is_refused(tmp_path: Path, dpi: int) -> None:
-    refused(tmp_path, lambda data: data.__setitem__("raster_dpi", dpi), "raster_dpi", "positive integer")
+def test_a_dpi_that_is_not_positive_is_refused(tmp_path: Path, key: str, dpi: int) -> None:
+    refused(tmp_path, lambda data: data.__setitem__(key, dpi), key, "positive integer")
 
 
 def test_a_typst_version_differing_from_the_installed_one_is_refused(tmp_path: Path) -> None:

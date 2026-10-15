@@ -12,7 +12,8 @@ text as its stage-one twin.
 Typesetting replaces pixel fitting: a text's string, or a pair's value, is written whole (the lines
 stage one wrapped it to joined by a space) at its role's nominal size, and Typst wraps it within its
 region; a table cell keeps the lines stage one drew in it, each at the size it was drawn. Every length is
-a stage-one pixel value from the layout, converted at the page's own scale (`page_scale`).
+a stage-one pixel value from the layout, converted to points by `page_scale`: at the canvas resolution
+for a sheet, whose canvas is centred across the A4 width, and at the roll's width for a receipt.
 
 Overlays (the marks a distractor page draws over the finished body) are not yet placed: a page carries
 its body's blocks only.
@@ -128,19 +129,24 @@ def gate_primitives() -> frozenset[str]:
     return frozenset(found)
 
 
-def page_scale(layout: dict, page: PageSpec) -> float:
+def page_scale(layout: dict, page: PageSpec, *, canvas_dpi: int) -> float:
     """Return the points per stage-one pixel of a layout typeset on its physical page.
 
-    A sheet's pixels are its `page_dimensions.width` across the page's width; a roll's are its `width`.
+    A sheet's canvas is drawn at `canvas_dpi` (exactly A4 high, narrower than A4), so its pixels convert at
+    that resolution and keep their stage-one physical size. A roll's pixel `width` spans the roll's width,
+    since its height follows its content.
 
     Args:
         layout: The resolved layout dict.
         page: The layout's physical page.
+        canvas_dpi: The resolution of stage one's sheet canvases (`TypesetConfig.canvas_dpi`).
 
     Returns:
         Points per pixel.
     """
-    return page.width_mm * _PT_PER_MM / _pixel_width(layout, page)
+    if page.height_mm is None:
+        return page.width_mm * _PT_PER_MM / _pixel_width(layout, page)
+    return 72 / canvas_dpi
 
 
 def _pixel_width(layout: dict, page: PageSpec) -> int:
@@ -735,10 +741,14 @@ def translate_page(
     stage_one = _draw_stage_one(
         layout, entry, layout_id=layout_id, layout_path=layout_path, page=page, distractors=distractors
     )
-    scale = page_scale(layout, page)
+    scale = page_scale(layout, page, canvas_dpi=config.canvas_dpi)
     writer = _Writer(stage_one, layout, layout_id=layout_id, layout_path=layout_path, scale=scale)
     margin = int(layout["margin"])
-    right = _pixel_width(layout, page) - margin - int(layout["content_width"])
+    # The canvas is centred across the page (a roll's fills it): the content keeps stage one's left offset
+    # within the canvas, so a symmetric stage-one margin stays symmetric on the page.
+    page_pixels = page.width_mm * _PT_PER_MM / scale
+    left = (page_pixels - _pixel_width(layout, page)) / 2 + margin
+    right = page_pixels - left - int(layout["content_width"])
     height = "auto" if page.height_mm is None else f"{page.height_mm:g}mm"
     body = writer.blocks(
         layout["body"], Region(x=margin, width=int(layout["content_width"])), "body", in_block=False
@@ -747,7 +757,7 @@ def translate_page(
         [
             f"// {layout_id}, {entry.get('case_id', '')}: written by generators/typst/translate.py.",
             f'#import "/{config.template}": *',
-            f"#set page(width: {page.width_mm:g}mm, height: {height}, margin: (left: {writer.pt(margin)}, "
+            f"#set page(width: {page.width_mm:g}mm, height: {height}, margin: (left: {writer.pt(left)}, "
             f"right: {writer.pt(right)}, top: {writer.pt(margin)}, bottom: {writer.pt(margin)}))",
             "#show: typeset",
             f"#{_code(body)}",
