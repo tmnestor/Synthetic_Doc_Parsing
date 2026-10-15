@@ -17,25 +17,31 @@
 }
 
 // `body` as a block of its own measured size, aligned within its region, with its box handed to `emit`
-// as a dictionary of points: the page number, the top-left corner (`x`, `y`) and the size (`w`, `h`).
-// The size is the body's own as laid out in its region (a short line is narrower than its column, a
-// wrapped one as wide as its widest line), and the corner is where the alignment puts it. Each line of
-// the body keeps the alignment inside that block too, set there explicitly rather than inherited. The
-// record is the first thing inside the block, so `here()` is the block's top-left.
-#let _box-of(body, emit, align) = block(width: 100%, std.align(align, layout(region => {
-  let size = measure(body, width: region.width)
-  block(width: size.width, {
-    context {
-      let p = here().position()
-      emit((page: p.page, x: p.x.pt(), y: p.y.pt(), w: size.width.pt(), h: size.height.pt()))
-    }
-    std.align(align, body)
-  })
-})))
+// as a dictionary of points: the page number, the top-left corner (`x`, `y`), the size (`w`, `h`) and
+// the column it was laid out in (`column-x`, `column-w`: its region's left edge and width). The size is
+// the body's own as laid out in its region (a short line is narrower than its column, a wrapped one as
+// wide as its widest line), and the corner is where the alignment puts it. Each line of the body keeps
+// the alignment inside that block too, set there explicitly rather than inherited. The record is the
+// first thing inside the block, so `here()` is the block's top-left; the column's left edge is read the
+// same way at the start of the full-width block around it.
+#let _box-of(body, emit, align) = block(width: 100%, context {
+  let column = here().position()
+  std.align(align, layout(region => {
+    let size = measure(body, width: region.width)
+    block(width: size.width, {
+      context {
+        let p = here().position()
+        emit((page: p.page, x: p.x.pt(), y: p.y.pt(), w: size.width.pt(), h: size.height.pt(),
+          column-x: column.x.pt(), column-w: region.width.pt()))
+      }
+      std.align(align, body)
+    })
+  }))
+})
 
 // One block a parser can find: a labelled `metadata` element carrying stage one's `BlockRecord` fields
 // and the block's own position and size, then the block itself, aligned as the layout places it.
-// `typst query <page> "<block-record>" --field value` lists them in draw order.
+// `query(<block-record>)` (run by generators/typst/compile.py) lists them in draw order.
 #let block-record(id: 0, kind: "", path: "", anchor: none, category: none, order: 0, columns: none,
   join: none, align: left, body) = _box-of(body, where => [#metadata((
     id: id, kind: kind, path: path, anchor: anchor, category: category, order: order, columns: columns,

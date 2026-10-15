@@ -81,11 +81,14 @@ class Translation:
         blocks: Stage one's block records for the page, in draw order; each is a `block-record` in
             `source` with the same id.
         texts: The string drawn for each scored field, as stage one's recorder holds it.
+        ink: Stage one's ink records for the same draw, in draw order. The read-back takes from them what
+            the PDF cannot say: each code mark's payload, and the role of the lines in each block or cell.
     """
 
     source: str
     blocks: list[BlockRecord]
     texts: dict[str, str]
+    ink: list[InkRecord]
 
 
 @dataclass(frozen=True)
@@ -735,7 +738,7 @@ def translate_page(
         overlay_dir: Where the page's overlay images go; the body's primitives write none.
 
     Returns:
-        The page's source, with stage one's block records and drawn field strings for it.
+        The page's source, with stage one's block records, drawn field strings and ink for it.
 
     Raises:
         TranslateError: The layout uses a primitive, or a primitive option, with no translation.
@@ -766,4 +769,4 @@ def translate_page(
             "",
         ]
     )
-    return Translation(source=source, blocks=stage_one.blocks, texts=stage_one.texts)
+    return Translation(source=source, blocks=stage_one.blocks, texts=stage_one.texts, ink=stage_one.ink)
