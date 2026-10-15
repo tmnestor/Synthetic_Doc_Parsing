@@ -3487,7 +3487,7 @@ def validate_layout(
             recover="add overlay: [] to the layout.",
         )
 
-    validate_page(layout, layout_path=layout_path, layout_id=layout_id)
+    validate_page(layout, layout_path=str(_absolute_layout_path(layout_path)), layout_id=layout_id)
 
     # A layout key nothing reads is worse than no key at all: it tells an
     # operator the document is configured a way it is not. The invoice YAML

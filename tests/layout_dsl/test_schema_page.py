@@ -8,12 +8,12 @@ import copy
 
 import pytest
 
-from generators.layout_dsl.schema import LayoutSchemaError
+from generators.layout_dsl.schema import LayoutSchemaError, validate_layout
 from generators.loader import load_layout_registry
 from generators.typst.config import PageSpec, layout_page
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.layout_dsl.dsl_helpers import RECEIPTS_PATH
-from tests.layout_dsl.test_schema import check_layout, make_layout, text
+from tests.layout_dsl.test_schema import KNOWN, check_layout, make_layout, text
 
 pytestmark = pytest.mark.usefixtures("synthetic_layouts_skip_label_sites")
 
@@ -137,3 +137,18 @@ def test_the_page_key_is_not_consulted_by_the_pil_renderer() -> None:
     stripped = copy.deepcopy(layout)
     del stripped["page"]
     assert stripped["width"] == layout["width"] == 420
+
+
+def test_validate_layout_names_the_layout_file_absolutely_for_a_relative_path() -> None:
+    layout = make_layout([text()])
+    del layout["page"]
+    with pytest.raises(LayoutSchemaError) as exc_info:
+        validate_layout(
+            layout,
+            layout_id="demo",
+            layout_path="config/layouts/receipts.yml",
+            known_fields=KNOWN,
+            doc_type="receipts",
+        )
+    assert_diagnostic_error(exc_info.value)
+    assert f"{LAYOUT_DIR / 'receipts.yml'} -> demo.page" in str(exc_info.value)
