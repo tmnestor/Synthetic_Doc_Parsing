@@ -27,7 +27,11 @@ BLOCK_PRIMITIVES: frozenset[str] = frozenset(
 )
 
 PARSING_CONFIG_PATH = REPO_ROOT / "config" / "parsing_config.yml"
-RUNNERS = ("local", "remote")
+# local: run on this machine from its own conda env; remote: run elsewhere, its markdown copied back;
+# builtin: run in the generator's own env, with no env file, on the CPU.
+RUNNERS = ("local", "remote", "builtin")
+# The page files a tool can be given: a typeset set holds both, a stage-one half only the PNG.
+INPUT_KINDS = ("png", "pdf")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _TOP_LEVEL_KEYS = (
     "evaluator",
@@ -42,7 +46,7 @@ _TOP_LEVEL_KEYS = (
 )
 _EVALUATOR_KEYS = ("repo", "commit", "conda_env_file", "formula_metrics")
 _MAP_SECTIONS = ("primitives", "overlays", "anchors")
-_TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file", "credits")
+_TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file", "inputs", "credits")
 _CREDIT_KEYS = ("project", "url", "code_licence", "weights_licence")
 
 
@@ -91,9 +95,11 @@ class ToolSpec:
     Attributes:
         name: Unique tool name.
         backend: The tool's own backend selector.
-        runner: `local` or `remote`.
-        device: The accelerator the tool runs its models on, e.g. `mps`, as the tool spells it.
-        conda_env_file: Env file for a local tool; `None` for a remote tool.
+        runner: `local`, `remote` or `builtin`.
+        device: The accelerator the tool runs its models on, e.g. `mps`, as the tool spells it; `cpu`
+            for a builtin tool.
+        conda_env_file: Env file for a local tool; `None` for a remote or builtin tool.
+        inputs: The page files the tool is scored on, drawn from `INPUT_KINDS`, e.g. `("png", "pdf")`.
         credits: The project, URL and licences the leaderboard prints for the tool.
     """
 
@@ -102,6 +108,7 @@ class ToolSpec:
     runner: str
     device: str
     conda_env_file: str | None
+    inputs: tuple[str, ...]
     credits: Credits
 
 
@@ -423,13 +430,33 @@ def _load_credits(raw: Any, *, path: Path, here: str) -> Credits:
     return Credits(**fields)
 
 
+def _load_inputs(raw: Any, *, path: Path, here: str) -> tuple[str, ...]:
+    """Check a tool's `inputs`: a non-empty list of distinct values from `INPUT_KINDS`."""
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or not all(isinstance(kind, str) and kind in INPUT_KINDS for kind in raw)
+        or len(set(raw)) != len(raw)
+    ):
+        raise _fail(
+            what=f"'{here}' is {raw!r}, not a non-empty list of distinct input kinds from "
+            f"{list(INPUT_KINDS)}.",
+            path=path,
+            key=here,
+            expected="the page files the tool is scored on, e.g. inputs: [png, pdf] (or [png], or [pdf])",
+            recover=f"set '{here}' in {path.name} to a list drawn from {list(INPUT_KINDS)}.",
+        )
+    return tuple(raw)
+
+
 def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
     example = (
         "tools:\n"
         "  - {name: mineru_pipeline, backend: pipeline, runner: local, device: mps,\n"
-        "     conda_env_file: envs/mineru.yml, credits: {project: MinerU, url: ..., code_licence: ...,\n"
-        "     weights_licence: ...}}\n"
-        "  - {name: docling, backend: default, runner: remote, device: cuda, conda_env_file: null}"
+        "     conda_env_file: envs/mineru.yml, inputs: [png, pdf], credits: {project: MinerU, url: ...,\n"
+        "     code_licence: ..., weights_licence: ...}}\n"
+        "  - {name: text_layer, backend: default, runner: builtin, device: cpu, conda_env_file: null,\n"
+        "     inputs: [pdf], credits: {...}}"
     )
     if not isinstance(raw, list) or not raw:
         raise _fail(
@@ -473,8 +500,8 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
                 what=f"'{here}.runner' is {runner!r}, not one of {list(RUNNERS)}.",
                 path=path,
                 key=f"{here}.runner",
-                expected=f"one of {list(RUNNERS)}, e.g. runner: remote",
-                recover=f"set '{here}.runner' to local or remote.",
+                expected=f"one of {list(RUNNERS)}, e.g. runner: local",
+                recover=f"set '{here}.runner' to local, remote or builtin.",
             )
         env_file = values["conda_env_file"]
         if runner == "local" and (not isinstance(env_file, str) or not env_file):
@@ -495,6 +522,25 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
                 expected="a remote tool gives null, e.g. conda_env_file: null",
                 recover=f"set '{here}.conda_env_file' to null, or change the runner to local.",
             )
+        if runner == "builtin" and env_file is not None:
+            raise _fail(
+                what=f"builtin tool {name!r} names conda_env_file {env_file!r}; a builtin tool runs in the "
+                "generator's own env, so no env file builds it.",
+                path=path,
+                key=f"{here}.conda_env_file",
+                expected="a builtin tool gives null, e.g. conda_env_file: null",
+                recover=f"set '{here}.conda_env_file' to null, or change the runner to local.",
+            )
+        if runner == "builtin" and device != "cpu":
+            raise _fail(
+                what=f"builtin tool {name!r} has device {device!r}; a builtin tool runs no model, so it "
+                "runs on the CPU.",
+                path=path,
+                key=f"{here}.device",
+                expected="device: cpu",
+                recover=f"set '{here}.device' to cpu.",
+            )
+        inputs = _load_inputs(values["inputs"], path=path, here=f"{here}.inputs")
         credits = _load_credits(values["credits"], path=path, here=f"{here}.credits")
         tools.append(
             ToolSpec(
@@ -503,6 +549,7 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
                 runner=runner,
                 device=device,
                 conda_env_file=env_file,
+                inputs=inputs,
                 credits=credits,
             )
         )

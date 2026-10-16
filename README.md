@@ -217,7 +217,7 @@ conda env create -f envs/mineru.yml && conda env create -f envs/docling.yml && c
 
 # Run one tool over one half, collect its markdown, then score everything collected
 conda run -n synthetic python scripts/run_local_parser.py \
-    --tool docling --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half plain
+    --tool docling --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half plain --input png
 conda run -n synthetic python scripts/collect_predictions.py --tool docling --half plain
 conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_data/snapshot_<YYYYMMDD>
 ```

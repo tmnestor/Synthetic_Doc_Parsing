@@ -77,6 +77,32 @@ def test_each_tool_shape_gives_one_markdown_file_per_page(tmp_path: Path, tool: 
         assert (out / f"{stem}.md").read_text() == source.read_text()
 
 
+@pytest.mark.parametrize("tool", ["mineru_pipeline", "mineru_vlm", "docling", "text_layer"])
+@pytest.mark.parametrize("input_kind", ["png", "pdf"])
+def test_a_typeset_run_is_collected_under_the_png_stems_for_either_input(
+    tmp_path: Path, tool: str, input_kind: str
+) -> None:
+    run_name = f"typeset_plain_{input_kind}"
+    raw = tmp_path / "raw_predictions" / tool / run_name
+    for stem in STEMS:
+        # The tool names its markdown after the file it was given: `<stem>.pdf` or `<stem>.png`.
+        SHAPES.get(tool, _docling)(raw, stem)
+        if input_kind == "pdf" and tool.startswith("mineru"):
+            (next(raw.rglob(f"{stem}.md")).parent / f"{stem}_origin.pdf").write_bytes(b"%PDF")
+    record = {
+        "tool": tool,
+        "run_name": run_name,
+        "input": input_kind,
+        "input_files": [f"{stem}.{input_kind}" for stem in STEMS],
+        "pages": [f"{stem}.png" for stem in STEMS],
+    }
+    (raw / RUN_RECORD).write_text(json.dumps(record))
+    out = collect(tool, run_name, output_root=tmp_path)
+    assert out == tmp_path / "predictions" / tool / run_name
+    # The evaluator pairs `<stem>.md` with the ground truth's `<stem>.png`, whichever input was parsed.
+    assert sorted(path.name for path in out.iterdir()) == sorted(f"{stem}.md" for stem in STEMS)
+
+
 def test_a_page_with_no_markdown_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
     _raw_run(tmp_path, "marker", stems=STEMS[:1])
     with pytest.raises(CollectError) as caught:

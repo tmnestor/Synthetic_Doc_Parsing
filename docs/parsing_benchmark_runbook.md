@@ -94,9 +94,35 @@ its own conda env, built from a committed file under `envs/`; none of their pack
 | MinerU (`mineru_vlm`) | `vlm-engine` | `envs/mineru.yml` | `docparse-mineru` | the same env |
 | Docling (`docling`) | `default` (standard pipeline) | `envs/docling.yml` | `docparse-docling` | Docling 2.120.2, Python 3.12, torch 2.13.0 |
 | Marker (`marker`) | `default` | `envs/marker.yml` | `marker` | marker-pdf 2.0.0, Python 3.12, torch 2.14.1, llama.cpp 11351 |
+| Text-layer baseline (`text_layer`) | `default` | none (`builtin`) | `synthetic` | pypdfium2 5.13.0 (`environment.yml`) |
 
 `device` is `mps` for every tool: the runner passes it as `MINERU_DEVICE_MODE` to MinerU, as `--device`
 to Docling and as `TORCH_DEVICE` to Marker.
+
+Beside the parsers, `text_layer` is a no-model baseline (`scripts/text_layer_baseline.py`): a native PDF's
+own text layer, read with `pypdfium2`, one paragraph per text line. Its runner is `builtin`: it has no env
+file (`conda_env_file: null`) and runs on `cpu` with the runner's own interpreter, in the `synthetic` env.
+
+Each tool's `inputs` lists the page files it is scored on: MinerU (both back-ends) and Docling `[png, pdf]`,
+Marker `[png]` (images only, as stage one ran it), `text_layer` `[pdf]`.
+
+### Native PDFs
+
+Each parser was run once, in its own default PDF mode and with the arguments the runner gives it, on one
+gate PDF (`../evaluation_data/typeset_gate/CASE002_invoice_plain.pdf`, a typeset invoice with a text layer),
+on 16 October 2026, into `../evaluation_data/raw_predictions/<tool>/probe_pdf/`. None needs an option for a
+PDF beyond its PNG arguments (Docling's `--from pdf` in place of `--from image`).
+
+| Tool | What it does with a native PDF | One page, cold (s) |
+|---|---|---|
+| MinerU `pipeline` | With no `-m`, its `auto` method classifies the PDF (`mineru.utils.pdf_classify.classify` returns `txt` for both gate PDFs, plain and distractor), so OCR is not enabled and text spans come from the text layer; its layout and table models still run on the rendered page, and its log shows an OCR detection pass (7 crops) and table-cell OCR (26 crops). Output `<stem>/auto/<stem>.md`. | 21 |
+| MinerU `vlm-engine` | Renders the page and reads the image with the vision-language model; the text layer is not used. Output `<stem>/vlm/<stem>.md`. | 29 |
+| Docling | The standard PDF pipeline with its default PDF backend (`docling_parse`) takes the text layer's cells; OCR is on but in its default mode (`pdf_aware_layout_regions`) runs only on layout regions with no text cells. Output `<stem>.md` and `<stem>.json`. | 23 (13.2 converting) |
+
+MinerU `pipeline`'s first PDF run wrote its output and then aborted as the process exited (exit 134,
+`libc++abi: ... recursive_mutex lock failed`, after the API server shut down); five reruns of the same page
+exited 0, and no stage-one run log shows it. The runner treats any non-zero exit as a failed run, so a run
+that ends this way leaves no `run.json`: read `run.log`, move the directory aside and run again.
 
 ### Building the envs (once per machine)
 
@@ -177,31 +203,51 @@ default `~/.cache/huggingface/hub`).
 
 The snapshot comes from `python -m generators.pipeline eval-set`, which writes
 `../evaluation_data/snapshot_<YYYYMMDD>/` with its parsing ground truth in `parsing/` (one
-OmniDocBench file per half). Run one tool over one half at a time:
+OmniDocBench file per half and per typeset set). Run one tool over one half or set at a time:
 
 ```bash
 conda run -n synthetic python scripts/run_local_parser.py \
-    --tool <tool> --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half <half>
+    --tool <tool> --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half <half> --input <png|pdf>
 ```
 
-`<tool>` is a config name from the table above; `<half>` is `plain`, `distractor`, `labelled_varied` or
-`degraded`. All four tools on all four halves is sixteen calls:
+`<tool>` is a config name from the table above; `<half>` is a stage-one half (`plain`, `distractor`,
+`labelled_varied` or `degraded`) or a typeset set (`typeset_plain`, `typeset_distractor`). `--input` is
+required: `png` hands the tool the images the parsing file lists, `pdf` the native PDF beside each
+(`<stem>.pdf` beside `<stem>.png` in `typeset_plain_<date>/` and `typeset_distractor_<date>/`). It must be
+one of the tool's `inputs`, and a stage-one half takes only `--input png`; anything else is refused before
+the tool starts. All four tools on all four halves is sixteen calls:
 
 ```bash
 for tool in mineru_pipeline mineru_vlm docling marker; do
     for half in plain distractor labelled_varied degraded; do
-        conda run -n synthetic python scripts/run_local_parser.py \
-            --tool "$tool" --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half "$half" || break 2
+        conda run -n synthetic python scripts/run_local_parser.py --tool "$tool" \
+            --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half "$half" --input png || break 2
     done
 done
 ```
 
-The runner refuses a tool whose runner is not `local`. It hands the tool exactly the images the half's
-parsing file lists and writes into `../evaluation_data/raw_predictions/<tool>/<half>/`, which must be absent
-or empty (a second run into the same directory would leave two outputs for a page; move the old one
-aside). Beside the tool's output it leaves `run.log` (the tool's own output) and `run.json`: tool,
-back-end, half, device, env, tool version, the command, start and end times, seconds and the pages run.
-`--run-name <name>` writes to `raw_predictions/<tool>/<name>/` instead of the half's name, for a smoke run.
+The typeset sets, each tool on each input it takes (Marker on `png` only, `text_layer` on `pdf` only):
+
+```bash
+for set in typeset_plain typeset_distractor; do
+    for run in mineru_pipeline:png mineru_pipeline:pdf mineru_vlm:png mineru_vlm:pdf \
+               docling:png docling:pdf marker:png text_layer:pdf; do
+        conda run -n synthetic python scripts/run_local_parser.py --tool "${run%%:*}" \
+            --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --half "$set" --input "${run##*:}" || break 2
+    done
+done
+```
+
+The runner refuses a `remote` tool; it runs `local` tools from their envs and the `builtin` baseline with
+its own interpreter. It hands the tool exactly the files the parsing file names, of the input kind asked
+for, and writes into `../evaluation_data/raw_predictions/<tool>/<run name>/`: the half's own name for a
+stage-one half, `<set>_<input>` for a typeset set (`typeset_plain_pdf`, `typeset_plain_png`, ...). The
+directory must be absent or empty (a second run into the same directory would leave two outputs for a
+page; move the old one aside). Beside the tool's output it leaves `run.log` (the tool's own output) and
+`run.json`: tool, back-end, half (or set), input, device, env, tool version, the command, start and end
+times, seconds, the pages (always the PNG names, the ground truth each output pairs with) and
+`input_files` (what the tool was given). `--run-name <name>` writes to `raw_predictions/<tool>/<name>/`
+instead, for a smoke run.
 
 Each tool nests its markdown differently:
 
@@ -211,6 +257,9 @@ Each tool nests its markdown differently:
 | MinerU `vlm-engine` | `<stem>/vlm/<stem>.md`, beside the same by-products |
 | Docling | `<stem>.md` and `<stem>.json`, flat |
 | Marker | `<stem>/<stem>.md`, beside `<stem>_meta.json` and cropped pictures |
+| `text_layer` | `<stem>.md`, flat |
+
+A PDF run nests the same way, with MinerU adding `<stem>_origin.pdf` beside its other by-products.
 
 ### Timing
 
@@ -233,13 +282,15 @@ contend for its memory.
 ## Collecting
 
 ```bash
-conda run -n synthetic python scripts/collect_predictions.py --tool <tool> --half <half>
+conda run -n synthetic python scripts/collect_predictions.py --tool <tool> --half <run name>
 ```
 
-For every page `run.json` lists, the collector finds the one file named `<image stem>.md` anywhere under the
-raw output, whatever the tool's nesting, and copies it to
-`../evaluation_data/predictions/<tool>/<half>/<image stem>.md`, the name the evaluator pairs with the page
-`<image stem>.png`. A page with no markdown file, or with two, is refused before anything is written, and
+`<run name>` is the raw output directory's name: the half for a stage-one half, `<set>_<input>` for a
+typeset set (e.g. `--half typeset_plain_pdf`). For every page `run.json` lists, the collector finds the one
+file named `<image stem>.md` anywhere under the raw output, whatever the tool's nesting, and copies it to
+`../evaluation_data/predictions/<tool>/<run name>/<image stem>.md`, the name the evaluator pairs with the
+page `<image stem>.png`. A typeset page's PDF shares its PNG's stem, so a PDF run's predictions pair with
+the same ground truth as a PNG run's. A page with no markdown file, or with two, is refused before anything is written, and
 the refusal names every such page; a second collection replaces the first.
 
 ## Scoring and the leaderboard

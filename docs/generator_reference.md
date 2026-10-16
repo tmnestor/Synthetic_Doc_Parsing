@@ -553,7 +553,8 @@ three checks are read-only.
 | `scripts/generate_extraction_gt.py` | Build an extraction ground-truth CSV from `config/extraction_schema.yml` |
 | `scripts/check_extractions_match_gt.py` | Assert a returned `raw_extractions.jsonl` and a ground truth describe the same images. Stdlib only, so it also runs on the extraction host |
 | `scripts/omnidocbench_eval.py` | Clone the pinned parsing evaluator, and score one directory of markdown predictions with it |
-| `scripts/run_local_parser.py` | Run one configured parser over one snapshot half from its own conda env, recording the run in `run.json` |
+| `scripts/run_local_parser.py` | Run one configured parser over one snapshot half or typeset set, on its PNGs or PDFs (`--input`), from its own conda env (the builtin text-layer baseline from the generator's), recording the run in `run.json` |
+| `scripts/text_layer_baseline.py` | The no-model baseline: each native PDF's text layer as markdown, one paragraph per line, through `pypdfium2` |
 | `scripts/collect_predictions.py` | Turn a parser run's raw output into one `<image stem>.md` per page, refusing missing or doubled pages |
 | `scripts/score_parsing.py` | Score every collected run and write the parsing leaderboard |
 | `scripts/post_install.sh` | **Required after every `conda env create` or `env update`**; see [Dependencies](#dependencies) |

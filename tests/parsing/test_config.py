@@ -66,17 +66,45 @@ def test_the_shipped_config_loads() -> None:
     assert config.textless_categories == ("figure", "abandon")
     assert config.fold_displacement_max_px == 3
     assert config.layout_scored_tiers == ("light", "moderate")
-    assert [tool.name for tool in config.tools] == ["mineru_pipeline", "mineru_vlm", "docling", "marker"]
+    assert [tool.name for tool in config.tools] == [
+        "mineru_pipeline",
+        "mineru_vlm",
+        "docling",
+        "marker",
+        "text_layer",
+    ]
     assert all(isinstance(tool, ToolSpec) for tool in config.tools)
-    # Every scored tool runs locally on Apple silicon, from the env file that builds it.
-    assert {(tool.runner, tool.device) for tool in config.tools} == {("local", "mps")}
+    # Every parser runs locally on Apple silicon, from the env file that builds it; the text-layer
+    # baseline runs in the generator's own env, on the CPU.
+    assert {tool.name: (tool.runner, tool.device) for tool in config.tools} == {
+        "mineru_pipeline": ("local", "mps"),
+        "mineru_vlm": ("local", "mps"),
+        "docling": ("local", "mps"),
+        "marker": ("local", "mps"),
+        "text_layer": ("builtin", "cpu"),
+    }
     assert [tool.conda_env_file for tool in config.tools] == [
         "envs/mineru.yml",
         "envs/mineru.yml",
         "envs/docling.yml",
         "envs/marker.yml",
+        None,
     ]
-    assert [tool.backend for tool in config.tools] == ["pipeline", "vlm-engine", "default", "default"]
+    assert [tool.backend for tool in config.tools] == [
+        "pipeline",
+        "vlm-engine",
+        "default",
+        "default",
+        "default",
+    ]
+    # Marker is scored on images only, as stage one ran it; the baseline reads only a PDF's text layer.
+    assert {tool.name: tool.inputs for tool in config.tools} == {
+        "mineru_pipeline": ("png", "pdf"),
+        "mineru_vlm": ("png", "pdf"),
+        "docling": ("png", "pdf"),
+        "marker": ("png",),
+        "text_layer": ("pdf",),
+    }
     assert config.anchors == {"foot": "footer"}
     # The evaluator's contract at the pinned commit (match_gt2pred_quick in src/core/matching/match_quick.py).
     assert config.ignored_categories == (
@@ -337,7 +365,9 @@ def test_a_scored_tier_absent_from_the_generation_config_is_refused(tmp_path: Pa
     )
 
 
-@pytest.mark.parametrize("key", ["name", "backend", "runner", "device", "conda_env_file", "credits"])
+@pytest.mark.parametrize(
+    "key", ["name", "backend", "runner", "device", "conda_env_file", "inputs", "credits"]
+)
 def test_a_missing_tool_key_is_refused(tmp_path: Path, key: str) -> None:
     refused(tmp_path, lambda d: d["tools"][0].pop(key), "tools[0]", key, "missing")
 
@@ -371,6 +401,7 @@ def test_a_bad_runner_is_refused(tmp_path: Path) -> None:
         "cloud",
         "local",
         "remote",
+        "builtin",
     )
 
 
@@ -403,6 +434,33 @@ def test_a_remote_tool_with_an_env_file_is_refused(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("bad", [[], "pdf", ["tiff"], ["png", "png"], [3]])
+def test_bad_inputs_are_refused(tmp_path: Path, bad: Any) -> None:
+    refused(tmp_path, lambda d: d["tools"][0].__setitem__("inputs", bad), "tools[0].inputs", "png", "pdf")
+
+
+def test_a_builtin_tool_with_an_env_file_is_refused(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["tools"][4].__setitem__("conda_env_file", "envs/text_layer.yml"),
+        "tools[4].conda_env_file",
+        "text_layer",
+        "builtin",
+        "null",
+    )
+
+
+def test_a_builtin_tool_on_an_accelerator_is_refused(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["tools"][4].__setitem__("device", "mps"),
+        "tools[4].device",
+        "text_layer",
+        "builtin",
+        "cpu",
+    )
+
+
 def test_every_shipped_tool_carries_its_credits() -> None:
     config = load_parsing_config(SHIPPED)
     assert {tool.name: tool.credits.project for tool in config.tools} == {
@@ -410,6 +468,7 @@ def test_every_shipped_tool_carries_its_credits() -> None:
         "mineru_vlm": "MinerU",
         "docling": "Docling",
         "marker": "Marker",
+        "text_layer": "pypdfium2",
     }
     for tool in config.tools:
         credits = tool.credits

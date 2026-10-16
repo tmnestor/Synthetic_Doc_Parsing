@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Turn one tool's raw output for one run into the evaluator's predictions: one `<image stem>.md` per page.
 
-    python scripts/collect_predictions.py --tool docling --half plain
+    python scripts/collect_predictions.py --tool docling --half typeset_plain_pdf
 
-Each tool nests its markdown differently (MinerU `<stem>/<method>/<stem>.md`, Docling `<stem>.md`, Marker
-`<stem>/<stem>.md`), so the collector does not depend on the nesting: for every page the run's `run.json`
-lists, it finds the one file named `<image stem>.md` anywhere under
-`<eval_set.output_root>/raw_predictions/<tool>/<half>/`, and copies it to
+`--half` is the run's name under `raw_predictions/<tool>/`: the half for a stage-one half, `<set>_<input>`
+for a typeset set. Each tool nests its markdown differently (MinerU `<stem>/<method>/<stem>.md`, Docling
+and the text-layer baseline `<stem>.md`, Marker `<stem>/<stem>.md`), so the collector does not depend on
+the nesting: for every page the run's `run.json` lists, it finds the one file named `<image stem>.md`
+anywhere under `<eval_set.output_root>/raw_predictions/<tool>/<half>/`, and copies it to
 `<eval_set.output_root>/predictions/<tool>/<half>/<image stem>.md`, the name the evaluator pairs with the
-page `<image stem>.png`. A page with no such file, or with two (a rerun with another method, say), is
+page `<image stem>.png`. The pages `run.json` lists are always the PNG names, and a typeset page's PDF
+shares its PNG's stem, so a PDF run's predictions pair with the same ground truth as a PNG run's. A page
+with no such file, or with two (a rerun with another method, say), is
 refused before anything is written, and every such page is named. A second collection replaces the first,
 so the predictions directory never holds a file from an earlier run.
 """

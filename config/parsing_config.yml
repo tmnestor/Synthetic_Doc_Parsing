@@ -54,11 +54,15 @@ fold_displacement_max_px: 3
 layout_scored_tiers: [light, moderate]
 
 # The parsers scored. backend is the tool's own back-end selector (MinerU's -b value; default where the
-# tool has one standard pipeline). runner is local or remote: a local tool is run on this machine by
-# scripts/run_local_parser.py from the conda env its conda_env_file builds (the env's name: key names it);
-# a remote tool, run elsewhere and its markdown copied back, gives null. device is the accelerator the tool
-# is told to use, as the tool spells it (mps is Apple silicon's GPU; MinerU's vlm-engine back-end runs
-# through MLX on the same GPU whatever this says). Every tool here runs locally on Apple silicon.
+# tool has one standard pipeline). runner is local, remote or builtin: a local tool is run on this machine
+# by scripts/run_local_parser.py from the conda env its conda_env_file builds (the env's name: key names
+# it); a remote tool, run elsewhere and its markdown copied back, gives null; a builtin tool is run by the
+# same script in the generator's own env (it gives null, and device cpu). device is the accelerator the
+# tool is told to use, as the tool spells it (mps is Apple silicon's GPU; MinerU's vlm-engine back-end runs
+# through MLX on the same GPU whatever this says). Every parser here runs locally on Apple silicon.
+# inputs is the page files the tool is scored on (png, pdf or both; the runner's --input picks one per
+# run): a typeset set holds both, a stage-one half only the png. Marker is scored on images only, as stage
+# one ran it. text_layer is the no-model baseline: a native PDF's own text layer, read with pypdfium2.
 # credits is what the leaderboard's closing "Tools and licences" block prints for the tool: its project
 # name and URL and the licences of its code and its model weights, read from the official sources on
 # 14 October 2026 (PDF-Extract-Kit's on 15 October 2026). A weights licence not confirmed from an
@@ -70,6 +74,7 @@ tools:
     runner: local
     device: mps
     conda_env_file: envs/mineru.yml
+    inputs: [png, pdf]
     credits:
       project: MinerU
       url: https://github.com/opendatalab/MinerU
@@ -80,6 +85,7 @@ tools:
     runner: local
     device: mps
     conda_env_file: envs/mineru.yml
+    inputs: [png, pdf]
     credits:
       project: MinerU
       url: https://github.com/opendatalab/MinerU
@@ -90,6 +96,7 @@ tools:
     runner: local
     device: mps
     conda_env_file: envs/docling.yml
+    inputs: [png, pdf]
     credits:
       project: Docling
       url: https://github.com/docling-project/docling
@@ -100,8 +107,20 @@ tools:
     runner: local
     device: mps
     conda_env_file: envs/marker.yml
+    inputs: [png]
     credits:
       project: Marker
       url: https://github.com/datalab-to/marker
       code_licence: Apache-2.0, https://github.com/datalab-to/marker/blob/master/LICENSE
       weights_licence: modified AI Pubs Open RAIL-M, https://github.com/datalab-to/surya/blob/master/MODEL_LICENSE
+  - name: text_layer
+    backend: default
+    runner: builtin
+    device: cpu
+    conda_env_file: null
+    inputs: [pdf]
+    credits:
+      project: pypdfium2
+      url: https://github.com/pypdfium2-team/pypdfium2
+      code_licence: BSD-3-Clause or Apache-2.0 (pypdfium2 and PDFium), https://github.com/pypdfium2-team/pypdfium2/tree/main/LICENSES
+      weights_licence: none, no model is run (the PDF's own text layer), https://github.com/pypdfium2-team/pypdfium2
