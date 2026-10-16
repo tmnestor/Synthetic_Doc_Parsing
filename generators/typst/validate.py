@@ -144,6 +144,7 @@ def _check(job: _Job, shared: _Shared) -> tuple[list[str], list[str]]:
                 job.layout,
                 layout_id=job.layout_id,
                 layout_path=shared.layout_path,
+                doc_type=shared.doc_type,
                 distractors=job.distractors,
                 config=shared.config,
                 workdir=workdir,

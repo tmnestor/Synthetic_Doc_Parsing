@@ -35,7 +35,7 @@ import segno
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 from generators.common import font_path, font_spec
-from generators.distractors.paths import GENERATION_CONFIG_PATH, REPO_ROOT, document_type_files
+from generators.distractors.paths import REPO_ROOT
 from generators.exporters.geometry import BlockRecord, BoxRecorder, Cell, InkRecord
 from generators.layout_dsl.binding import interpolate
 from generators.layout_dsl.context import Region, RenderContext
@@ -486,7 +486,14 @@ def _refuse_untranslated(blocks: list, *, prefix: str, layout_id: str, layout_pa
 
 
 def _draw_stage_one(
-    layout: dict, entry: dict, *, layout_id: str, layout_path: Path, page: PageSpec, distractors: bool
+    layout: dict,
+    entry: dict,
+    *,
+    layout_id: str,
+    layout_path: Path,
+    doc_type: str,
+    page: PageSpec,
+    distractors: bool,
 ) -> _StageOne:
     """Draw the page's body as stage one's renderer does, keeping every record the translator reads.
 
@@ -525,7 +532,7 @@ def _draw_stage_one(
             enriched,
             layout_id=layout_id,
             layout_path=layout_path,
-            doc_type=_doc_type(layout_path),
+            doc_type=doc_type,
             recorder=recorder,
             drawings_out=overlays,
         )
@@ -548,24 +555,6 @@ def _draw_stage_one(
         surface.paints,
         overlays,
         fields,
-    )
-
-
-def _doc_type(layout_path: Path) -> str:
-    """Return the document type whose layouts file is `layout_path` (config/generation_config.yml)."""
-    files = document_type_files()
-    for doc_type, paths in files.items():
-        if paths.layouts.resolve() == layout_path.resolve():
-            return doc_type
-    raise _refusal(
-        f"the layout file {layout_path.resolve()} is no document type's layouts file, so its overlay "
-        "cannot be drawn under its type's protection policy.",
-        layout_path=layout_path,
-        where=f"(file); {GENERATION_CONFIG_PATH} -> document_types.<type>.layouts",
-        expected="a layouts file named under document_types in config/generation_config.yml, e.g. "
-        f"{sorted(str(paths.layouts) for paths in files.values())}.",
-        recover="translate a layout from its own document type's layouts file, or add the file to "
-        "document_types in config/generation_config.yml.",
     )
 
 
@@ -1132,6 +1121,7 @@ def translate_page(
     *,
     layout_id: str,
     layout_path: Path,
+    doc_type: str,
     page: PageSpec,
     distractors: bool,
     config: TypesetConfig,
@@ -1144,6 +1134,8 @@ def translate_page(
         entry: The ground-truth entry, with its `case_id` and `fields`.
         layout_id: The layout's id.
         layout_path: The layout YAML, named in a refusal.
+        doc_type: The extraction-schema document type the layout draws (`invoice`), under whose
+            `overlay.protect` policy its overlay is drawn, as the caller's renderer draws it.
         page: The layout's physical page (`generators.typst.config.layout_page`).
         distractors: Whether the page draws its distractors, as stage one's distractor render does.
         config: The typesetting configuration, naming the template the page imports.
@@ -1157,7 +1149,13 @@ def translate_page(
     """
     _refuse_untranslated(layout["body"], prefix="body", layout_id=layout_id, layout_path=layout_path)
     stage_one = _draw_stage_one(
-        layout, entry, layout_id=layout_id, layout_path=layout_path, page=page, distractors=distractors
+        layout,
+        entry,
+        layout_id=layout_id,
+        layout_path=layout_path,
+        doc_type=doc_type,
+        page=page,
+        distractors=distractors,
     )
     scale = page_scale(layout, page, canvas_dpi=config.canvas_dpi)
     margin = int(layout["margin"])

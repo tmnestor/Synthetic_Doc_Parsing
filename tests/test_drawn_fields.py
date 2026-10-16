@@ -197,6 +197,7 @@ def test_nab_period_is_distinct_from_the_issued_date(case_id: str) -> None:
         assert not overlap, f"{case_id}: period box {p} meets a distractor box {(dl, dt, dr, db)}"
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_refuses_a_layout_that_drops_the_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

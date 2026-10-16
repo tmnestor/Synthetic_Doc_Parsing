@@ -71,6 +71,7 @@ def test_bank_statement_module_no_longer_exposes_per_bank_renderers() -> None:
     assert callable(bank_statement.render_via_dsl)
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validation_rejects_a_broken_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A malformed body fails with the four-element diagnostic, and `pipeline validate` rejects it too."""
     layout_id = next(iter(layouts_for(DOC)))

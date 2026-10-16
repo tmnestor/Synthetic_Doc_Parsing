@@ -98,6 +98,7 @@ def test_a_gate_page_compiled_in_two_processes_is_byte_identical(
         entry,
         layout_id=layout_id,
         layout_path=layout_path,
+        doc_type=GATE_DOC_TYPES[Path(layout_path).stem],
         page=layout_page(layout, layout_path=str(layout_path), layout_id=layout_id),
         distractors=True,
         config=CONFIG,

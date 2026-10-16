@@ -215,6 +215,7 @@ def test_the_seed_refuses_a_statement_below_the_floor(monkeypatch: pytest.Monkey
     assert_diagnostic_error(caught.value)
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_refuses_an_incoherent_statement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     statements = yaml.safe_load((REPO_ROOT / "ground_truth/bank_statements.yml").read_text())
     case_id = next(iter(statements))

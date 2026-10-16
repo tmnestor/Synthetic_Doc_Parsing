@@ -103,18 +103,19 @@ def typeset_entry(
     distractors = mode == "distractor"
     stage_one: dict = {}
     _RENDERERS[layout_path.stem](entry, layout, distractors=distractors, geometry_out=stage_one)
+    doc_type = _DOC_TYPES[layout_path.stem]
     result = typeset_case(
         entry,
         layout,
         layout_id=layout_id,
         layout_path=layout_path,
+        doc_type=doc_type,
         distractors=distractors,
         config=config,
         workdir=workdir,
     )
     geometry = result.geometry
     where = page_where(case_id, layout_id, f"typeset {mode}")
-    doc_type = _DOC_TYPES[layout_path.stem]
     context = PageContext(f"{case_id}.png", doc_type, layout_id, f"typeset_{mode}", "none", True)
     page = build_page(geometry, context=context, config=parsing)
     document = pypdfium2.PdfDocument(result.pdf)
@@ -503,13 +504,15 @@ _TYPESET_SCRIPT = (
     "from generators.typst.typeset import typeset_case\n"
     "out = Path(sys.argv[1])\n"
     "config = load_typeset_config(TYPESET_CONFIG_PATH)\n"
+    f"DOC_TYPES = {_DOC_TYPES!r}\n"
     "for path in sorted(Path('config/layouts').glob('*.yml')):\n"
     "    entries = load_ground_truth(Path('ground_truth') / path.name)\n"
     "    for layout_id, layout in load_layout_registry(path).items():\n"
     "        cases = [str(c) for c in sorted(entries, key=str) if entries[c]['layout'] == layout_id]\n"
     "        case_id = cases[0]\n"
     "        result = typeset_case({**entries[case_id], 'case_id': case_id}, layout, layout_id=layout_id,\n"
-    "            layout_path=path.resolve(), distractors=True, config=config, workdir=out / layout_id)\n"
+    "            layout_path=path.resolve(), doc_type=DOC_TYPES[path.stem], distractors=True, config=config,\n"
+    "            workdir=out / layout_id)\n"
     "        (out / f'{layout_id}.pdf').write_bytes(result.pdf)\n"
 )
 

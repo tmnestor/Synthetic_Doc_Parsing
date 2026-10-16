@@ -318,6 +318,7 @@ def _typeset_page(
         entry,
         layout_id=layout_id,
         layout_path=layout_path,
+        doc_type=doc_type,
         page=layout_page(layout, layout_path=str(layout_path), layout_id=layout_id),
         distractors=distractors,
         config=config,

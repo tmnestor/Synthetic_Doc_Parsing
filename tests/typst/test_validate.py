@@ -6,8 +6,10 @@ meets, a page Typst refuses), never by editing a layout.
 """
 
 import dataclasses
+from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 import generators.pipeline as pipeline
@@ -215,3 +217,22 @@ def test_validate_runs_the_real_typeset_pass_end_to_end(monkeypatch: pytest.Monk
     assert "Validation passed" in result.output
     # Each type's 55 cases, plain and with distractors.
     assert handed == {"bank_statement": 110, "invoice": 110, "receipt": 110}
+
+
+@pytest.mark.slow
+def test_validate_with_a_scratch_layouts_file_typesets_under_the_type_it_was_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The typeset pass draws each overlay under the document type `validate` already holds, not one looked
+    # up by layouts file in the repository's own config/generation_config.yml: a config naming a scratch copy
+    # of the statements' layouts (which draw overlays) at another path typesets with no false failure.
+    generation = yaml.safe_load((REPO_ROOT / "config" / "generation_config.yml").read_text())
+    layouts = tmp_path / "scratch_layouts.yml"
+    layouts.write_text((REPO_ROOT / generation["document_types"][KEY]["layouts"]).read_text())
+    generation["document_types"] = {KEY: {**generation["document_types"][KEY], "layouts": str(layouts)}}
+    config = tmp_path / "generation_config.yml"
+    config.write_text(yaml.safe_dump(generation, sort_keys=False))
+    monkeypatch.chdir(REPO_ROOT)
+    result = CliRunner().invoke(pipeline.app, ["validate", "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    assert "Validation passed" in result.output

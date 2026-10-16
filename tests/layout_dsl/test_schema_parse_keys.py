@@ -98,6 +98,7 @@ def test_nested_children_are_checked_too() -> None:
     reject_body([container("panel", children=[text(parse_order="x")])], "parse_order")
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_reports_an_unknown_parse_category_in_a_scratch_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

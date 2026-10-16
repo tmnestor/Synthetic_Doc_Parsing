@@ -38,6 +38,7 @@ def typeset_case(
     *,
     layout_id: str,
     layout_path: Path,
+    doc_type: str,
     distractors: bool,
     config: TypesetConfig,
     workdir: Path,
@@ -49,6 +50,7 @@ def typeset_case(
         layout: The entry's resolved layout.
         layout_id: The layout's id.
         layout_path: The layout YAML holding it.
+        doc_type: The extraction-schema document type the layout draws (`invoice`).
         distractors: Whether the page draws its distractors and overlays, as stage one's distractor render.
         config: The typesetting configuration.
         workdir: A directory for the page's source, PDF and overlay images.
@@ -67,6 +69,7 @@ def typeset_case(
         entry,
         layout_id=layout_id,
         layout_path=layout_path,
+        doc_type=doc_type,
         page=page,
         distractors=distractors,
         config=config,
