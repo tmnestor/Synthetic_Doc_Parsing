@@ -207,3 +207,56 @@ next step adds; the project owner gave the go on that basis.
 8. Scoring, the leaderboard's new columns and the native-PDF gain; README and runbook.
 
 Each step is planned task by task in a stage-two plan written after this spec is approved.
+
+## 10. Outcome
+
+Stage two ran on 16 October 2026 against `snapshot_20261016`, scored with the pinned
+evaluator. The figures below are from `leaderboard_20261016.md`; the [README](../README.md#native-pdfs-stage-2) has the tables and the
+[runbook](parsing_benchmark_runbook.md#native-pdf-runs-16-october-2026) the commands and timings.
+
+### What was run
+
+The owner reduced the scope: MinerU `pipeline`, MinerU `vlm-engine` and Docling on the native PDFs of
+`typeset_plain` and `typeset_distractor`; the no-model text-layer baseline (`text_layer`) on both; and one
+control, Docling on the typeset PNG of `typeset_plain`. Marker was dropped from stage two by the owner's
+decision: it was scored on images in stage one only, and its stage-one results stand.
+
+### Findings
+
+On these synthetic documents (plain, then cluttered):
+
+- The text layer, with no model, reads text far better than every parser (text edit distance 0.009 and
+  0.051, against 0.253 and 0.262 for the best parser) and keeps reading order far better (0.105 and 0.099,
+  against 0.315 and 0.365 at best). It gives no table structure (TEDS 0).
+- For tables, MinerU `vlm-engine` is best (TEDS 0.598 and 0.492), then Docling (0.492 and 0.461), then
+  MinerU `pipeline` (0.471 and 0.428).
+- MinerU `pipeline` barely improves on PDFs: text edit distance 0.619 on plain PDFs against 0.637 on plain
+  images.
+- The routing this suggests: for a native PDF, take text and reading order from the text layer and use a
+  table model where table structure matters. This is a finding about these documents, not a claim about
+  all PDFs.
+
+### The control, and what is reported
+
+Docling's text edit distance on the typeset PNG differs from its stage-one image score by 0.028 (0.318
+against 0.290), beyond the 0.02 threshold; its table TEDS differs by 0.019 (0.443 against 0.425), within it.
+The typeset render alone therefore moves text scores slightly, and a text gain would mix the change of
+render with the change of input.
+
+The owner chose to report the native-PDF scores and ranking, plus table gains only. Text gains and
+reading-order gains are not reported in the README, the runbook or this document. Table gains (TEDS
+headline) are reported, each labelled as measured against the tool's stage-one image score: Docling +0.068
+plain and +0.011 cluttered, MinerU `pipeline` +0.012 and +0.030, MinerU `vlm-engine` -0.003 and -0.024.
+
+### Generator follow-ups recorded during stage two
+
+None blocks the results above; each is for a later change to the generator.
+
+- **Receipts: an unbudgeted line overruns its half-column.** The 'Reg/Staff' line in stage one's receipts is
+  not budgeted in its half-column and overruns it by 22 px on the 80 mm layout, 13 px on the 57 mm layout,
+  12 px on the fuel and professional layouts and 2 px on the retail_tax and hospitality layouts.
+- **One bank statement layout draws a wrapped description out of order.** On case CASE054, the last line of
+  a wrapped description is drawn below its 'Ref:' sub-line.
+- **The heavy degradation tier is not reproducible across processes.** Augraphy's `Folding` ignores the
+  seed (as the earlier distractor-overhaul plan records), so regenerating the heavy tier gives different
+  pixels.

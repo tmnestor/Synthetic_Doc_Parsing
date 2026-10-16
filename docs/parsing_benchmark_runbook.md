@@ -480,6 +480,107 @@ Scores that the evaluator, not the tool, gets wrong or flatters:
   receipt CASE044, MinerU `vlm-engine` joined the cropped exchange-policy line to the closing thanks line,
   which then scored 0.70.
 
+## Native-PDF runs, 16 October 2026
+
+Stage two's runs were made on the Apple M1 Pro (16 GB) against `snapshot_20261016`, whose
+`typeset_plain_<date>/` and `typeset_distractor_<date>/` hold each page as a PNG with its PDF beside it.
+The project owner reduced the scope: Marker was dropped from stage two (it was scored on images in stage
+one only, and those results stand), MinerU `vlm-engine` and `pipeline` ran on the PDFs only, and one
+control replaced the full set of image runs.
+
+Eight runs were made, one tool at a time:
+
+```bash
+snap=../evaluation_data/snapshot_20261016
+for tool in text_layer mineru_pipeline docling; do
+    for set in typeset_plain typeset_distractor; do
+        conda run -n synthetic python scripts/run_local_parser.py --tool "$tool" \
+            --snapshot "$snap" --half "$set" --input pdf || break 2
+    done
+done
+# The control: Docling on the typeset PNG of the plain set
+conda run -n synthetic python scripts/run_local_parser.py --tool docling \
+    --snapshot "$snap" --half typeset_plain --input png
+for set in typeset_plain typeset_distractor; do
+    conda run -n synthetic python scripts/run_local_parser.py --tool mineru_vlm \
+        --snapshot "$snap" --half "$set" --input pdf || break
+done
+```
+
+Each run is collected under its run name, `<set>_<input>`, then everything is scored:
+
+```bash
+for run in typeset_plain_pdf typeset_distractor_pdf; do
+    for tool in text_layer mineru_pipeline docling mineru_vlm; do
+        conda run -n synthetic python scripts/collect_predictions.py --tool "$tool" --half "$run"
+    done
+done
+conda run -n synthetic python scripts/collect_predictions.py --tool docling --half typeset_plain_png
+
+conda run -n synthetic python scripts/score_parsing.py --snapshot ../evaluation_data/snapshot_20261016 \
+    --snapshot-for plain=../evaluation_data/snapshot_20261014 \
+    --snapshot-for distractor=../evaluation_data/snapshot_20261014 \
+    --snapshot-for labelled_varied=../evaluation_data/snapshot_20261014 \
+    --snapshot-for degraded=../evaluation_data/snapshot_20261013
+```
+
+The stage-one halves keep the snapshots their runs were made on, and the leaderboard records that their
+ground truth is identical in the two (the `--snapshot-for` section above). It is written to
+`../evaluation_data/leaderboard_20261016.md` and `.csv`.
+
+### Timings
+
+From each run's `run.json` (`../evaluation_data/raw_predictions/<tool>/<set>_<input>/run.json`), 165 pages
+per run:
+
+| Tool | Set and input | Seconds | Seconds per page |
+|---|---|---|---|
+| `text_layer` | `typeset_plain_pdf` | 0.6 | 0.0 |
+| `text_layer` | `typeset_distractor_pdf` | 0.7 | 0.0 |
+| MinerU `pipeline` | `typeset_plain_pdf` | 605 | 3.7 |
+| MinerU `pipeline` | `typeset_distractor_pdf` | 875 | 5.3 |
+| Docling | `typeset_plain_pdf` | 309 | 1.9 |
+| Docling | `typeset_distractor_pdf` | 705 | 4.3 |
+| Docling | `typeset_plain_png` (control) | 1369 | 8.3 |
+| MinerU `vlm-engine` | `typeset_plain_pdf` | 4055 | 24.6 |
+| MinerU `vlm-engine` | `typeset_distractor_pdf` | 4961 | 30.1 |
+
+Docling is faster on a PDF (1.9 s a page) than on the same set's images (8.3 s), consistent with the
+probe's finding that it takes the text layer's cells instead of running OCR on them. MinerU `pipeline` is
+no faster on a PDF than on an image (3.7 s a page against 3.5 s on `plain`) and MinerU `vlm-engine`
+renders the page either way, as the
+[native-PDF probe](#native-pdfs) found.
+
+### The leaderboard's new sections
+
+- A column for each typeset run (`typeset_plain_png`, `typeset_plain_pdf`, `typeset_distractor_pdf`) beside
+  the four halves, in every table. A blank cell is a tool not run on that set.
+- A 'Native PDFs' section: the control, then each tool's native-PDF gain over its stage one image score.
+  A gain is the image score minus the PDF score for an edit distance and the PDF score minus the image
+  score for TEDS, so a positive gain always means the PDF helped. `text_layer` has no image score and
+  shows no gain; Marker was not run on PDFs.
+
+### The control and what it means
+
+The typeset pages are drawn afresh, so a PDF score differs from the image score of the same case for two
+reasons: the input changed, and the render did. The control separates them: Docling was run on the typeset
+PNG of `typeset_plain` and compared with its stage one score on `plain`. The threshold is
+`native_pdf_control` in `config/parsing_config.yml` (0.02).
+
+| Metric | Typeset PNG | Stage one image | Difference | Checked |
+|---|---|---|---|---|
+| Text edit distance | 0.318 | 0.290 | +0.028 | beyond 0.02 |
+| Table TEDS | 0.443 | 0.425 | +0.019 | within 0.02 |
+
+The text score is beyond the threshold, so the render alone moves text scores slightly and a text gain
+(image minus PDF) would mix the change of render with the change of input. The leaderboard prints every
+gain, each under the control's warning. The project owner chose to report the native-PDF scores and
+ranking, plus table gains only, each labelled as measured against the tool's stage one image score:
+text gains and reading-order gains are left out of the README, this runbook and the stage-two design.
+The control's TEDS difference is within the threshold, which is what lets the table gains be reported, but
+they are still not a same-render comparison: Docling's plain-set TEDS gain of +0.068 includes whatever
+part of the control's +0.019 is the render's.
+
 ## Publishing the snapshot
 
 Every published file names a layout only by its opaque key, `<doc_type>_layout_<n>`. The labelled-varied

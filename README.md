@@ -5,10 +5,10 @@
 | | |
 |---|---|
 | **Category** | Synthetic document parsing benchmark |
-| **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU VLM, MinerU pipeline, Docling, Marker ([the tools](#the-tools-tested)) |
-| **Approach** | Ground truth is written by the code that draws each page, so it is exact without annotation: no GPU pre-annotation or expert correction is needed, and every printed line is checked to belong to a block ([how](#how-the-ground-truth-is-made)). Limits: three single-page document types with fairly sparse pages; multi-page documents and PDFs come next |
+| **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU VLM, MinerU pipeline, Docling, Marker ([the tools](#the-tools-tested)), and on native PDFs a no-model text-layer baseline ([stage two](#native-pdfs-stage-2)) |
+| **Approach** | Ground truth is written by the code that draws each page, so it is exact without annotation: no GPU pre-annotation or expert correction is needed, and every printed line is checked to belong to a block ([how](#how-the-ground-truth-is-made)). Stage two typesets the same cases into native PDFs and scores the parsers on them. Limits: three single-page document types with fairly sparse pages; multi-page documents come next |
 | **Details** | [Results](#results), [what is measured](#what-it-measures), [the pages](#the-pages), [the runbook](docs/parsing_benchmark_runbook.md) |
-| **Summary** | As of 14 October 2026, MinerU VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
+| **Summary** | On images (stage one, 14 October 2026), MinerU VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). On native PDFs (stage two, 16 October 2026), on these synthetic documents, the text layer alone, with no model, reads text far better than any parser (text edit distance 0.009 on plain pages, 0.051 on cluttered) but gives no table structure (TEDS 0); for tables MinerU VLM is again best (TEDS 0.598 and 0.492), so a native PDF is best routed to the text layer for text and reading order and to a table model for tables. Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
 
 ## Overview
 
@@ -24,9 +24,9 @@ this repository writes ground truth in OmniDocBench's format and does not write 
 
 ## The tools tested
 
-Four tools, one of them in two forms. Both MinerU entries are the same release, MinerU 3.4.5, run with
-its two different back-ends: they share the package and its output format, but read a page in entirely
-different ways.
+Four tools, one of them in two forms, and a no-model baseline for native PDFs. Both MinerU entries are
+the same release, MinerU 3.4.5, run with its two different back-ends: they share the package and its output format, but read a page in
+entirely different ways.
 
 | Name used here | What it is | How it reads a page | Weights | Time per page |
 |---|---|---|---|---|
@@ -34,9 +34,12 @@ different ways.
 | MinerU pipeline | MinerU 3.4.5, back-end `pipeline` | A chain of small specialised models: layout detection, OCR (PaddleOCR), table recognition, reading order | AGPL-3.0 | 3 to 9 s |
 | Docling | Docling 2.120.2, standard pipeline | A layout model, a table model (TableFormer) and OCR (RapidOCR) | Apache-2.0, CDLA-Permissive-2.0 (OCR weights unconfirmed) | 5 to 12 s |
 | Marker | Marker 2.0.0 | Datalab's layout and OCR models | Modified AI Pubs Open RAIL-M | 49 to 89 s |
+| Text layer (baseline) | `pypdfium2` 5.13.0, no model | Reads the lines already in a native PDF's text layer, one paragraph per line; it cannot read an image | None: no model | under 0.01 s |
 
-All four ran unmodified on the same Apple M1 Pro laptop. The config names in the runbook and the
-leaderboard files are `mineru_vlm`, `mineru_pipeline`, `docling` and `marker`.
+All four parsers ran unmodified on the same Apple M1 Pro laptop. The config names in the runbook and the
+leaderboard files are `mineru_vlm`, `mineru_pipeline`, `docling`, `marker` and `text_layer`. The text
+layer is run on native PDFs only. Marker is not run on PDFs: it was scored on images in stage one only,
+and those results stand.
 
 ## What it measures
 
@@ -153,6 +156,63 @@ and timings) is written to `../evaluation_data/leaderboard_<YYYYMMDD>.md` and `.
 [`docs/parsing_benchmark_runbook.md`](docs/parsing_benchmark_runbook.md#first-leaderboard-14-october-2026)
 discusses it.
 
+## Native PDFs (stage 2)
+
+Stage two typesets the same cases as stage one's `plain` and `distractor` halves into native PDFs with a
+text layer, as accounting and banking software makes them, and ships each page as a PDF paired with its
+PNG. The two sets are `typeset_plain` and `typeset_distractor` (165 pages each); in this section
+'cluttered' means the distractor set. Scored 16 October 2026 on the same laptop, against snapshot
+`snapshot_20261016`. Runs made: MinerU pipeline, MinerU VLM and Docling on the PDFs of both sets; the
+no-model text-layer baseline on both; and one control, Docling on the typeset PNG of `typeset_plain`.
+Marker was dropped from stage two (the project owner's decision): it was scored on images in stage one only,
+and its results stand.
+
+**Scores on native PDFs**
+
+| Tool | Text edit, plain | Text edit, cluttered | TEDS, plain | TEDS, cluttered | Reading order, plain | Reading order, cluttered |
+|---|---|---|---|---|---|---|
+| Text layer (no model) | **0.009** | **0.051** | 0.000 | 0.000 | **0.105** | **0.099** |
+| MinerU VLM (`vlm-engine`) | 0.253 | 0.282 | **0.598** | **0.492** | 0.315 | 0.365 |
+| Docling 2.120.2 | 0.333 | 0.262 | 0.492 | 0.461 | 0.353 | 0.376 |
+| MinerU pipeline (`pipeline`) | 0.619 | 0.528 | 0.471 | 0.428 | 0.635 | 0.570 |
+
+Edit distances: lower is better. TEDS: higher is better. The text layer has no table structure, so its
+TEDS is 0.
+
+- **Text and reading order.** With no model, the text layer reads text far better than every parser (0.009
+  and 0.051 against 0.253 at best on plain pages and 0.262 on cluttered ones) and keeps the page's reading
+  order far better (0.105 and 0.099 against 0.315 and 0.365 at best). It gives no table structure.
+- **Tables.** MinerU VLM is best (TEDS 0.598 plain, 0.492 cluttered), then Docling (0.492, 0.461), then
+  MinerU pipeline (0.471, 0.428).
+- **MinerU pipeline barely improves on PDFs.** Its text edit distance is 0.619 on plain PDFs against 0.637
+  on plain images.
+- **Routing.** On these synthetic documents, a native PDF is best read for text and reading order from its
+  text layer, with a table model used where table structure matters. This is a finding about these
+  documents, not a claim about all PDFs.
+
+**Table gain over the stage one image score** (TEDS, PDF score minus image score: positive means the PDF
+helped)
+
+| Tool | plain | cluttered |
+|---|---|---|
+| Docling 2.120.2 | +0.068 | +0.011 |
+| MinerU pipeline (`pipeline`) | +0.012 | +0.030 |
+| MinerU VLM (`vlm-engine`) | -0.003 | -0.024 |
+
+Each gain is measured against the tool's stage one image score for the same half: `typeset_plain` against
+`plain`, `typeset_distractor` against `distractor`. The typeset pages are drawn afresh from the same
+cases, so this is not a same-render comparison. MinerU VLM reads a PDF by rendering it and does not use
+the text layer, which fits its gain of about nothing. The text layer has no stage one image score, so it
+shows no gain. The leaderboard also holds the gains of structure-only TEDS and table edit distance.
+
+**The control, and why there is no text gain.** To see how far the typeset render alone moves a score,
+Docling was run on the typeset PNG of `typeset_plain` and compared with its stage one score on `plain`.
+Its text edit distance differs by 0.028 (0.318 against 0.290), beyond the 0.02 threshold; its table TEDS
+differs by 0.019 (0.443 against 0.425), within it. The render alone therefore moves text scores slightly,
+so a text gain would mix the change of render with the change of input. By the project owner's choice,
+text gains and reading-order gains are not reported; table gains are, each labelled as measured against
+the stage one image score. The leaderboard prints every gain, each with the control's warning.
+
 ## Tools and licences
 
 Each tool was run unmodified, from its published release and weights, for research. No tool's authors
@@ -267,7 +327,7 @@ under which each tool's scores are published.
 | Stage | Pages | Status |
 |---|---|---|
 | One | The PIL business documents above, 660 pages | Complete: ground truth, invariants, first leaderboard |
-| Two | One multi-page genre rendered with Typst, as images and PDFs | Spike, to decide go or no-go |
+| Two | Stage one's cases typeset with Typst, as native PDFs paired with images | Complete: [results](#native-pdfs-stage-2), [outcome](docs/parsing_benchmark_stage2_design.md#10-outcome) |
 | Three | New genres, one per stage, including formulas | After stage two; formulas enable the Overall score |
 
 [`docs/parsing_benchmark_design.md`](docs/parsing_benchmark_design.md) outlines stages two and three, and
