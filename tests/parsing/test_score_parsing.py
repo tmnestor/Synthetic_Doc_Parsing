@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
+from generators.snapshot.config import HALVES, TYPESET_SETS
 from scripts import score_parsing
 from scripts.omnidocbench_eval import result_path
 from scripts.run_local_parser import RUN_RECORD
@@ -311,7 +312,7 @@ def test_tables_lead_with_teds_and_carry_the_output_form_caveat(scored: tuple) -
 
 def test_the_runs_table_records_each_run_device(scored: tuple) -> None:
     assert _section(scored[0].read_text(), "## Runs") == [
-        "| Tool | Half | Backend | Version | Device | Pages | Seconds per page |",
+        "| Tool | Half or set | Backend | Version | Device | Pages | Seconds per page |",
         "|---|---|---|---|---|---|---|",
         "| docling | plain | default | 2.0.1 | mps | 4 | 2.5 |",
         "| docling | degraded | default | 2.0.1 | mps | 2 | 1.5 |",
@@ -684,3 +685,340 @@ def test_a_run_on_another_snapshot_without_a_manifest_is_refused(
         _rescore(tmp_path, monkeypatch, dict(IMAGES), manifest=False)
     assert_diagnostic_error(caught.value)
     assert "cannot be compared" in str(caught.value)
+
+
+# The native PDFs. (tool, run) -> text edit, TEDS, TEDS structure-only, table edit, reading-order edit; a
+# typeset run is named `<set>_<input>`. Docling's PDF run reads text and TEDS better and TEDS structure and
+# reading order worse than its stage one plain run; its typeset PNG run is the control.
+TYPESET_HEADLINES = {
+    ("mineru_pipeline", "distractor"): (0.5, NAN, NAN, NAN, 0.25),
+    ("mineru_pipeline", "typeset_distractor_pdf"): (0.375, 0.625, 0.75, 0.5, 0.25),
+    ("mineru_vlm", "plain"): (0.3125, 0.5, 0.5, 0.5, 0.125),
+    ("docling", "plain"): (0.25, 0.5, 0.625, 0.75, 0.125),
+    ("docling", "typeset_plain_pdf"): (0.125, 0.75, 0.5, 0.75, 0.25),
+    ("marker", "plain"): (0.0625, 0.875, 0.9375, 0.1875, 0.0),
+    ("text_layer", "typeset_plain_pdf"): (0.0625, NAN, NAN, NAN, 0.5),
+}
+# Text edit and TEDS (the checked metrics) within 0.02 of docling's stage one plain score; the unchecked
+# table edit distance and reading order well beyond it, which must not count.
+CONTROL_WITHIN = (0.265625, 0.484375, 0.5, 0.875, 0.25)
+CONTROL_BEYOND = (0.265625, 0.4375, 0.5, 0.875, 0.25)
+
+
+def _typeset_scored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control: tuple | None = CONTROL_WITHIN,
+    record_input: str | None = None,
+) -> tuple[Path, Path, list[tuple[Path, Path, Path]]]:
+    """Every TYPESET_HEADLINES run (and docling's typeset_plain PNG control unless `control` is None),
+    collected beside a snapshot holding each set's ground truth, scored with a stub; `record_input`
+    overrides what docling's PDF run records as its input. Returns the leaderboard's two paths and each
+    (ground truth, predictions, work directory) the stub was handed."""
+    snapshot = tmp_path / "snapshot_20990101"
+    parsing = snapshot / SNAPSHOT_CONFIG.parsing_dir
+    parsing.mkdir(parents=True)
+    for half in ("plain", "distractor"):
+        (parsing / f"{SNAPSHOT_CONFIG.half_prefixes[half]}.json").write_text("[]")
+    for name in ("typeset_plain", "typeset_distractor"):
+        (parsing / f"{SNAPSHOT_CONFIG.typeset_prefixes[name]}.json").write_text("[]")
+    headlines = dict(TYPESET_HEADLINES)
+    if control is not None:
+        headlines[("docling", "typeset_plain_png")] = control
+    root = tmp_path / "out"
+    for tool, run in headlines:
+        (root / "predictions" / tool / run).mkdir(parents=True)
+        raw = root / "raw_predictions" / tool / run
+        raw.mkdir(parents=True)
+        record: dict[str, object] = {"tool": tool, "backend": "default", "snapshot": str(snapshot)}
+        record |= {"tool_version": "1.2.3", "device": "mps", "page_count": 2, "seconds": 3.0}
+        if run.startswith("typeset_"):
+            name, _, kind = run.rpartition("_")
+            record |= {"half": name, "input": kind, "run_name": run}
+            if (tool, run) == ("docling", "typeset_plain_pdf") and record_input is not None:
+                record["input"] = record_input
+        else:
+            record["half"] = run
+        (raw / RUN_RECORD).write_text(json.dumps(record))
+
+    calls: list[tuple[Path, Path, Path]] = []
+
+    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+        calls.append((gt_json, pred_dir, work_dir))
+        source = result_path(pred_dir, work_dir=work_dir)
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(json.dumps(_breakdown("docling", "plain")))
+        return dict(zip(_NAMES, headlines[(pred_dir.parent.name, pred_dir.name)], strict=True))
+
+    monkeypatch.setattr(score_parsing, "run_end2end", stub)
+    markdown, table = score(
+        snapshot,
+        output_root=root,
+        config=load_parsing_config(PARSING_CONFIG_PATH),
+        snapshot_config=SNAPSHOT_CONFIG,
+        checkout=tmp_path / "checkout",
+        today=TODAY,
+    )
+    return markdown, table, calls
+
+
+def test_the_gain_is_signed_so_a_positive_gain_means_the_pdf_helped() -> None:
+    # An edit distance is better lower: image minus PDF.
+    assert score_parsing.pdf_gain("text_block_edit_dist", image=0.25, pdf=0.125) == 0.125
+    assert score_parsing.pdf_gain("reading_order_edit_dist", image=0.125, pdf=0.25) == -0.125
+    # TEDS is better higher: PDF minus image.
+    assert score_parsing.pdf_gain("table_teds", image=0.5, pdf=0.75) == 0.25
+    assert score_parsing.pdf_gain("table_teds_structure_only", image=0.625, pdf=0.5) == -0.125
+    assert math.isnan(score_parsing.pdf_gain("table_teds", image=NAN, pdf=0.75))
+
+
+def test_each_typeset_run_is_scored_against_its_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    markdown, _, calls = _typeset_scored(tmp_path, monkeypatch)
+    text = markdown.read_text()
+    header = (
+        "| Tool | plain | distractor | labelled_varied | degraded | typeset_plain_png | typeset_plain_pdf "
+        "| typeset_distractor_pdf |"
+    )
+    assert _section(text, "### Text edit distance") == [
+        header,
+        "|---|---|---|---|---|---|---|---|",
+        "| mineru_pipeline |  | 0.500 |  |  |  |  | 0.375 |",
+        "| mineru_vlm | 0.312 |  |  |  |  |  |  |",
+        "| docling | 0.250 |  |  |  | 0.266 | 0.125 |  |",
+        "| marker | 0.062 |  |  |  |  |  |  |",
+        "| text_layer |  |  |  |  |  | 0.062 |  |",
+    ]
+    gt = tmp_path / "snapshot_20990101" / SNAPSHOT_CONFIG.parsing_dir
+    plain = gt / f"{SNAPSHOT_CONFIG.typeset_prefixes['typeset_plain']}.json"
+    out = tmp_path / "out"
+    assert (
+        plain,
+        out / "predictions/docling/typeset_plain_png",
+        out / "scores/docling/typeset_plain_png",
+    ) in calls
+    assert (
+        plain,
+        out / "predictions/docling/typeset_plain_pdf",
+        out / "scores/docling/typeset_plain_pdf",
+    ) in calls
+    distractor = gt / f"{SNAPSHOT_CONFIG.typeset_prefixes['typeset_distractor']}.json"
+    assert (distractor, out / "predictions/mineru_pipeline/typeset_distractor_pdf") == calls[1][:2]
+    assert len(calls) == len(TYPESET_HEADLINES) + 1
+    assert (
+        "The typeset sets are scored against: typeset_plain `snapshot_20990101`, typeset_distractor "
+        "`snapshot_20990101`." in text
+    )
+    assert "| docling | typeset_plain_pdf | default | 1.2.3 | mps | 2 | 1.5 |" in _section(text, "## Runs")
+
+
+def test_the_gain_table_holds_each_tool_s_gain_over_its_stage_one_image_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = _typeset_scored(tmp_path, monkeypatch)[0].read_text()
+    assert _section(text, "### Native-PDF gain over the stage one image score") == [
+        "| Tool | Set | Metric | Stage one image score | PDF score | Gain |",
+        "|---|---|---|---|---|---|",
+        "| mineru_pipeline | typeset_distractor | Text edit distance | 0.500 | 0.375 | +0.125 |",
+        "| mineru_pipeline | typeset_distractor | Table TEDS | n/a | 0.625 | n/a |",
+        "| mineru_pipeline | typeset_distractor | Table TEDS, structure only | n/a | 0.750 | n/a |",
+        "| mineru_pipeline | typeset_distractor | Table edit distance | n/a | 0.500 | n/a |",
+        "| mineru_pipeline | typeset_distractor | Reading-order edit distance | 0.250 | 0.250 | +0.000 |",
+        "| docling | typeset_plain | Text edit distance | 0.250 | 0.125 | +0.125 |",
+        "| docling | typeset_plain | Table TEDS | 0.500 | 0.750 | +0.250 |",
+        "| docling | typeset_plain | Table TEDS, structure only | 0.625 | 0.500 | -0.125 |",
+        "| docling | typeset_plain | Table edit distance | 0.750 | 0.750 | +0.000 |",
+        "| docling | typeset_plain | Reading-order edit distance | 0.125 | 0.250 | -0.125 |",
+    ]
+    section = text[text.index("## Native PDFs") :]
+    # The baseline is named for what it is: not a same-render comparison.
+    assert "stage one image score" in section and "not a controlled same-render comparison" in section
+    assert "a positive gain always means the PDF helped" in section
+
+
+def test_tools_without_a_gain_are_named_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = _typeset_scored(tmp_path, monkeypatch)[0].read_text()
+    section = text[text.index("## Native PDFs") : text.index("### Native-PDF gain")]
+    # Marker takes images only, as stage one ran it; its stage one scores stand.
+    assert (
+        "`marker` takes images only (`inputs: [png]`) and was not run on the native PDFs; its stage one "
+        "image scores stand in the tables above." in section
+    )
+    # A tool that takes PDFs but has no PDF run shows no gain.
+    assert "`mineru_vlm` has no PDF run scored, so it shows no gain." in section
+    # The text-layer baseline appears in the PDF columns only.
+    assert (
+        "`text_layer` takes PDFs only (`inputs: [pdf]`): it has no stage one image score, so it appears in "
+        "the PDF columns only and shows no gain." in section
+    )
+    gains = _section(text, "### Native-PDF gain over the stage one image score")
+    assert not [row for row in gains if row.startswith(("| mineru_vlm", "| marker", "| text_layer"))]
+
+
+def test_the_control_within_its_threshold_is_reported_beside_the_stage_one_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = _typeset_scored(tmp_path, monkeypatch)[0].read_text()
+    heading = "### Control: the typeset PNG against the stage one image"
+    assert _section(text, heading) == [
+        "| Tool | Set | Metric | Typeset PNG | Stage one image score | Difference | Checked |",
+        "|---|---|---|---|---|---|---|",
+        "| docling | typeset_plain | Text edit distance | 0.266 | 0.250 | +0.016 | within 0.02 |",
+        "| docling | typeset_plain | Table TEDS | 0.484 | 0.500 | -0.016 | within 0.02 |",
+        "| docling | typeset_plain | Table TEDS, structure only | 0.500 | 0.625 | -0.125 | not checked |",
+        "| docling | typeset_plain | Table edit distance | 0.875 | 0.750 | +0.125 | not checked |",
+        "| docling | typeset_plain | Reading-order edit distance | 0.250 | 0.125 | +0.125 | not checked |",
+    ]
+    control = text[text.index(heading) : text.index("### Native-PDF gain")]
+    assert (
+        "Every checked metric (Text edit distance, Table TEDS) of every typeset PNG run is within 0.02 "
+        "absolute of the tool's stage one image score" in control
+    )
+    assert "native_pdf_control" in control
+    assert "Warning" not in text
+    # The control precedes the gain table.
+    assert text.index(heading) < text.index("### Native-PDF gain")
+
+
+def test_a_control_beyond_its_threshold_is_flagged_above_the_gain_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = _typeset_scored(tmp_path, monkeypatch, control=CONTROL_BEYOND)[0].read_text()
+    assert "| docling | typeset_plain | Table TEDS | 0.438 | 0.500 | -0.062 | BEYOND 0.02 |" in text
+    warning = (
+        "**Warning: the control exceeds its threshold.** docling on typeset_plain: Table TEDS differs from "
+        "its stage one image score by 0.062, more than 0.02."
+    )
+    assert warning in text
+    # Prominently: straight under the section heading, above the control and the gain tables.
+    lines = text.splitlines()
+    native = lines.index("## Native PDFs")
+    assert lines[native + 2].startswith(warning)
+    assert "Every checked metric" not in text
+
+
+def test_without_a_typeset_png_run_there_is_no_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = _typeset_scored(tmp_path, monkeypatch, control=None)[0].read_text()
+    assert "No typeset PNG run was scored, so no control separates the change of render" in text
+    assert "### Control:" not in text
+    assert "typeset_plain_png" not in text
+
+
+def test_the_csv_holds_the_typeset_columns_the_gain_and_the_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = list(csv.DictReader(_typeset_scored(tmp_path, monkeypatch)[1].open()))
+    assert list(rows[0])[4:] == [
+        "plain",
+        "distractor",
+        "labelled_varied",
+        "degraded",
+        "typeset_plain_png",
+        "typeset_plain_pdf",
+        "typeset_distractor_pdf",
+    ]
+    by_key = {(row["section"], row["metric"], row["tool"], row["group"]): row for row in rows}
+    assert by_key[("all", "text_block_edit_dist", "text_layer", "")]["typeset_plain_pdf"] == "0.0625"
+    assert by_key[("native_pdf_gain", "table_teds", "docling", "")]["typeset_plain_pdf"] == "0.25"
+    assert (
+        by_key[("native_pdf_gain", "table_teds", "mineru_pipeline", "")]["typeset_distractor_pdf"] == "n/a"
+    )
+    assert by_key[("typeset_png_control", "table_teds", "docling", "")]["typeset_plain_png"] == "-0.015625"
+    assert ("native_pdf_gain", "text_block_edit_dist", "text_layer", "") not in by_key
+
+
+def test_without_typeset_runs_there_is_no_native_pdf_section(scored: tuple) -> None:
+    assert "## Native PDFs" not in scored[0].read_text()
+
+
+def test_a_typeset_run_recording_another_input_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ScoreError) as caught:
+        _typeset_scored(tmp_path, monkeypatch, record_input="png")
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    assert "input 'png', not 'pdf'" in message
+    assert (
+        str(tmp_path / "out" / "raw_predictions" / "docling" / "typeset_plain_pdf" / RUN_RECORD) in message
+    )
+
+
+def test_predictions_for_an_input_the_tool_does_not_take_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The text-layer baseline reads PDFs only: an image column for it is a stray run, not a score."""
+    (tmp_path / "out" / "predictions" / "text_layer" / "plain").mkdir(parents=True)
+    with pytest.raises(ScoreError) as caught:
+        _typeset_scored(tmp_path, monkeypatch)
+    assert_diagnostic_error(caught.value)
+    message = str(caught.value)
+    assert str(tmp_path / "out" / "predictions" / "text_layer" / "plain") in message
+    assert "tools[4].inputs" in message
+
+
+def test_a_typeset_set_can_be_scored_against_another_snapshot(tmp_path: Path) -> None:
+    other = tmp_path / "snapshot_20990303"
+    other.mkdir()
+    assert score_parsing.parse_snapshot_for([f"typeset_plain={other}"]) == {"typeset_plain": other}
+
+
+def test_every_typeset_set_has_its_stage_one_baseline_half() -> None:
+    assert sorted(score_parsing.IMAGE_BASELINE) == sorted(TYPESET_SETS)
+    assert set(score_parsing.IMAGE_BASELINE.values()) <= set(HALVES)
+
+
+def _typeset_stamped(root: Path, name: str, pdf_digest: str) -> Path:
+    """A snapshot under `root` whose typeset_plain set lists one page, its PNG and PDF in MANIFEST.json."""
+    snapshot = root / name
+    set_dir = f"{SNAPSHOT_CONFIG.typeset_prefixes['typeset_plain']}_{name.removeprefix('snapshot_')}"
+    (snapshot / SNAPSHOT_CONFIG.parsing_dir).mkdir(parents=True)
+    pages = [{"page_info": {"image_path": f"{set_dir}/CASE901_invoice.png"}}]
+    gt = (
+        snapshot / SNAPSHOT_CONFIG.parsing_dir / f"{SNAPSHOT_CONFIG.typeset_prefixes['typeset_plain']}.json"
+    )
+    gt.write_text(json.dumps(pages))
+    files = {f"{set_dir}/CASE901_invoice.png": "a1" * 32, f"{set_dir}/CASE901_invoice.pdf": pdf_digest}
+    (snapshot / "MANIFEST.json").write_text(json.dumps({"files": files}))
+    return snapshot
+
+
+@pytest.mark.parametrize("pdf_digest", ["e5" * 32, "f6" * 32], ids=["same-pdf", "another-pdf"])
+def test_a_pdf_run_on_another_snapshot_is_compared_by_its_pdfs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pdf_digest: str
+) -> None:
+    """Identical PNGs are not enough for a PDF run: the PDFs it read must be byte-identical too."""
+    made_on = _typeset_stamped(tmp_path, "snapshot_20990101", "e5" * 32)
+    later = _typeset_stamped(tmp_path, "snapshot_20990202", pdf_digest)
+    (tmp_path / "predictions" / "docling" / "typeset_plain_pdf").mkdir(parents=True)
+    raw = tmp_path / "raw_predictions" / "docling" / "typeset_plain_pdf"
+    raw.mkdir(parents=True)
+    record: dict[str, object] = {"tool": "docling", "half": "typeset_plain", "input": "pdf"}
+    record |= {"snapshot": str(made_on), "backend": "default", "tool_version": "1.2.3", "device": "mps"}
+    record |= {"page_count": 1, "seconds": 1.0}
+    (raw / RUN_RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(score_parsing, "run_end2end", _stub())
+
+    def scored() -> None:
+        score(
+            later,
+            output_root=tmp_path,
+            config=load_parsing_config(PARSING_CONFIG_PATH),
+            snapshot_config=SNAPSHOT_CONFIG,
+            checkout=tmp_path,
+            today=TODAY,
+        )
+
+    if pdf_digest == "e5" * 32:
+        scored()
+        assert (tmp_path / "leaderboard_20990102.md").is_file()
+        return
+    with pytest.raises(ScoreError) as caught:
+        scored()
+    assert_diagnostic_error(caught.value)
+    assert "CASE901_invoice.pdf" in str(caught.value) and "CASE901_invoice.png" not in str(caught.value)

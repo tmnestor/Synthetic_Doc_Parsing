@@ -124,3 +124,16 @@ tools:
       url: https://github.com/pypdfium2-team/pypdfium2
       code_licence: BSD-3-Clause or Apache-2.0 (pypdfium2 and PDFium), https://github.com/pypdfium2-team/pypdfium2/tree/main/LICENSES
       weights_licence: none, no model is run (the PDF's own text layer), https://github.com/pypdfium2-team/pypdfium2
+
+# The control for the native-PDF gain. The gain is measured against each tool's stage one image score
+# for the same half (typeset_plain against plain, typeset_distractor against distractor), not against a
+# typeset PNG run, so a tool run on a typeset set's PNGs (docling on typeset_plain) checks that the
+# typeset render alone does not move the score. The leaderboard reports each metric of that run beside
+# its stage one score and states whether every metric listed under metrics differs from it by at most
+# max_difference (absolute; a number in (0, 1)). Beyond it, the leaderboard warns above the gain table
+# that the gains mix the change of render with the change of input. metrics uses the leaderboard's
+# headline names (text_block_edit_dist, table_teds, table_teds_structure_only, table_edit_dist,
+# reading_order_edit_dist); text edit distance and table TEDS are checked.
+native_pdf_control:
+  max_difference: 0.02
+  metrics: [text_block_edit_dist, table_teds]

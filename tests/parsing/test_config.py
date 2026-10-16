@@ -15,6 +15,7 @@ import yaml
 from generators.overlay.registry import OVERLAY_DRAWERS
 from generators.parsing.config import (
     BLOCK_PRIMITIVES,
+    SCORED_METRICS,
     EvaluatorPin,
     ParsingConfig,
     ParsingConfigError,
@@ -166,6 +167,7 @@ TOP_LEVEL_KEYS = [
     "fold_displacement_max_px",
     "layout_scored_tiers",
     "tools",
+    "native_pdf_control",
 ]
 
 
@@ -496,4 +498,52 @@ def test_an_unknown_credits_key_is_refused(tmp_path: Path) -> None:
         lambda d: d["tools"][3]["credits"].__setitem__("copyright", "x"),
         "tools[3].credits",
         "copyright",
+    )
+
+
+def test_the_shipped_control_threshold_checks_text_and_teds() -> None:
+    control = load_parsing_config(SHIPPED).native_pdf_control
+    assert control.max_difference == 0.02
+    assert control.metrics == ("text_block_edit_dist", "table_teds")
+
+
+def test_the_control_metrics_are_the_headline_scores_the_leaderboard_reports() -> None:
+    from scripts.score_parsing import METRICS
+
+    assert SCORED_METRICS == tuple(name for name, _, _ in METRICS)
+
+
+@pytest.mark.parametrize("key", ["max_difference", "metrics"])
+def test_a_missing_control_key_is_refused(tmp_path: Path, key: str) -> None:
+    refused(tmp_path, lambda d: d["native_pdf_control"].pop(key), f"native_pdf_control.{key}", "missing")
+
+
+@pytest.mark.parametrize("bad", ["0.02", True, None, 0, 1, 1.5, -0.02])
+def test_a_control_threshold_outside_the_unit_interval_is_refused(tmp_path: Path, bad: Any) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["native_pdf_control"].__setitem__("max_difference", bad),
+        "native_pdf_control.max_difference",
+        "(0, 1)",
+        "max_difference: 0.02",
+    )
+
+
+@pytest.mark.parametrize("bad", [[], "table_teds", ["teds"], ["table_teds", "table_teds"], [3]])
+def test_bad_control_metrics_are_refused(tmp_path: Path, bad: Any) -> None:
+    refused(
+        tmp_path,
+        lambda d: d["native_pdf_control"].__setitem__("metrics", bad),
+        "native_pdf_control.metrics",
+        "text_block_edit_dist",
+    )
+
+
+def test_a_control_that_is_not_a_mapping_or_has_a_stray_key_is_refused(tmp_path: Path) -> None:
+    refused(tmp_path, lambda d: d.__setitem__("native_pdf_control", 0.02), "native_pdf_control")
+    refused(
+        tmp_path,
+        lambda d: d["native_pdf_control"].__setitem__("relative", True),
+        "native_pdf_control",
+        "relative",
     )

@@ -32,6 +32,15 @@ PARSING_CONFIG_PATH = REPO_ROOT / "config" / "parsing_config.yml"
 RUNNERS = ("local", "remote", "builtin")
 # The page files a tool can be given: a typeset set holds both, a stage-one half only the PNG.
 INPUT_KINDS = ("png", "pdf")
+# The evaluator's headline scores, as the leaderboard names them (scripts/score_parsing.py METRICS): the
+# names `native_pdf_control.metrics` may list.
+SCORED_METRICS = (
+    "text_block_edit_dist",
+    "table_teds",
+    "table_teds_structure_only",
+    "table_edit_dist",
+    "reading_order_edit_dist",
+)
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _TOP_LEVEL_KEYS = (
     "evaluator",
@@ -43,7 +52,9 @@ _TOP_LEVEL_KEYS = (
     "fold_displacement_max_px",
     "layout_scored_tiers",
     "tools",
+    "native_pdf_control",
 )
+_CONTROL_KEYS = ("max_difference", "metrics")
 _EVALUATOR_KEYS = ("repo", "commit", "conda_env_file", "formula_metrics")
 _MAP_SECTIONS = ("primitives", "overlays", "anchors")
 _TOOL_KEYS = ("name", "backend", "runner", "device", "conda_env_file", "inputs", "credits")
@@ -113,6 +124,20 @@ class ToolSpec:
 
 
 @dataclass(frozen=True)
+class NativePdfControl:
+    """The check that a typeset PNG run reproduces the tool's stage one image score.
+
+    Attributes:
+        max_difference: The largest absolute difference, in (0, 1), at which a checked metric of the
+            typeset PNG run still matches the tool's stage one image score.
+        metrics: The headline metrics checked, drawn from `SCORED_METRICS`.
+    """
+
+    max_difference: float
+    metrics: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ParsingConfig:
     """The validated parsing configuration.
 
@@ -129,6 +154,7 @@ class ParsingConfig:
         fold_displacement_max_px: Largest fold displacement tolerated, in pixels.
         layout_scored_tiers: Degradation tiers scored for layout.
         tools: The parsers scored.
+        native_pdf_control: The threshold and metrics of the typeset PNG control.
     """
 
     evaluator: EvaluatorPin
@@ -142,6 +168,7 @@ class ParsingConfig:
     fold_displacement_max_px: int
     layout_scored_tiers: tuple[str, ...]
     tools: tuple[ToolSpec, ...]
+    native_pdf_control: NativePdfControl
 
 
 def _fail(
@@ -556,6 +583,42 @@ def _load_tools(raw: Any, *, path: Path) -> tuple[ToolSpec, ...]:
     return tuple(tools)
 
 
+def _load_control(raw: Any, *, path: Path) -> NativePdfControl:
+    """Check `native_pdf_control`: a threshold in (0, 1) and a non-empty list of distinct metrics."""
+    example = "native_pdf_control:\n  max_difference: 0.02\n  metrics: [text_block_edit_dist, table_teds]"
+    block = _mapping(raw, path=path, key="native_pdf_control", example=example)
+    values = {
+        key: _require(block, key, path=path, prefix="native_pdf_control.", example=example)
+        for key in _CONTROL_KEYS
+    }
+    _check_key_set(
+        block, set(_CONTROL_KEYS), path=path, key="native_pdf_control", noun="key", example=example
+    )
+    limit = values["max_difference"]
+    if isinstance(limit, bool) or not isinstance(limit, int | float) or not 0 < limit < 1:
+        raise _fail(
+            what=f"'native_pdf_control.max_difference' is {limit!r}, not a number in (0, 1).",
+            path=path,
+            key="native_pdf_control.max_difference",
+            expected="the largest absolute difference between a typeset PNG run's score and the tool's "
+            f"stage one image score that still counts as the same, above 0 and below 1, e.g.\n{example}",
+            recover=f"set 'native_pdf_control.max_difference' in {path.name} to a number such as 0.02.",
+        )
+    key = "native_pdf_control.metrics"
+    metrics = _string_list(values["metrics"], path=path, key=key, example=example, allow_empty=False)
+    for index, name in enumerate(metrics):
+        if name not in SCORED_METRICS or name in metrics[:index]:
+            problem = "is listed twice" if name in metrics[:index] else "is not a headline metric"
+            raise _fail(
+                what=f"'{key}[{index}]' is {name!r}, which {problem}.",
+                path=path,
+                key=key,
+                expected=f"distinct names from {list(SCORED_METRICS)}, e.g.\n{example}",
+                recover=f"list each checked metric once under '{key}' in {path.name}.",
+            )
+    return NativePdfControl(max_difference=float(limit), metrics=metrics)
+
+
 def load_parsing_config(path: Path) -> ParsingConfig:
     """Load and validate the parsing config.
 
@@ -659,6 +722,7 @@ def load_parsing_config(path: Path) -> ParsingConfig:
         fold_displacement_max_px=fold,
         layout_scored_tiers=_load_tiers(top["layout_scored_tiers"], path=path),
         tools=_load_tools(top["tools"], path=path),
+        native_pdf_control=_load_control(top["native_pdf_control"], path=path),
     )
 
 
