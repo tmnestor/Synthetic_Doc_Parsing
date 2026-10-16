@@ -279,8 +279,10 @@ def test_a_sheet_centres_its_content_within_the_page_width(
     scale = 72 / CONFIG.canvas_dpi
     content = layout["content_width"] * scale
     a4_width = 210.0 * 72 / 25.4
-    # The content's own margins are equal, whatever the canvas's margins were.
-    assert left == pytest.approx(right, abs=1e-3)
+    # The content is centred, whatever the canvas's margins were: its left margin a whole number of stage-one
+    # pixels (so overlay images keep stage one's pixel grid), its two margins within one pixel of each other.
+    assert left / scale == pytest.approx(round(left / scale), abs=1e-3)
+    assert abs(left - right) <= scale + 1e-3
     assert left + content + right == pytest.approx(a4_width, abs=1e-3)
     assert top == pytest.approx(layout["margin"] * scale, abs=1e-3)
 
@@ -441,11 +443,12 @@ def test_a_gate_case_carries_the_blocks_and_texts_stage_one_records(
         config=CONFIG,
         overlay_dir=tmp_path,
     )
-    # Overlay sites are drawn after the body, so they are the last blocks; Task 5 places them.
-    body_blocks = [b for b in geometry["blocks"] if not b.kind.startswith(OVERLAY_PREFIX)]
-    assert translation.blocks == body_blocks
+    # Overlay sites are drawn after the body, so they are the last blocks; each is placed as a record too.
+    assert translation.blocks == geometry["blocks"]
     assert translation.texts == geometry["texts"]
-    assert len(call_args(translation.source, "block-record")) == len(body_blocks)
+    assert len(call_args(translation.source, "block-record")) == len(geometry["blocks"])
+    overlays = [b.id for b in geometry["blocks"] if b.kind.startswith(OVERLAY_PREFIX)]
+    assert [overlay.block for overlay in translation.overlays] == overlays
 
 
 # --- the record wrappers report their boxes ------------------------------------------------------------

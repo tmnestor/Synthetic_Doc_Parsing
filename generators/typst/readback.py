@@ -12,13 +12,20 @@ one's own records for the page); only the ink is new, read from the PDF:
   block, which `check_page`'s invariant 1 refuses.
 - Lines (Decision 3): words that share a block, a cell and a baseline (within a quarter of the font size)
   are one line, its text the words left to right joined by one space and its box their union. A block's
-  lines run top to bottom.
+  lines run in the order stage one drew them (see Roles), which is top to bottom but for a line stage one
+  drew below one it drew later.
 - Marks: a logo, barcode or QR code says what it encodes in pixels, not words, so its `InkRecord` takes
   the box of its block and the payload stage one recorded for it. The words a code also typesets (a
   barcode's caption, a logo's initials) are lines of its block, as the text layer holds them.
-- Roles: the PDF does not say whether a line is a scored value, so a line takes stage one's role for the
-  same cell (or, outside a table, the same block), a scored line there winning over a distractor and a
-  distractor over plain text.
+- Roles: the PDF does not say whether a line is a scored value, so each word goes to the line stage one
+  drew nearest it in the same block and cell (placed on the typeset page), and a baseline line holding
+  words of two stage-one lines (a pair's label and value) is split between them. Each line keeps the
+  role stage one drew it with, so the page has stage one's lines, role for role. A word with no
+  stage-one line there takes the block's (or cell's) role, scored winning over distractor over text.
+- Overlays: an overlay is an image, so it owns no word. Its lines and strokes are stage one's, moved
+  with its site to where Typst placed it.
+- Field boxes (`boxes`): each scored field's box, normalised to the page as stage one's are, is the union
+  of the typeset lines its stage-one lines became.
 - Pixels (Decision 7): boxes are measured in points and scaled by `dpi / 72` into the PNG's pixels,
   rounded outward (floor the left and top, ceil the right and bottom). The PNG's own size is the page's
   rounded up, as `pypdfium2` sizes the bitmap it renders, so a box on the page in points stays on the PNG.
@@ -61,12 +68,12 @@ class ReadbackError(RuntimeError):
     """Raised when a compiled page's records do not match its translation, or a word has two owners."""
 
 
-def _floor(value: float) -> int:
+def pixel_floor(value: float) -> int:
     """Floor a pixel coordinate, ignoring measurement noise just below a whole pixel."""
     return math.floor(value + _NOISE_PX)
 
 
-def _ceil(value: float) -> int:
+def pixel_ceil(value: float) -> int:
     """Ceil a pixel coordinate, ignoring measurement noise just above a whole pixel."""
     return math.ceil(value - _NOISE_PX)
 
@@ -105,7 +112,7 @@ class Measured(NamedTuple):
             The box in whole pixels: floor of left and top, ceiling of right and bottom.
         """
         left, top, right, bottom = box
-        return _floor(left), _floor(top), _ceil(right), _ceil(bottom)
+        return pixel_floor(left), pixel_floor(top), pixel_ceil(right), pixel_ceil(bottom)
 
     def pixel_box(self, block: int) -> tuple[int, int, int, int]:
         """Return a block's box rounded outward to whole pixels."""
@@ -346,11 +353,13 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
         drawn = Cell(int(fields["row"]), int(fields["col"]), int(fields["span"]))
         cells.setdefault(int(fields["block"]), []).append((drawn, _edges(queried)))
 
+    # An overlay is an image: it owns no word of the text layer, whatever printed text lies beneath it.
+    printed = {block: queried for block, queried in matched.items() if not _overlay(blocks[block])}
     owned: dict[tuple[int | None, Cell | None], list[_Word]] = {}
     for word in _words(compiled.pdf):
         block_id = _owner(
             word,
-            ((block, f"block {blocks[block].path}", _edges(q)) for block, q in matched.items()),
+            ((block, f"block {blocks[block].path}", _edges(q)) for block, q in printed.items()),
             where=where,
         )
         cell: Cell | None = None
@@ -368,7 +377,7 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
     roles = _roles(translation.ink)
     marks: dict[int, list[InkRecord]] = {}
     for record in translation.ink:
-        if record.mark and record.block is not None:
+        if record.mark and record.block is not None and not _overlay(blocks[record.block]):
             marks.setdefault(record.block, []).append(record)
     ink: list[InkRecord] = []
 
@@ -380,24 +389,28 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
             -1 if cell is None else cell.column,
         )
 
+    stage_lines = _drawn_lines(translation)
+    # Each stage-one text line, by its index in the translation's ink, as the typeset line it became.
+    became: dict[int, InkRecord] = {}
     for key in sorted(owned, key=order):
         block_id, cell = key
-        role = "text"
+        fallback = "text"
         if block_id is not None:
-            role = roles.get((block_id, cell), roles.get((block_id, None), "text"))
-        for line in _lines(owned[key]):
-            ink.append(
-                InkRecord(
-                    role,
-                    measured.rounded(_scaled(_union([w.box for w in line]), scale)),
-                    False,
-                    " ".join(w.text for w in line),
-                    max(1, round(max(w.size for w in line) * scale)),
-                    all(w.bold for w in line),
-                    block_id,
-                    cell,
-                )
+            fallback = roles.get((block_id, cell), roles.get((block_id, None), "text"))
+        for source, line in _split_lines(owned[key], stage_lines.get(key, [])):
+            record = InkRecord(
+                fallback if source is None else translation.ink[source].role,
+                measured.rounded(_scaled(_union([w.box for w in line]), scale)),
+                False,
+                " ".join(w.text for w in line),
+                max(1, round(max(w.size for w in line) * scale)),
+                all(w.bold for w in line),
+                block_id,
+                cell,
             )
+            ink.append(record)
+            if source is not None:
+                became[source] = record
     for block_id in sorted(marks):
         block = blocks[block_id]
         if block.kind not in MARK_KINDS or len(marks[block_id]) != 1:
@@ -417,6 +430,7 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
         ink.append(
             InkRecord("distractor", measured.pixel_box(block_id), True, mark.text, 0, False, block_id)
         )
+    ink.extend(_overlay_ink(translation, matched, measured, scale))
 
     width, height = measured.size
     return {
@@ -425,8 +439,120 @@ def page_geometry(compiled: CompiledPage, *, dpi: int, translation: Translation)
         "texts": dict(translation.texts),
         "width": width,
         "height": height,
+        "boxes": _field_boxes(translation, became, measured.size, scale),
         "measured": measured,
     }
+
+
+def _drawn_lines(translation: Translation) -> dict[tuple[int | None, Cell | None], list[tuple[int, Box]]]:
+    """Stage one's text lines by (block, cell): each one's index in the translation's ink, and its box.
+
+    The box is in points, placed on the typeset page (`Translation.to_points`).
+    """
+    drawn: dict[tuple[int | None, Cell | None], list[tuple[int, Box]]] = {}
+    for index, record in enumerate(translation.ink):
+        if not record.mark:
+            drawn.setdefault((record.block, record.cell), []).append(
+                (index, translation.to_points(record.box))
+            )
+    return drawn
+
+
+def _distance(box: Box, point: tuple[float, float]) -> float:
+    """Return how far `point` lies outside `box`, in the box's units; 0 inside it."""
+    across = max(box[0] - point[0], 0.0, point[0] - box[2])
+    down = max(box[1] - point[1], 0.0, point[1] - box[3])
+    return math.hypot(across, down)
+
+
+def _split_lines(words: list[_Word], drawn: list[tuple[int, Box]]) -> list[tuple[int | None, list[_Word]]]:
+    """Group one owner's words into lines, one per line stage one drew there, top to bottom.
+
+    Each word goes to the stage-one line (of the same block and cell) whose box, placed on the typeset page,
+    lies nearest its centre, containing it when one does. A baseline line (Decision 3) that holds words of
+    two stage-one lines (a pair's label and the value moved onto its baseline) is split between them, so
+    each line keeps the role stage one drew it with and the page holds as many lines as stage one's. With
+    no stage-one line to go to, words group by baseline alone.
+
+    Args:
+        words: The words one block (or cell) owns.
+        drawn: Stage one's text lines in the same block and cell: (index in the translation's ink, box).
+
+    Returns:
+        (the stage-one line's index or None, its words left to right), in the order stage one drew the
+        lines, as its ink lists them: usually top to bottom, but a wrapped description's last line drawn
+        below its grey sub-line still follows the description, as stage one's text has it. Lines with no
+        stage-one line run top to bottom.
+    """
+    if not drawn:
+        return [(None, line) for line in _lines(words)]
+    groups: dict[int, list[_Word]] = {}
+    for word in words:
+        source, _ = min(drawn, key=lambda item: (_distance(item[1], word.centre), item[0]))
+        groups.setdefault(source, []).append(word)
+    split = [(source, line) for source, group in groups.items() for line in _lines(group)]
+    return sorted(split, key=lambda item: (item[0], item[1][0].baseline, item[1][0].box[0]))
+
+
+def _overlay_ink(
+    translation: Translation, matched: dict[int, QueriedBox], measured: Measured, scale: float
+) -> list[InkRecord]:
+    """Stage one's ink for each placed overlay, moved to where Typst placed the overlay's site.
+
+    An overlay is an image, so the PDF holds no words for it; its lines and strokes are the ones stage one
+    recorded for the marks the image shows, each kept at its place inside the site.
+    """
+    ink: list[InkRecord] = []
+    for overlay in translation.overlays:
+        left, top = _edges(matched[overlay.block])[:2]
+        site_left, site_top = overlay.site[:2]
+        step = translation.scale
+        for record in translation.ink:
+            if record.block != overlay.block:
+                continue
+            x0, y0, x1, y1 = record.box
+            box = (
+                left + (x0 - site_left) * step,
+                top + (y0 - site_top) * step,
+                left + (x1 - site_left) * step,
+                top + (y1 - site_top) * step,
+            )
+            size = 0 if record.mark else max(1, round(record.size * step * scale))
+            ink.append(record._replace(box=measured.rounded(_scaled(box, scale)), size=size))
+    return ink
+
+
+def _field_boxes(
+    translation: Translation, became: dict[int, InkRecord], size: tuple[int, int], scale: float
+) -> dict[str, list[float]]:
+    """Each scored field's box on the typeset page, normalised to it, as stage one's `geometry["boxes"]` is.
+
+    A field's box is the union of the typeset lines that stage one's scored lines inside the field's own
+    box became. A field none of whose lines was read back (a value only a code mark carries) keeps its
+    stage-one box placed on the typeset page.
+    """
+    width, height = size
+    boxes: dict[str, list[float]] = {}
+    for field, (left, top, right, bottom) in translation.fields.items():
+        lines = [
+            became[index].box
+            for index, record in enumerate(translation.ink)
+            if index in became
+            and record.role == "scored"
+            and min(record.box[2], right) > max(record.box[0], left)
+            and min(record.box[3], bottom) > max(record.box[1], top)
+        ]
+        if lines:
+            box: Box = _union([(float(a), float(b), float(c), float(d)) for a, b, c, d in lines])
+        else:
+            box = _scaled(translation.to_points((left, top, right, bottom)), scale)
+        boxes[field] = [
+            min(max(box[0] / width, 0.0), 1.0),
+            min(max(box[1] / height, 0.0), 1.0),
+            min(max(box[2] / width, 0.0), 1.0),
+            min(max(box[3] / height, 0.0), 1.0),
+        ]
+    return boxes
 
 
 def _overlay(block: BlockRecord) -> bool:
@@ -437,10 +563,11 @@ def _overlay(block: BlockRecord) -> bool:
 def layout_errors(geometry: dict, *, where: str) -> list[str]:
     """Check the page's layout: no block off its page or out of its column, and no two blocks overlap.
 
-    An overlay may lie over the page beneath it, so a pair with an overlay in it is never an overlap.
-    Boxes are compared unrounded, so two blocks that merely touch are not refused. A block stage one itself
-    drew past its column may pass it by its allowance (`Measured.allowances`, Ruling P9) and no further;
-    the overlap check allows nothing.
+    An overlay may lie over the page beneath it, so a pair with an overlay in it is never an overlap, and
+    it has no column (it may lie in a margin); it must still lie on its page. Boxes are compared
+    unrounded, so two blocks that merely touch are not refused. A block stage one itself drew past its
+    column may pass it by its allowance (`Measured.allowances`, Ruling P9) and no further; the overlap
+    check allows nothing.
 
     Args:
         geometry: A geometry `page_geometry` returned.
@@ -474,7 +601,9 @@ def layout_errors(geometry: dict, *, where: str) -> list[str]:
                     "a margin or a column width).",
                 )
             )
-        column = measured.columns.get(block_id)
+        # An overlay is placed over the page, not laid out in a column; the overlay checks hold it to
+        # the page's inset instead.
+        column = None if _overlay(blocks[block_id]) else measured.columns.get(block_id)
         spill_left, spill_right = measured.allowances.get(block_id, (0.0, 0.0))
         if column is not None and (
             left < column[0] - spill_left - _NOISE_PX or right > column[1] + spill_right + _NOISE_PX

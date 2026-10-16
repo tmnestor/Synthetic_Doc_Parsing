@@ -94,10 +94,11 @@ def test_every_page_passes_every_check(report: GateReport) -> None:
 
 
 @pytest.mark.slow
-def test_overlays_are_reported_as_not_yet_placed(report: GateReport) -> None:
+def test_every_overlay_site_stage_one_draws_is_placed(report: GateReport) -> None:
     for page in report.pages:
-        assert page.overlays_placed is False, page
-        assert page.overlay_sites_in_stage_one >= 0
+        assert page.overlays_placed is True, page
+    # The gate's statement draws its annotations, so the check has sites to place.
+    assert any(page.overlay_sites_in_stage_one > 0 for page in report.pages if page.mode == "distractor")
     assert all(page.overlay_sites_in_stage_one == 0 for page in report.pages if page.mode == "plain")
 
 

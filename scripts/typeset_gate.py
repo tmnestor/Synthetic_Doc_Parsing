@@ -9,9 +9,9 @@ layout's first case to Typst, compiles it twice (the byte check) and once more w
 - the byte check: two compiles of one source give the same PDF;
 - the evaluator: the page's ground truth, written as markdown, scored as its own prediction.
 
-Overlays (handwriting, ink marks, highlights, the paid stamp) are placed only by a later task, so a
-distractor page is typeset without them; each page's report says so, with the number of overlay sites
-stage one draws for the case. Files go under `<output_root>/typeset_gate/`: per page its PDF, PNG,
+Overlays (handwriting, ink marks, highlights, the paid stamp) are placed as images on a distractor page
+(generators/typst/overlays.py); each page's report gives the number of overlay sites stage one draws for
+the case and whether the page placed every one. Files go under `<output_root>/typeset_gate/`: per page its PDF, PNG,
 Typst source and the stage-one PNG it pairs with, plus `gate.json` (one OmniDocBench page each) and
 `gate_report.json`. Nothing is written inside the repository.
 
@@ -94,7 +94,7 @@ class PageReport:
         invariant_errors: Stage one's `check_page` diagnostics.
         layout_errors: `layout_errors` diagnostics.
         stage_one_differences: Blocks whose category, text or table html differ from stage one's own page
-            for the same case and mode (stage one's overlay blocks excluded); empty when none do.
+            for the same case and mode (overlay blocks included); empty when none do.
         bytes_identical: Whether two compiles of one source gave the same PDF.
         ligature_invariant_1_holds: Whether, compiled with ligatures on, every word still has an owner.
         ligature_other_errors: How many other invariant diagnostics the ligature compile raised.
@@ -105,7 +105,7 @@ class PageReport:
             probe really compiled something else.
         ligature_pdf_differs: Whether the ligature compile's PDF differs from the plain compile's, which
             shows the switch took effect.
-        overlays_placed: Whether the page carries its overlays (always False until they are placed).
+        overlays_placed: Whether the page places every overlay site stage one draws for it.
         overlay_sites_in_stage_one: The overlay sites stage one draws for this case and mode.
         scores: The evaluator's scores for the page's ground truth as its own prediction.
         reading_order_gt: The evaluator's ground-truth reading order.
@@ -200,7 +200,7 @@ def _render_page(page: PageReport) -> list[str]:
         f"  box query: {'ok' if page.box_query_ok else 'FAILED ' + str(page.box_query_error)}",
         f"  six invariants: {'ok' if not page.invariant_errors else str(len(page.invariant_errors))} "
         f"{'' if not page.invariant_errors else 'FAILED'}".rstrip(),
-        f"  stage-one comparison (block by block, overlays excluded): "
+        f"  stage-one comparison (block by block, overlays included): "
         f"{'identical' if not page.stage_one_differences else str(page.stage_one_differences)}",
         f"  layout checks: {'ok' if not page.layout_errors else str(len(page.layout_errors)) + ' FAILED'}",
         f"  byte check (two compiles identical): {'ok' if page.bytes_identical else 'FAILED'}",
@@ -209,7 +209,7 @@ def _render_page(page: PageReport) -> list[str]:
         f"ligatures in text layer={page.ligatures_in_text_layer}; candidate sequences={page.ligature_candidates}; "
         f"ligature PDF differs from plain={page.ligature_pdf_differs}",
         f"  overlays placed: {page.overlays_placed} (stage one draws {page.overlay_sites_in_stage_one} "
-        "overlay site(s) for this case and mode; not yet covered)",
+        "overlay site(s) for this case and mode)",
         f"  evaluator on the perfect prediction: {shown}",
         f"  reading order gt={page.reading_order_gt} pred={page.reading_order_pred}",
     ]
@@ -323,6 +323,7 @@ def _typeset_page(
         config=config,
         overlay_dir=directory / "overlays" / stem,
     )
+    report.overlays_placed = len(translation.overlays) == report.overlay_sites_in_stage_one
     (directory / report.typst).write_text(translation.source)
     work = directory / "work" / stem
     try:

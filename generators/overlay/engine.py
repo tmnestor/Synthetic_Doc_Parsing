@@ -140,6 +140,7 @@ def apply_overlay(
     layout_path: str | Path,
     doc_type: str,
     recorder: BoxRecorder,
+    drawings_out: dict[str, OverlayDrawing] | None = None,
 ) -> OverlayResult:
     """Draw a layout's overlay blocks onto a distractor render, verifying and recording each.
 
@@ -151,6 +152,9 @@ def apply_overlay(
         layout_path: Path to the layout YAML (made absolute for diagnostics).
         doc_type: The extraction-schema document type, as `overlay.protect` keys it.
         recorder: The page's recorder; its ink defines what is protected and receives the overlay's ink.
+        drawings_out: Optional dict (opt-in); when given, each drawn block's `OverlayDrawing` is added
+            under its block path (`<layout>.overlay[n]`), in draw order, once it has been composited, so
+            a caller can place the very marks drawn here elsewhere. Nothing drawn changes.
 
     Returns:
         Every mark drawn.
@@ -234,6 +238,8 @@ def apply_overlay(
                 recorder.record_ink(line.box, "distractor", text=line.text, size=line.size, bold=line.bold)
             for box in drawing.mark_ink:
                 recorder.record_ink(box, "distractor", text="", size=0, bold=False, mark=True)
+        if drawings_out is not None:
+            drawings_out[site.block_path] = drawing
         marks.extend(drawing.marks)
     return OverlayResult(marks=tuple(marks))
 

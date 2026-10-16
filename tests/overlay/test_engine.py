@@ -251,6 +251,37 @@ def test_only_blocks_whose_key_is_present_draw_in_order(box_drawer: str) -> None
     ]
 
 
+def test_drawings_out_hands_back_each_drawn_blocks_drawing_and_changes_nothing_drawn(
+    box_drawer: str,
+) -> None:
+    blocks = [
+        {"type": box_drawer, "when": "DX_A", "box": [40, 40, 50, 50]},
+        {"type": box_drawer, "when": "DX_ABSENT", "box": [60, 40, 70, 50]},
+        {"type": box_drawer, "when": "DX_B", "box": [80, 40, 90, 50], "ink": "mark"},
+    ]
+    fields = {"DX_A": "x", "DX_B": "y"}
+    plain_image, plain_recorder, plain_result = _apply(blocks, fields, [])
+    image = Image.new("RGB", (400, 300), "white")
+    recorder = recorder_with([], image.size)
+    drawings: dict = {}
+    result = apply_overlay(
+        image,
+        {"overlay": blocks},
+        {"case_id": "CASE999", "fields": fields},
+        layout_id="synthetic_layout",
+        layout_path="config/layouts/invoices.yml",
+        doc_type="invoice",
+        recorder=recorder,
+        drawings_out=drawings,
+    )
+    assert list(drawings) == ["synthetic_layout.overlay[0]", "synthetic_layout.overlay[2]"]
+    assert all(isinstance(drawing, OverlayDrawing) for drawing in drawings.values())
+    assert drawings["synthetic_layout.overlay[2]"].marks == tuple(result.drawn_for("DX_B"))
+    assert image.tobytes() == plain_image.tobytes()
+    assert recorder.ink_records() == plain_recorder.ink_records()
+    assert result == plain_result
+
+
 def test_a_later_block_avoids_an_earlier_blocks_ink(box_drawer: str) -> None:
     blocks = [
         {"type": box_drawer, "when": "DX_A", "box": [40, 40, 50, 50], "ink": "mark"},

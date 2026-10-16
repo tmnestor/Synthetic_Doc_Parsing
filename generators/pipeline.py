@@ -67,6 +67,13 @@ from generators.parsing.config import (
 from generators.parsing.omnidocbench import PageCheck
 from generators.receipt import render_receipt
 from generators.schema import field_names_for, validate_entry
+from generators.typst.config import (
+    TYPESET_CONFIG_PATH,
+    TypesetConfig,
+    TypesetConfigError,
+    load_typeset_config,
+)
+from generators.typst.validate import StageOnePages, typeset_errors
 
 app = typer.Typer(help="Synthetic Australian business document generator.")
 
@@ -103,8 +110,11 @@ def validate(
     document type) pass the value validator, that every bank statement row sits in the column its
     description says and its running balance stays at or above its account's floor (config/data_pools.yml
     bank_descriptions and bank_balance), that the OmniDocBench page each plain and distractor render writes
-    keeps the parsing invariants (generators/parsing/omnidocbench.py, config/parsing_config.yml), and that
-    the business-name grammar cannot emit a real company.
+    keeps the parsing invariants (generators/parsing/omnidocbench.py, config/parsing_config.yml), that
+    every case typeset as a native PDF, plain and with distractors (config/typeset_config.yml), keeps the
+    same invariants and the layout checks, says block for block what stage one's page says, and with
+    distractors meets the density bounds and places every overlay legally on its own geometry
+    (generators/typst/validate.py), and that the business-name grammar cannot emit a real company.
 
     Errors are collected rather than raised one at a time, so a single run
     reports every problem in the corpus.
@@ -118,6 +128,11 @@ def validate(
     try:
         parsing_config = load_parsing_config(PARSING_CONFIG_PATH)
     except ParsingConfigError as exc:
+        all_errors.append(str(exc))
+    typeset_config: TypesetConfig | None = None
+    try:
+        typeset_config = load_typeset_config(TYPESET_CONFIG_PATH)
+    except TypesetConfigError as exc:
         all_errors.append(str(exc))
 
     for doc_type, doc_cfg in cfg.get("document_types", {}).items():
@@ -244,6 +259,7 @@ def validate(
             # Every plain and distractor render also writes its OmniDocBench page, which must keep the
             # parsing invariants; each page check hands the render on to the measure it wraps first.
             plain_page = distractor_page = None
+            stage_one: dict[tuple[str, bool], dict] = {}
             if parsing_config is not None:
                 plain_page = PageCheck(parsing_config, doc_type=canonical, mode="plain", then=drawn)
                 distractor_page = PageCheck(
@@ -254,8 +270,9 @@ def validate(
                     gt_data,
                     layouts,
                     renderer,
-                    measure=distractor_page or density,
-                    plain_measure=plain_page or drawn,
+                    # Each render is also kept, as the page its typeset twin is compared with below.
+                    measure=StageOnePages(stage_one, distractors=True, then=distractor_page or density),
+                    plain_measure=StageOnePages(stage_one, distractors=False, then=plain_page or drawn),
                     labelled_varied=varied,
                 )
             )
@@ -268,6 +285,21 @@ def validate(
                 all_errors.extend(drawn.errors)
             if varied_drawn is not None:
                 all_errors.extend(varied_drawn.errors)
+            # Every case is also typeset as a native PDF, plain and with distractors, and each page checked
+            # as stage one's is (generators/typst/validate.py).
+            if parsing_config is not None and typeset_config is not None:
+                all_errors.extend(
+                    typeset_errors(
+                        gt_data,
+                        layouts,
+                        stage_one,
+                        doc_type=canonical,
+                        layout_path=Path(doc_cfg["layouts"]).resolve(),
+                        parsing=parsing_config,
+                        distractor_config=distractor_config,
+                        config=typeset_config,
+                    )
+                )
 
     # Every linked receipt's bank description must resolve to a card scheme, so a
     # reseed introducing a new description shape fails here rather than silently

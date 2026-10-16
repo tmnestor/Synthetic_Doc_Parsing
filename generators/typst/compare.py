@@ -2,11 +2,12 @@
 
 A typeset page carries stage one's block records, so the two pages' OmniDocBench blocks pair up by id.
 `stage_one_differences` names every block whose category, text or table html differs once whitespace is
-collapsed. Stage one's overlay blocks are left out, as the typeset page does not yet place overlays.
+collapsed. Overlay blocks are compared as every other block is: their text is what stage one recorded for
+the marks the typeset page places as images.
 """
 
 from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
-from generators.parsing.omnidocbench import OVERLAY_PREFIX, PageContext, build_page
+from generators.parsing.omnidocbench import PageContext, build_page
 
 
 def _collapsed(text: str) -> str:
@@ -18,7 +19,7 @@ def stage_one_differences(page: dict, stage_one: dict, *, context: PageContext) 
     """Compare the typeset page block by block with stage one's page of the same case and mode.
 
     Blocks are matched by id (`anno_id`); the text of a block, or the html of a table, is compared with
-    whitespace collapsed. Stage one's overlay blocks are left out: overlays are placed by a later task.
+    whitespace collapsed. Overlay blocks are included.
 
     Args:
         page: The OmniDocBench page built from the read-back geometry.
@@ -29,13 +30,10 @@ def stage_one_differences(page: dict, stage_one: dict, *, context: PageContext) 
         One line per block that differs, is missing, or is extra; empty when the two agree.
     """
     parsing = load_parsing_config(PARSING_CONFIG_PATH)
-    overlays = {block.id for block in stage_one["blocks"] if block.kind.startswith(OVERLAY_PREFIX)}
     theirs = {
-        det["anno_id"]: det
-        for det in build_page(stage_one, context=context, config=parsing)["layout_dets"]
-        if det["anno_id"] not in overlays
+        det["anno_id"]: det for det in build_page(stage_one, context=context, config=parsing)["layout_dets"]
     }
-    ours = {det["anno_id"]: det for det in page["layout_dets"] if det["anno_id"] not in overlays}
+    ours = {det["anno_id"]: det for det in page["layout_dets"]}
     differences = []
     for block in sorted(set(theirs) | set(ours)):
         one, two = theirs.get(block), ours.get(block)

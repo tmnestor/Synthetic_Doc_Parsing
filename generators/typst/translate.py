@@ -18,8 +18,10 @@ stage one drew them, inside a block as tall as stage one's table. Every length i
 converted to points by `page_scale`: at the canvas resolution for a sheet, whose content is centred
 across the A4 width, and at the roll's width for a receipt.
 
-Overlays (the marks a distractor page draws over the finished body) are not yet placed: a page carries
-its body's blocks only.
+Overlays (the marks a distractor page draws over the finished body) are drawn by stage one's own overlay
+engine on the same stage-one draw, and placed as images (`generators/typst/overlays.py`): each overlay
+block is a `block-record` as big as its site, at the site's position, holding its opaque layer, with its
+highlighter tint, if any, in the page's background beneath the text.
 """
 
 import functools
@@ -33,7 +35,7 @@ import segno
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 from generators.common import font_path, font_spec
-from generators.distractors.paths import REPO_ROOT
+from generators.distractors.paths import GENERATION_CONFIG_PATH, REPO_ROOT, document_type_files
 from generators.exporters.geometry import BlockRecord, BoxRecorder, Cell, InkRecord
 from generators.layout_dsl.binding import interpolate
 from generators.layout_dsl.context import Region, RenderContext
@@ -45,11 +47,14 @@ from generators.layout_dsl.engine import (
     DrawnBlock,
     render_body,
 )
-from generators.layout_dsl.primitives_codes import _chevron_depth, _fit_initials, barcode_geometry
+from generators.layout_dsl.primitives_codes import _chevron_depth, barcode_geometry
 from generators.layout_dsl.primitives_text import line_advance, resolve_role
 from generators.layout_dsl.schema import FRAMES, GROUPINGS
 from generators.loader import load_layout_registry
+from generators.overlay.engine import apply_overlay
+from generators.overlay.registry import OverlayDrawing
 from generators.typst.config import PageSpec, TypesetConfig
+from generators.typst.overlays import PlacedOverlay, place_overlays, save_overlays, typst_image
 
 # The primitive types the translator writes: every primitive stage one draws. A layout using any other
 # is refused.
@@ -85,6 +90,8 @@ class Translation:
 
     Attributes:
         source: The page's whole Typst source.
+        bare_source: The same page without its overlays, the page before they were drawn on it, which the
+            overlay contrast check compares the page with; the same as `source` on a page with none.
         blocks: Stage one's block records for the page, in draw order; each is a `block-record` in
             `source` with the same id.
         texts: The string drawn for each scored field, as stage one's recorder holds it.
@@ -93,13 +100,42 @@ class Translation:
         overshoot: For each block whose stage-one ink runs out of the column it was drawn in, how far, in
             points at the page's scale, past the column's (left, right) edge; a block whose ink stays in
             its column is absent. The layout checks allow the typeset block no further (Ruling P9).
+        overlays: The page's overlay blocks as placed, in draw order; empty on a plain page.
+        fields: Stage one's box for each scored field, in stage-one pixels (left, top, right, bottom),
+            from which the read-back finds the typeset lines each field drew.
+        scale: Points per stage-one pixel (`page_scale`).
+        offset: What is added to a stage-one pixel position to place it on the typeset page, in stage-one
+            pixels: (x, y). A point on the typeset page lies at `(position + offset) * scale` points.
     """
 
     source: str
+    bare_source: str
     blocks: list[BlockRecord]
     texts: dict[str, str]
     ink: list[InkRecord]
     overshoot: dict[int, tuple[float, float]]
+    overlays: list[PlacedOverlay]
+    fields: dict[str, tuple[int, int, int, int]]
+    scale: float
+    offset: tuple[float, float]
+
+    def to_points(self, box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+        """Return a box in stage-one pixels as the same box on the typeset page, in points.
+
+        Args:
+            box: (left, top, right, bottom) in stage-one pixels.
+
+        Returns:
+            (left, top, right, bottom) in points from the typeset page's top-left corner.
+        """
+        dx, dy = self.offset
+        left, top, right, bottom = box
+        return (
+            (left + dx) * self.scale,
+            (top + dy) * self.scale,
+            (right + dx) * self.scale,
+            (bottom + dy) * self.scale,
+        )
 
 
 @dataclass(frozen=True)
@@ -287,6 +323,8 @@ class _StageOne:
         entry: The provider-enriched entry the body was drawn from.
         lines: Every line of text drawn, in draw order.
         paints: Every rule, frame edge and shaded band painted, in draw order.
+        overlays: Each overlay block's drawing, by block path, in draw order; empty on a plain page.
+        fields: Each scored field's box, in pixels.
     """
 
     blocks: list[BlockRecord]
@@ -296,6 +334,8 @@ class _StageOne:
     entry: dict
     lines: list[_Drawn]
     paints: list[_Paint]
+    overlays: dict[str, OverlayDrawing]
+    fields: dict[str, tuple[int, int, int, int]]
 
 
 def _child_lists(block: dict, path: str) -> list[tuple[str, list]]:
@@ -458,7 +498,8 @@ def _draw_stage_one(
     else:
         width, height = int(layout["page_dimensions"]["width"]), int(layout["page_dimensions"]["height"])
     recorder = _TracingRecorder(width, height)
-    surface = _TracingDraw(Image.new("RGB", (width, height), "white"), recorder)
+    image = Image.new("RGB", (width, height), "white")
+    surface = _TracingDraw(image, recorder)
     enriched: dict = {}
     drawn: dict[str, DrawnBlock] = {}
     render_body(
@@ -474,6 +515,29 @@ def _draw_stage_one(
         entry_out=enriched,
         drawn_out=drawn,
     )
+    # The overlay draws on the finished page as stage one's renderer has it draw, and only with
+    # distractors; its drawings are kept to be placed as images.
+    overlays: dict[str, OverlayDrawing] = {}
+    if distractors:
+        apply_overlay(
+            image,
+            layout,
+            enriched,
+            layout_id=layout_id,
+            layout_path=layout_path,
+            doc_type=_doc_type(layout_path),
+            recorder=recorder,
+            drawings_out=overlays,
+        )
+    fields = {
+        field: (
+            round(left * width),
+            round(top * height),
+            round(right * width),
+            round(bottom * height),
+        )
+        for field, (left, top, right, bottom) in recorder.as_dict().items()
+    }
     return _StageOne(
         recorder.block_records(),
         recorder.texts(),
@@ -482,6 +546,26 @@ def _draw_stage_one(
         enriched,
         surface.lines,
         surface.paints,
+        overlays,
+        fields,
+    )
+
+
+def _doc_type(layout_path: Path) -> str:
+    """Return the document type whose layouts file is `layout_path` (config/generation_config.yml)."""
+    files = document_type_files()
+    for doc_type, paths in files.items():
+        if paths.layouts.resolve() == layout_path.resolve():
+            return doc_type
+    raise _refusal(
+        f"the layout file {layout_path.resolve()} is no document type's layouts file, so its overlay "
+        "cannot be drawn under its type's protection policy.",
+        layout_path=layout_path,
+        where=f"(file); {GENERATION_CONFIG_PATH} -> document_types.<type>.layouts",
+        expected="a layouts file named under document_types in config/generation_config.yml, e.g. "
+        f"{sorted(str(paths.layouts) for paths in files.values())}.",
+        recover="translate a layout from its own document type's layouts file, or add the file to "
+        "document_types in config/generation_config.yml.",
     )
 
 
@@ -630,9 +714,16 @@ class _Writer:
         for index, line in enumerate(lines):
             advance = lines[index + 1].y - line.y if index + 1 < len(lines) else last
             if advance <= 0:
-                raise RuntimeError(
-                    f"{self.layout_id}.{path}: stage one drew {line.text!r} at y={line.y} and the next line "
-                    f"no lower, so the lines cannot stack"
+                raise _refusal(
+                    f"stage one drew {line.text!r} at y={line.y} and the next line, "
+                    f"{lines[index + 1].text!r}, at y={lines[index + 1].y}, no lower, so the lines "
+                    "cannot be stacked one under another.",
+                    layout_path=Path(self.layout_path),
+                    where=f"{self.layout_id}.{path}",
+                    expected="each line of a block (or a table cell) drawn below the one before it, e.g. "
+                    "lines at y=100 and y=134.",
+                    recover="draw the block's lines one under another in stage one, or teach "
+                    "generators/typst/translate.py to place lines that share a height.",
                 )
             written.append(self.line(line, advance))
         return written
@@ -710,6 +801,27 @@ class _Writer:
             f"anchor: {value(record.anchor)}, category: {value(record.parse_category)}, "
             f"order: {record.parse_order}, columns: {value(record.columns)}, join: {value(record.join)}, "
             f"align: {align},\n{call})"
+        )
+
+    def overlay(self, overlay: PlacedOverlay, margin: int) -> str:
+        """Place an overlay block over the body: a record as big as its site, holding its opaque layer.
+
+        The site is placed from the content area's top-left corner, which is stage one's (margin, margin).
+        """
+        left, top, right, bottom = overlay.site
+        width, height = self.pt(right - left), self.pt(bottom - top)
+        layer = "" if overlay.over is None else f", {typst_image(overlay.over, width=width, height=height)}"
+        site = self.record(overlay.path, f"box(width: {width}, height: {height}{layer})", "left")
+        return f"place(top + left, dx: {self.pt(left - margin)}, dy: {self.pt(top - margin)},\n{site})"
+
+    def tint(self, overlay: PlacedOverlay, offset: tuple[float, float]) -> str:
+        """Place an overlay block's tint in the page's background, beneath the text, at its site."""
+        if overlay.under is None:
+            raise ValueError(f"overlay {overlay.path} has no tint to place")
+        left, top, right, bottom = overlay.site
+        image = typst_image(overlay.under, width=self.pt(right - left), height=self.pt(bottom - top))
+        return (
+            f"place(top + left, dx: {self.pt(left + offset[0])}, dy: {self.pt(top + offset[1])}, {image})"
         )
 
     def travel(self, drawn: DrawnBlock) -> str:
@@ -864,10 +976,13 @@ class _Writer:
         letters = next(record.text for record in ink if record.mark)
         size = int(block["size"])
         style = str(block["style"])
-        fitted = _fit_initials(letters, block, self.context(region), style, size)
-        if fitted is None:  # stage one refuses such a logo before the translator runs
-            raise RuntimeError(f"logo initials {letters!r} at {path} fit no size, yet stage one drew them")
-        text_size = font_spec(fitted[0])[0]
+        # The initials at the size stage one's fitting drew them, read from its draw, not fitted again.
+        drawn_initials = [line for line in self.drawn_lines(path) if line.text == letters]
+        if len(drawn_initials) != 1:
+            raise RuntimeError(
+                f"logo initials {letters!r} at {path} were drawn {len(drawn_initials)} times, not once"
+            )
+        text_size = drawn_initials[0].size
         family = str(self.param(block, "family"))
         initials = (
             f'text(font: "{_font_name(family, True)}", size: {self.pt(text_size)}, weight: "bold", '
@@ -981,6 +1096,9 @@ class _Writer:
                     str(columns[cell.column].get("align")),
                 )
             dx, width = (0, anchor) if align == "right" else (anchor, region.width - anchor)
+            # A cell's lines are stacked where stage one drew them, top to bottom. That need not be the
+            # order it drew them in: a wrapped description's last line can be drawn below its sub-line.
+            lines = sorted(lines, key=lambda line: line.y)
             written = self.pitched(lines, last=lines[-1].ascent + lines[-1].descent, path=path)
             items.append(
                 f"dsl-cell(block: {record.id}, row: {cell.row}, col: {cell.column}, span: {cell.span}, "
@@ -1043,10 +1161,13 @@ def translate_page(
     )
     scale = page_scale(layout, page, canvas_dpi=config.canvas_dpi)
     margin = int(layout["margin"])
-    # The content is centred across the page with equal left and right margins, whatever stage one's
-    # canvas margins were; a roll's content keeps its symmetric stage-one margins.
+    # The content is centred across the page, whatever stage one's canvas margins were; a roll's content
+    # keeps its symmetric stage-one margins. The left margin is a whole number of stage-one pixels, so
+    # stage one's pixel grid (on which every overlay image is drawn) falls on the page's own: centred to
+    # within half a pixel.
     page_pixels = page.width_mm * _PT_PER_MM / scale
-    left = right = (page_pixels - int(layout["content_width"])) / 2
+    left = float(round((page_pixels - int(layout["content_width"])) / 2))
+    right = page_pixels - int(layout["content_width"]) - left
     writer = _Writer(
         stage_one,
         layout,
@@ -1060,21 +1181,37 @@ def translate_page(
     body = writer.blocks(
         layout["body"], Region(x=margin, width=int(layout["content_width"])), "body", in_block=False
     )
-    source = "\n".join(
-        [
-            f"// {layout_id}, {entry.get('case_id', '')}: written by generators/typst/translate.py.",
-            f'#import "/{config.template}": *',
-            f"#set page(width: {page.width_mm:g}mm, height: {height}, margin: (left: {writer.pt(left)}, "
-            f"right: {writer.pt(right)}, top: {writer.pt(margin)}, bottom: {writer.pt(margin)}))",
-            "#show: typeset",
-            f"#{_code(body)}",
-            "",
-        ]
-    )
+    placed = place_overlays(stage_one.overlays, {record.path: record.id for record in stage_one.blocks})
+    save_overlays(placed, overlay_dir)
+    # Stage one's content area starts at (margin, margin) on its canvas, the typeset page's at
+    # (left, margin) on the page.
+    offset = (left - margin, 0.0)
+    background = [writer.tint(overlay, offset) for overlay in placed if overlay.under is not None]
+
+    def page_source(background: list[str], calls: list[str]) -> str:
+        return "\n".join(
+            [
+                f"// {layout_id}, {entry.get('case_id', '')}: written by generators/typst/translate.py.",
+                f'#import "/{config.template}": *',
+                f"#set page(width: {page.width_mm:g}mm, height: {height}, "
+                f"margin: (left: {writer.pt(left)}, right: {writer.pt(right)}, "
+                f"top: {writer.pt(margin)}, bottom: {writer.pt(margin)}), "
+                f"background: {_code(background)})",
+                "#show: typeset",
+                f"#{_code(calls)}",
+                "",
+            ]
+        )
+
     return Translation(
-        source=source,
+        source=page_source(background, body + [writer.overlay(overlay, margin) for overlay in placed]),
+        bare_source=page_source([], body),
         blocks=stage_one.blocks,
         texts=stage_one.texts,
         ink=stage_one.ink,
         overshoot=writer.overshoot,
+        overlays=placed,
+        fields=stage_one.fields,
+        scale=scale,
+        offset=offset,
     )
