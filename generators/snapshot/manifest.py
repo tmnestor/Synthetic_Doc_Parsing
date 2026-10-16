@@ -5,7 +5,8 @@ snapshot holds and nothing about how it was produced: each half's and typeset se
 counts, the typeset PNGs' resolution, the degradation tiers, the ground-truth and geometry names, the
 label-style and refusal counts from the sidecar, the parsing files with the evaluator commit they target
 and the tiers scored for layout, and the SHA-256 of every file except `MANIFEST.json` and `SHA256SUMS`
-themselves. Every path is POSIX and relative to the snapshot root. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads (Decision 10).
+themselves. Every path is POSIX and relative to the snapshot root. `SHA256SUMS` repeats the `files` map
+in the form `shasum -a 256 -c` reads (Decision 10).
 
 What produced it is the provenance record, `PROVENANCE.json`, in a directory beside the snapshot that is
 never uploaded (Decision 9): the commit, the SHA-256 of every tracked file under `config/` and

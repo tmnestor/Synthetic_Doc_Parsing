@@ -232,8 +232,8 @@ On these synthetic documents (plain, then cluttered):
 - For tables, MinerU `vlm-engine` is best (TEDS 0.598 and 0.492), then Docling (0.492 and 0.461), then
   MinerU `pipeline` (0.471 and 0.428).
 - MinerU `pipeline` still trails far behind the text layer: on plain PDFs its text edit distance is 0.619
-  against the text layer's 0.009, although it reads the same text layer, so its layout step, not
-  character reading, limits it.
+  against the text layer's 0.009, although it reads the same text layer, which suggests its layout step,
+  not character reading, limits it.
 - The routing this suggests: for a native PDF, take text and reading order from the text layer and use a
   table model where table structure matters. This is a finding about these documents, not a claim about
   all PDFs.
@@ -249,6 +249,22 @@ The owner chose to report the native-PDF scores and ranking, plus table gains on
 reading-order gains are not reported in the README, the runbook or this document. Table gains (TEDS
 headline) are reported, each labelled as measured against the tool's stage-one image score: Docling +0.068
 plain and +0.011 cluttered, MinerU `pipeline` +0.012 and +0.030, MinerU `vlm-engine` -0.003 and -0.024.
+
+### Exit criterion
+
+The exit criterion, that the perfect-score check passes on both typeset sets (section 8), passes. Each
+set's ground truth, converted to markdown with `tests/parsing/gt_to_markdown.py` and scored by the pinned
+evaluator on `snapshot_20261016`, gives:
+
+| Set | Text edit distance | TEDS | Table edit distance | Reading-order edit distance |
+|---|---|---|---|---|
+| `typeset_plain` | 0.000 | 1.000 | 0.000 | 0.092 |
+| `typeset_distractor` | 0.002 | 1.000 | 0.000 | 0.064 |
+
+For `typeset_plain` the structure-only TEDS is also 1.000. Both rows equal stage one's corresponding halves
+to every digit, so the residuals (the reading-order distance and the distractor text distance) are
+evaluator artefacts (its index-0 reading-order handling and its underscore-shortening preprocessing), not
+typeset faults.
 
 ### Generator follow-ups recorded during stage two
 
