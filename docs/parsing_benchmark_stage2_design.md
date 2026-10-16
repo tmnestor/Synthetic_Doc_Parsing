@@ -211,7 +211,8 @@ Each step is planned task by task in a stage-two plan written after this spec is
 ## 10. Outcome
 
 Stage two ran on 16 October 2026 against `snapshot_20261016`, scored with the
-pinned evaluator. The figures below are from `leaderboard_20261016.md`; the [README](../README.md#native-pdfs-stage-2) has the tables and the
+pinned evaluator. The figures below are from `leaderboard_20261016.md`; the
+[README](../README.md#native-pdfs-stage-2) has the tables and the
 [runbook](parsing_benchmark_runbook.md#native-pdf-runs-16-october-2026) the commands and timings.
 
 ### What was run
