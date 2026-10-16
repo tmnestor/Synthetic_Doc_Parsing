@@ -149,6 +149,7 @@ def test_the_shipped_bounds_pass_every_current_render(doc_type: str) -> None:
                 assert report.distractor_share >= bounds.distractor_share_min, (case_id, report)
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_refuses_a_distractor_render_out_of_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(REPO_ROOT)
     real_registry = pipeline.load_layout_registry
@@ -188,6 +189,7 @@ def _validate_with_receipt_provider(monkeypatch: pytest.MonkeyPatch) -> Result:
     return CliRunner().invoke(app, ["validate"])
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_renders_each_distractor_case_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Density is measured on the overflow pass's own distractor render, not on a second one.
 

@@ -8,7 +8,9 @@ meets, a page Typst refuses), never by editing a layout.
 import dataclasses
 
 import pytest
+from typer.testing import CliRunner
 
+import generators.pipeline as pipeline
 import generators.typst.validate as typeset_validate
 from generators.distractors.config import load_distractor_config
 from generators.exporters.eval_projection import load_extraction_schema
@@ -46,18 +48,30 @@ def _stage_one(gt_data: dict, layouts: dict, renderer) -> dict[tuple[str, bool],
     return pages
 
 
-def _run(gt_data: dict, *, renderer=None, distractor_config=None) -> list[str]:  # noqa: ANN001
-    layouts = load_layout_registry(LAYOUT_PATH)
+def _run(  # noqa: ANN001
+    gt_data: dict, *, renderer=None, distractor_config=None, layouts=None, workers: int = 1
+) -> list[str]:
+    """Run the pass over `gt_data`; one worker (in this process) unless `workers` says otherwise."""
+    registry = load_layout_registry(LAYOUT_PATH)
     return typeset_errors(
         gt_data,
-        layouts,
-        _stage_one(gt_data, layouts, renderer or _RENDERERS[KEY]),
+        layouts or registry,
+        _stage_one(gt_data, registry, renderer or _RENDERERS[KEY]),
         doc_type=load_extraction_schema().resolve_doc_type(KEY),
         layout_path=LAYOUT_PATH,
         parsing=load_parsing_config(PARSING_CONFIG_PATH),
         distractor_config=distractor_config or load_distractor_config(),
-        config=load_typeset_config(TYPESET_CONFIG_PATH),
+        config=dataclasses.replace(load_typeset_config(TYPESET_CONFIG_PATH), validate_workers=workers),
     )
+
+
+def _saying_quokka(entry: dict, layout: dict, *, distractors: bool, geometry_out: dict) -> object:
+    """Stage one's renderer, but its page says something the typeset page does not."""
+    image = _RENDERERS[KEY](entry, layout, distractors=distractors, geometry_out=geometry_out)
+    ink = geometry_out["ink"]
+    index = next(i for i, record in enumerate(ink) if record.role == "scored")
+    ink[index] = ink[index]._replace(text="Quokka")
+    return image
 
 
 @pytest.mark.slow
@@ -67,17 +81,7 @@ def test_a_statement_typesets_plain_and_with_its_overlays_with_no_failure() -> N
 
 @pytest.mark.slow
 def test_a_page_that_differs_from_stage_one_is_refused_four_part() -> None:
-    real = _RENDERERS[KEY]
-
-    def renderer(entry: dict, layout: dict, *, distractors: bool, geometry_out: dict) -> object:
-        image = real(entry, layout, distractors=distractors, geometry_out=geometry_out)
-        # Stage one's page says something the typeset page does not.
-        ink = geometry_out["ink"]
-        index = next(i for i, record in enumerate(ink) if record.role == "scored")
-        ink[index] = ink[index]._replace(text="Quokka")
-        return image
-
-    errors = _run(_cases(1), renderer=renderer)
+    errors = _run(_cases(1), renderer=_saying_quokka)
     assert len(errors) == 2  # plain and with distractors
     for error in errors:
         assert_diagnostic_error(error)
@@ -149,3 +153,65 @@ def test_a_case_stage_one_did_not_render_is_not_typeset(monkeypatch: pytest.Monk
         )
         == []
     )
+
+
+# --- Ruling P12: the pass in a process pool -------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_the_pooled_pass_reports_the_same_failures_in_the_same_order_as_one_worker() -> None:
+    cases = _cases(3)
+    pooled = _run(cases, renderer=_saying_quokka, workers=3)
+    serial = _run(cases, renderer=_saying_quokka, workers=1)
+    assert len(serial) == 6  # each case, plain and with distractors
+    assert pooled == serial
+    # Case order, and within a case plain before distractor.
+    named = [error.split("What:", 1)[1].split(":", 1)[0].strip() for error in serial]
+    assert named == [
+        f"{case} / {cases[case]['layout']} (typeset {mode})"
+        for case in cases
+        for mode in ("plain", "distractor")
+    ]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_page_whose_check_raises_in_a_worker_is_reported_four_part_naming_its_case(workers: int) -> None:
+    entries = load_ground_truth(REPO_ROOT / "ground_truth" / f"{KEY}.yml")
+    by_layout: dict[str, str] = {}
+    for case in sorted(entries, key=str):
+        by_layout.setdefault(entries[case]["layout"], case)
+    (broken_layout, broken_case), (_, sound_case) = list(by_layout.items())[:2]
+    cases = {broken_case: entries[broken_case], sound_case: entries[sound_case]}
+    registry = load_layout_registry(LAYOUT_PATH)
+    # An invented fault: one layout loses its body after stage one has rendered its case.
+    layouts = {**registry, broken_layout: {k: v for k, v in registry[broken_layout].items() if k != "body"}}
+    errors = _run(cases, layouts=layouts, workers=workers)
+    # Its two pages (plain and with distractors) are each reported, naming the case; the other case's
+    # pages are still typeset and checked, and pass.
+    assert len(errors) == 2
+    for error, mode in zip(errors, ("plain", "distractor"), strict=True):
+        assert_diagnostic_error(error)
+        assert "could not be checked" in error and "KeyError" in error
+        assert f"{broken_case} / {broken_layout} (typeset {mode})" in error
+
+
+@pytest.mark.slow
+def test_validate_runs_the_real_typeset_pass_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The one test that runs the whole `validate` with its typeset pass (Ruling P12): every case of every
+    # document type typeset, plain and with distractors, and checked. The spy only counts the pages the
+    # real pass was handed; it changes nothing.
+    real = pipeline.typeset_errors
+    handed: dict[str, int] = {}
+
+    def counting(gt_data: dict, layouts: dict, stage_one: dict, **kwargs: object) -> list[str]:
+        handed[str(kwargs["doc_type"])] = len(stage_one)
+        return real(gt_data, layouts, stage_one, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setattr(pipeline, "typeset_errors", counting)
+    result = CliRunner().invoke(pipeline.app, ["validate"])
+    assert result.exit_code == 0, result.output
+    assert "Validation passed" in result.output
+    # Each type's 55 cases, plain and with distractors.
+    assert handed == {"bank_statement": 110, "invoice": 110, "receipt": 110}

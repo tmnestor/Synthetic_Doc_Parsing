@@ -23,7 +23,15 @@ from generators.typst.config import (
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 
 SHIPPED = REPO_ROOT / "config" / "typeset_config.yml"
-KEYS = ("typst_version", "font_dir", "creation_timestamp", "canvas_dpi", "raster_dpi", "template")
+KEYS = (
+    "typst_version",
+    "font_dir",
+    "creation_timestamp",
+    "canvas_dpi",
+    "raster_dpi",
+    "template",
+    "validate_workers",
+)
 
 Mutation = Callable[[dict[str, Any]], None]
 
@@ -62,6 +70,7 @@ def test_the_shipped_config_loads() -> None:
     assert config.canvas_dpi == 300
     assert config.raster_dpi == 300
     assert config.template == "generators/typst/template.typ"
+    assert config.validate_workers == 6
 
 
 def test_the_pinned_version_matches_the_environment_file() -> None:
@@ -132,6 +141,19 @@ def test_an_unknown_key_is_refused(tmp_path: Path) -> None:
 )
 def test_each_mistyped_key_is_refused(tmp_path: Path, key: str, value: object) -> None:
     refused(tmp_path, lambda data: data.__setitem__(key, value), key, repr(value))
+
+
+@pytest.mark.parametrize("workers", [0, -2, 1.5, "6", True, None])
+def test_validate_workers_that_is_not_a_positive_integer_is_refused(
+    tmp_path: Path, workers: object
+) -> None:
+    refused(
+        tmp_path,
+        lambda data: data.__setitem__("validate_workers", workers),
+        "validate_workers",
+        repr(workers),
+        "positive integer",
+    )
 
 
 @pytest.mark.parametrize("key", ["raster_dpi", "canvas_dpi"])

@@ -66,6 +66,7 @@ def test_build_overflow_error_is_four_element_diagnostic() -> None:
     assert "/tmp/elsewhere/" in str(build_overflow_error(violations, layout_dir="/tmp/elsewhere/"))
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_passes_on_current_ground_truth(monkeypatch: pytest.MonkeyPatch) -> None:
     """The shipped documents all fit losslessly; validate must exit 0."""
     monkeypatch.chdir(REPO_ROOT)

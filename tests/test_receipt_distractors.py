@@ -176,6 +176,7 @@ def test_every_item_on_every_case_fits_every_receipt_layout(every_item_forced: N
 
 
 @pytest.mark.slow
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_passes_with_every_item_forced(
     every_item_forced: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -21,12 +21,14 @@ def no_overflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pipeline, "check_overflow", lambda *args, **kwargs: [])
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_passes_on_the_shipped_corpus(at_root: None) -> None:
     result = CliRunner().invoke(app, ["validate"])
     assert result.exit_code == 0, result.output
     assert "Validation passed" in result.output
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_draws_every_entry_with_every_eligible_item(
     at_root: None, no_overflow: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -46,6 +48,7 @@ def test_validate_draws_every_entry_with_every_eligible_item(
     assert all(count > 0 for _, _, count in seen)
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_fails_when_a_rule_collides(
     at_root: None, no_overflow: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -61,6 +64,7 @@ def test_validate_fails_when_a_rule_collides(
     assert "CASE001" in result.output
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_checks_the_values_independently_of_the_redraw_screen(
     at_root: None, no_overflow: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

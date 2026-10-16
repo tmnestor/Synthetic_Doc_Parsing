@@ -872,6 +872,7 @@ def test_renderer_actually_consults_the_link_index(monkeypatch: pytest.MonkeyPat
 # --------------------------------------------------------------------------- validate
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_passes_on_the_shipped_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
     """`validate` accepts the shipped corpus, including every linked bank description."""
     monkeypatch.chdir(REPO_ROOT)
@@ -880,6 +881,7 @@ def test_validate_passes_on_the_shipped_corpus(monkeypatch: pytest.MonkeyPatch) 
     assert "Validation passed" in result.output
 
 
+@pytest.mark.usefixtures("stub_typeset_pass")
 def test_validate_reports_unmapped_bank_descriptions(monkeypatch: pytest.MonkeyPatch) -> None:
     """A link the mapping cannot resolve must fail validation, not render wrongly."""
     import generators.pipeline as pipeline

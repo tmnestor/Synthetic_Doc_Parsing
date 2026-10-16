@@ -24,3 +24,9 @@ raster_dpi: 300
 
 # The Typst template (relative to the repository root) every layout is typeset with.
 template: generators/typst/template.typ
+
+# How many processes `python -m generators.pipeline validate` typesets pages in at once in its typeset pass
+# (every case, plain and with distractors). Pages are independent, so this changes only how long the pass
+# takes, never its result or the order its failures are reported in. 6 suits a 10-core machine and leaves
+# headroom; 1 typesets serially.
+validate_workers: 6

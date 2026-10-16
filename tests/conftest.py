@@ -104,6 +104,19 @@ def assert_diagnostic_error(
 
 
 @pytest.fixture
+def stub_typeset_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave out `validate`'s typeset pass, for a stage-one test that runs the whole `validate`.
+
+    Ruling P12: such a test checks stage one's rules, and the typeset pass (330 compiles) would add minutes
+    to each. The pass keeps its own tests in tests/typst/test_validate.py, one of which runs the real
+    `validate` end to end with the pass included. Use this fixture only on a test that invokes `validate`.
+    """
+    import generators.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "typeset_errors", lambda *args, **kwargs: [])
+
+
+@pytest.fixture
 def drawn_keys(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     """Collect every DX_ key printed by a block whose drawing recorded distractor ink.
 
