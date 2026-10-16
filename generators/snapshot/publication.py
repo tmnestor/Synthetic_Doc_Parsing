@@ -8,15 +8,26 @@ A term matches case-insensitively and as a whole word: where the term begins or 
 digit, the neighbouring character must not be one, so `PROD` does not match `product`. A term that ends
 in punctuation (`config/`) is matched up to that punctuation.
 
-Images are not read; every other file is read as UTF-8 text, and one that is not refuses the export,
-since it can be neither scanned nor trusted to be what the manifest says.
+Images are not read. A PDF is read through pypdfium2 (Review Focus 5): its document information (title,
+author, subject, keywords, creator, producer), its XMP metadata packet and the text layer of every page,
+so a PDF can name neither the tool that made it nor the layout it was drawn from (the snapshot's PDFs
+keep their XMP uncompressed, `generators.typst.metadata`). Every other file is read as UTF-8 text. A file
+that cannot be read in one of these ways refuses the export, since it can be neither scanned nor trusted
+to be what the manifest says.
 """
 
 import re
 from pathlib import Path
 
+import pypdfium2
+
 # Image files carry pixels, not text, and are not scanned.
 IMAGE_SUFFIXES = (".png",)
+PDF_SUFFIX = ".pdf"
+# The document information fields read, as the hits name them (pypdfium2's keys, lowercased).
+PDF_FIELDS = ("Title", "Author", "Subject", "Keywords", "Creator", "Producer")
+# An XMP packet, which a PDF stores as a metadata stream and pypdfium2 does not read.
+_XMP_PACKET = re.compile(rb"<\?xpacket begin.*?<\?xpacket end[^>]*>", re.S)
 # The most hits named in a refusal; the total is always given.
 LISTED = 20
 
@@ -28,6 +39,34 @@ def _pattern(term: str) -> re.Pattern[str]:
     return re.compile(head + re.escape(term) + tail, re.IGNORECASE)
 
 
+def _pdf_texts(path: Path) -> list[tuple[str, str]] | None:
+    """A PDF's scanned texts as (where, text): each information field, each XMP packet, the text layer.
+
+    Returns:
+        The texts, or None when the file is not a PDF pypdfium2 can open.
+    """
+    data = path.read_bytes()
+    try:
+        document = pypdfium2.PdfDocument(data)
+    except pypdfium2.PdfiumError:
+        return None
+    try:
+        texts = [(f"metadata {field.lower()}", document.get_metadata_value(field)) for field in PDF_FIELDS]
+        texts += [
+            ("metadata xmp", packet.decode("utf-8", "replace")) for packet in _XMP_PACKET.findall(data)
+        ]
+        pages = []
+        for page in document:
+            textpage = page.get_textpage()
+            pages.append(textpage.get_text_range())
+            textpage.close()
+            page.close()
+        texts.append(("page text", "\n".join(pages)))
+    finally:
+        document.close()
+    return texts
+
+
 def find_forbidden(root: Path, terms: tuple[str, ...]) -> list[str]:
     """Find every forbidden term in the file names and texts under `root`.
 
@@ -36,8 +75,10 @@ def find_forbidden(root: Path, terms: tuple[str, ...]) -> list[str]:
         terms: The forbidden terms (empty finds nothing).
 
     Returns:
-        One line per hit, `<path>: name contains 'term'` or `<path>:<line>: contains 'term'`, sorted by
-        path then line; a file that is not UTF-8 text is reported as unreadable.
+        One line per hit, sorted by path then line: `<path>: name contains 'term'`,
+        `<path>:<line>: contains 'term'` in a text file, and in a PDF `<path>: metadata <field> contains
+        'term'` (a field of `PDF_FIELDS`, lowercased, or `xmp`) or `<path>: page text contains 'term'`.
+        A file that is not UTF-8 text, or a PDF that cannot be opened, is reported as unreadable.
     """
     patterns = [(term, _pattern(term)) for term in terms]
     if not patterns:
@@ -47,6 +88,18 @@ def find_forbidden(root: Path, terms: tuple[str, ...]) -> list[str]:
         relative = path.relative_to(root).as_posix()
         hits += [f"{relative}: name contains {term!r}" for term, pat in patterns if pat.search(relative)]
         if path.suffix.lower() in IMAGE_SUFFIXES:
+            continue
+        if path.suffix.lower() == PDF_SUFFIX:
+            texts = _pdf_texts(path)
+            if texts is None:
+                hits.append(f"{relative}: not a readable PDF, so it cannot be scanned")
+                continue
+            hits += [
+                f"{relative}: {where} contains {term!r}"
+                for where, text in texts
+                for term, pat in patterns
+                if pat.search(text)
+            ]
             continue
         try:
             text = path.read_text(encoding="utf-8")

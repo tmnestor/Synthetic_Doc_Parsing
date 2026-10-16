@@ -9,7 +9,7 @@ from pathlib import Path
 
 from generators.labels.keys import LABEL_STYLES
 from generators.parsing.config import PARSING_CONFIG_PATH, load_parsing_config
-from generators.snapshot.config import HALVES
+from generators.snapshot.config import HALVES, TYPESET_SETS
 from generators.snapshot.export import SHIPPED_NOTEBOOK, SnapshotSummary
 from generators.snapshot.manifest import (
     CHECKSUMS_NAME,
@@ -47,6 +47,8 @@ PUBLIC_KEYS = (
     "parsing",
     "snapshot_date",
     "snapshot_dir",
+    "typeset_raster_dpi",
+    "typeset_sets",
 )
 
 
@@ -103,12 +105,13 @@ def test_the_manifest_says_what_the_snapshot_holds_and_nothing_about_how_it_was_
 
 
 def test_the_parsing_files_are_hashed_and_described(export: SnapshotSummary) -> None:
-    """The four parsing files are in the files map and SHA256SUMS like every other file, and the
-    manifest names them, the evaluator they target and the tiers scored for layout."""
+    """The six parsing files (four halves, two typeset sets) are in the files map and SHA256SUMS like
+    every other file, and the manifest names them, the evaluator they target and the tiers scored for
+    layout."""
     manifest = _manifest(export)
     sums = (export.path / CHECKSUMS_NAME).read_text()
     parsing = load_parsing_config(PARSING_CONFIG_PATH)
-    expected = {half: f"parsing/{half}.json" for half in HALVES}
+    expected = {half: f"parsing/{half}.json" for half in (*HALVES, *TYPESET_SETS)}
     for path in expected.values():
         assert manifest["files"][path] == sha256_file(export.path / path), path
         assert f"{manifest['files'][path]}  {path}\n" in sums, path
@@ -130,7 +133,7 @@ def test_the_provenance_record_sits_beside_the_snapshot(export: SnapshotSummary)
     assert record["generator_commit"] == FAKE_STATE.commit and record["dirty"] is False
     assert record["snapshot_dir"] == export.path.name and record["previous_snapshot"] is None
     assert record["manifest_sha256"] == export.manifest_sha256
-    assert set(record["versions"]) == {"augraphy", "numpy", "opencv", "pillow", "python"}
+    assert set(record["versions"]) == {"augraphy", "numpy", "opencv", "pillow", "pypdfium2", "python"}
     assert sorted(p.name for p in export.provenance_dir.iterdir()) == [PROVENANCE_NAME]
 
 

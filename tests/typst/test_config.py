@@ -31,6 +31,7 @@ KEYS = (
     "raster_dpi",
     "template",
     "validate_workers",
+    "export_workers",
 )
 
 Mutation = Callable[[dict[str, Any]], None]
@@ -71,6 +72,7 @@ def test_the_shipped_config_loads() -> None:
     assert config.raster_dpi == 300
     assert config.template == "generators/typst/template.typ"
     assert config.validate_workers == 6
+    assert config.export_workers == 6
 
 
 def test_the_pinned_version_matches_the_environment_file() -> None:
@@ -143,14 +145,15 @@ def test_each_mistyped_key_is_refused(tmp_path: Path, key: str, value: object) -
     refused(tmp_path, lambda data: data.__setitem__(key, value), key, repr(value))
 
 
+@pytest.mark.parametrize("key", ["validate_workers", "export_workers"])
 @pytest.mark.parametrize("workers", [0, -2, 1.5, "6", True, None])
-def test_validate_workers_that_is_not_a_positive_integer_is_refused(
-    tmp_path: Path, workers: object
+def test_a_worker_count_that_is_not_a_positive_integer_is_refused(
+    tmp_path: Path, key: str, workers: object
 ) -> None:
     refused(
         tmp_path,
-        lambda data: data.__setitem__("validate_workers", workers),
-        "validate_workers",
+        lambda data: data.__setitem__(key, workers),
+        key,
         repr(workers),
         "positive integer",
     )

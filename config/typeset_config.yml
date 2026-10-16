@@ -30,3 +30,8 @@ template: generators/typst/template.typ
 # takes, never its result or the order its failures are reported in. 6 suits a 10-core machine and leaves
 # headroom; 1 typesets serially.
 validate_workers: 6
+
+# How many processes `python -m generators.pipeline eval-set` typesets the snapshot's two typeset sets in
+# (every case as a PDF and its PNG, plain and with distractors, each checked as validate checks it). As
+# above, it changes only how long the export takes, never a byte it writes; 1 typesets serially.
+export_workers: 6

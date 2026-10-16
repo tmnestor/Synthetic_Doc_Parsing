@@ -25,6 +25,7 @@ _KEYS = (
     "raster_dpi",
     "template",
     "validate_workers",
+    "export_workers",
 )
 _EXAMPLE = (
     'typst_version: "0.15.1"\n'
@@ -33,7 +34,8 @@ _EXAMPLE = (
     "canvas_dpi: 300\n"
     "raster_dpi: 300\n"
     "template: generators/typst/template.typ\n"
-    "validate_workers: 6"
+    "validate_workers: 6\n"
+    "export_workers: 6"
 )
 _TYPST_VERSION = re.compile(r"^typst (\d+\.\d+\.\d+)\b")
 
@@ -54,6 +56,7 @@ class TypesetConfig:
         raster_dpi: Resolution at which a PDF page is rasterised.
         template: The Typst template (relative to the repository root) every layout is typeset with.
         validate_workers: How many processes `validate`'s typeset pass typesets pages in at once.
+        export_workers: How many processes the snapshot export typesets its typeset sets' pages in at once.
     """
 
     typst_version: str
@@ -63,6 +66,7 @@ class TypesetConfig:
     raster_dpi: int
     template: str
     validate_workers: int
+    export_workers: int
 
 
 @dataclass(frozen=True)
@@ -143,15 +147,16 @@ def _check_types(data: dict, *, path: Path) -> None:
             expected="Unix seconds, e.g. creation_timestamp: 1767225600 (1 January 2026, 00.00 UTC).",
             recover=f"set 'creation_timestamp' in {path.name} to an integer number of seconds.",
         )
-    workers = data["validate_workers"]
-    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
-        raise _fail(
-            what=f"'validate_workers' is {workers!r}, not a positive integer.",
-            path=path,
-            key="validate_workers",
-            expected="a positive integer of worker processes, e.g. validate_workers: 6 (1 is serial).",
-            recover=f"set 'validate_workers' in {path.name} to a positive integer, at most the cores.",
-        )
+    for key in ("validate_workers", "export_workers"):
+        workers = data[key]
+        if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+            raise _fail(
+                what=f"'{key}' is {workers!r}, not a positive integer.",
+                path=path,
+                key=key,
+                expected=f"a positive integer of worker processes, e.g. {key}: 6 (1 is serial).",
+                recover=f"set '{key}' in {path.name} to a positive integer, at most the cores.",
+            )
     for key in ("canvas_dpi", "raster_dpi"):
         dpi = data[key]
         if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi <= 0:
@@ -241,6 +246,7 @@ def load_typeset_config(path: Path) -> TypesetConfig:
         raster_dpi=data["raster_dpi"],
         template=data["template"],
         validate_workers=data["validate_workers"],
+        export_workers=data["export_workers"],
     )
 
 

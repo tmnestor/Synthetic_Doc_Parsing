@@ -1,11 +1,11 @@
 """The snapshot's MANIFEST.json and SHA256SUMS, and the provenance record written beside it.
 
 The snapshot is published as is, to readers who never see the repository, so its manifest says what the
-snapshot holds and nothing about how it was produced: each half's directory and counts, the degradation
-tiers, the ground-truth and geometry names, the label-style and refusal counts from the sidecar, the
-parsing files with the evaluator commit they target and the tiers scored for layout, and the SHA-256 of
-every file except `MANIFEST.json` and `SHA256SUMS` themselves. Every path is POSIX and relative to the
-snapshot root. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads (Decision 10).
+snapshot holds and nothing about how it was produced: each half's and typeset set's directory and
+counts, the typeset PNGs' resolution, the degradation tiers, the ground-truth and geometry names, the
+label-style and refusal counts from the sidecar, the parsing files with the evaluator commit they target
+and the tiers scored for layout, and the SHA-256 of every file except `MANIFEST.json` and `SHA256SUMS`
+themselves. Every path is POSIX and relative to the snapshot root. `SHA256SUMS` repeats the `files` map in the form `shasum -a 256 -c` reads (Decision 10).
 
 What produced it is the provenance record, `PROVENANCE.json`, in a directory beside the snapshot that is
 never uploaded (Decision 9): the commit, the SHA-256 of every tracked file under `config/` and
@@ -16,6 +16,7 @@ with its status code and content hash, and `working_tree.patch` beside the recor
 """
 
 import hashlib
+import importlib.metadata
 import json
 import platform
 import statistics
@@ -114,7 +115,7 @@ def tracked_inputs(repo_root: Path, pathspecs: tuple[str, ...]) -> dict[str, str
 
 
 def _versions() -> dict[str, str]:
-    """The versions of Python and the libraries that shape the pixels."""
+    """The versions of Python and the libraries that shape the pixels (Typst's is pinned in config/)."""
     import augraphy
     import cv2
     import numpy
@@ -125,6 +126,7 @@ def _versions() -> dict[str, str]:
         "numpy": numpy.__version__,
         "opencv": cv2.__version__,
         "pillow": PIL.__version__,
+        "pypdfium2": importlib.metadata.version("pypdfium2"),
         "python": platform.python_version(),
     }
 
@@ -215,6 +217,8 @@ def describe_snapshot(summary: SnapshotSummary) -> dict:
         },
         "snapshot_date": _snapshot_date(summary),
         "snapshot_dir": summary.path.name,
+        "typeset_raster_dpi": summary.typeset_raster_dpi,
+        "typeset_sets": {name: directory.name for name, directory in summary.typeset_dirs.items()},
     }
     return dict(sorted(description.items()))
 

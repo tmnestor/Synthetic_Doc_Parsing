@@ -22,6 +22,11 @@ _ROOT_KEY = "eval_set"
 # export (each names one render); the values, the directory names, are the operator's.
 HALVES = ("plain", "distractor", "labelled_varied", "degraded")
 
+# The two typeset sets (Decision 1): every case typeset as a native PDF beside the PNG rasterised from it,
+# plain and with distractors. They are not halves: nothing keyed on HALVES changes for them. The keys are
+# a contract with the export; the values, the directory names, are the operator's.
+TYPESET_SETS = ("typeset_plain", "typeset_distractor")
+
 # Keys an earlier export read, mapped to what replaced them. A stale config naming one is refused, so
 # it cannot look meaningful.
 SUPERSEDED_KEYS = {
@@ -57,6 +62,8 @@ class SnapshotConfig:
         provenance_suffix: The suffix of the provenance directory written beside the snapshot,
             `<snapshot dir>.<provenance_suffix>`.
         forbidden_terms: Terms no published file name or text may contain (empty disables the scan).
+        typeset_prefixes: Typeset set (one of `TYPESET_SETS`) -> its directory name before the date stamp.
+        pdf_producer: The Producer every published PDF carries; an empty string leaves it blank.
     """
 
     config_path: Path
@@ -70,6 +77,8 @@ class SnapshotConfig:
     jsonl_name: str
     provenance_suffix: str
     forbidden_terms: tuple[str, ...]
+    typeset_prefixes: dict[str, str]
+    pdf_producer: str
 
 
 def _err(what: str, *, config_path: Path, key: str, expected: str, recover: str) -> ValueError:
@@ -163,6 +172,68 @@ def _half_prefixes(value: object, *, config_path: Path) -> dict[str, str]:
     return {half: str(value[half]) for half in HALVES}
 
 
+def _typeset_prefixes(block: dict, halves: dict[str, str], *, config_path: Path) -> dict[str, str]:
+    """Check `typeset_prefixes`: exactly the two sets, each a single directory name no other set uses."""
+    example = "typeset_prefixes: {" + ", ".join(f"{name}: {name}" for name in TYPESET_SETS) + "}"
+    value = block.get("typeset_prefixes")
+    if not isinstance(value, dict) or sorted(value) != sorted(TYPESET_SETS):
+        keys = sorted(value) if isinstance(value, dict) else value
+        raise _err(
+            f"eval_set.typeset_prefixes must map exactly the typeset sets {list(TYPESET_SETS)}, "
+            f"got {keys!r}.",
+            config_path=config_path,
+            key="typeset_prefixes",
+            expected=example,
+            recover="list each of the two typeset sets once under eval_set.typeset_prefixes.",
+        )
+    for name in TYPESET_SETS:
+        if not _is_single_name(value[name]):
+            raise _err(
+                f"eval_set.typeset_prefixes.{name} must be a single directory name, got {value[name]!r}.",
+                config_path=config_path,
+                key=f"typeset_prefixes.{name}",
+                expected=example,
+                recover=f"set typeset_prefixes.{name} to a name with no '/', e.g. {name}.",
+            )
+    names = [*halves.values(), *value.values()]
+    if len(set(names)) != len(names):
+        raise _err(
+            f"eval_set.typeset_prefixes {dict(value)!r} repeats a directory name, its own or one of "
+            f"half_prefixes {halves!r}; two sets would share one directory.",
+            config_path=config_path,
+            key="typeset_prefixes",
+            expected=example,
+            recover="give each typeset set a directory name no half or other set uses.",
+        )
+    return {name: str(value[name]) for name in TYPESET_SETS}
+
+
+def _pdf_producer(block: dict, *, config_path: Path) -> str:
+    """Check `pdf_producer`: present, and printable ASCII on one line (an explicit "" means blank)."""
+    expected = (
+        'pdf_producer: "" (an empty string leaves every PDF\'s Producer blank), or one line of '
+        "printable ASCII to name instead"
+    )
+    if "pdf_producer" not in block:
+        raise _err(
+            "eval_set.pdf_producer is missing; the export sets every typeset PDF's Producer field to it.",
+            config_path=config_path,
+            key="pdf_producer",
+            expected=expected,
+            recover='add pdf_producer: "" under eval_set.',
+        )
+    value = block["pdf_producer"]
+    if not isinstance(value, str) or not all(" " <= char <= "~" for char in value):
+        raise _err(
+            f"eval_set.pdf_producer must be a string of printable ASCII on one line, got {value!r}.",
+            config_path=config_path,
+            key="pdf_producer",
+            expected=expected,
+            recover='set eval_set.pdf_producer to "", or to a quoted line of printable ASCII.',
+        )
+    return value
+
+
 def _forbidden_terms(block: dict, *, config_path: Path) -> tuple[str, ...]:
     """Check `forbidden_terms`: present, and a list of non-empty strings (an explicit [] disables it)."""
     if "forbidden_terms" not in block:
@@ -245,4 +316,6 @@ def load_snapshot_config(config_path: Path) -> SnapshotConfig:
         jsonl_name=str(cfg["jsonl_name"]),
         provenance_suffix=str(cfg["provenance_suffix"]),
         forbidden_terms=_forbidden_terms(cfg, config_path=config_path),
+        typeset_prefixes=_typeset_prefixes(cfg, halves, config_path=config_path),
+        pdf_producer=_pdf_producer(cfg, config_path=config_path),
     )

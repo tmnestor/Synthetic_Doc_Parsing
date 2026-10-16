@@ -13,7 +13,7 @@ class ParsingSummary:
 
     Attributes:
         directory: The parsing directory's name inside the snapshot.
-        pages: Half -> its parsing file, relative to the snapshot root.
+        pages: Half or typeset set -> its parsing file, relative to the snapshot root.
         evaluator_repository: The evaluator's repository, as a web address.
         evaluator_commit: The evaluator commit the pages target.
         layout_scored_tiers: The degradation tiers whose pages count for layout detection.
@@ -38,10 +38,12 @@ class SnapshotSummary:
         repo_state: The repository state it was rendered from (clean or modified, and unchanged at
             publish).
         half_dirs: Half -> its directory inside the snapshot.
-        counts: Half -> extraction document type -> number of images (the degraded half names
-            receipts only).
+        typeset_dirs: Typeset set -> its directory inside the snapshot, holding a PDF and a PNG per case.
+        counts: Half or typeset set -> extraction document type -> number of images (the degraded half
+            names receipts only; a typeset set has one PDF beside each image).
         sidecar_rows: The labelled varied half's sidecar rows, sorted by image_file.
         density: Clean half -> image_file -> the render's density report (plain renders measured only).
+        typeset_raster_dpi: The resolution each typeset set's PNG is its PDF rasterised at.
         tiers: The degradation tiers, as (name, filename suffix), in declared order.
         geometry_dir: The name of the snapshot's geometry directory.
         csv_name: The ground-truth CSV file name in each half.
@@ -55,9 +57,11 @@ class SnapshotSummary:
     stamp: str
     repo_state: RepoState
     half_dirs: dict[str, Path]
+    typeset_dirs: dict[str, Path]
     counts: dict[str, dict[str, int]]
     sidecar_rows: tuple[dict, ...]
     density: dict[str, dict[str, DensityReport]]
+    typeset_raster_dpi: int
     tiers: tuple[tuple[str, str], ...]
     geometry_dir: str
     csv_name: str

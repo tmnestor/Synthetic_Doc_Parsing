@@ -94,7 +94,8 @@ derived_formats:
 # ABN, GST and total labels varied, plus label_styles.jsonl) and degraded (each distractor receipt at
 # every receipt_degradation tier). The three clean halves share generic {case}_{document_type}.png names
 # and byte-identical ground truth; <geometry_dir>/ holds their scored-field boxes and <parsing_dir>/
-# every half's OmniDocBench parsing ground truth. output_root is
+# every half's and typeset set's OmniDocBench parsing ground truth. Beside the halves, two typeset sets
+# (typeset_prefixes, below) hold every case as a native PDF with its PNG. output_root is
 # resolved against the repository root, must lie outside it and must already exist. A snapshot of the
 # same name is replaced. Every key is required; the export fails fast on any omission.
 eval_set:
@@ -105,6 +106,16 @@ eval_set:
     distractor: distractor
     labelled_varied: labelled_varied
     degraded: degraded
+  # The two typeset sets beside the halves (generators/snapshot/config.py:TYPESET_SETS): every case
+  # typeset as a native PDF with the PNG rasterised from it, plain and with distractors, in
+  # <typeset prefix>_<date>/ with the plain half's answer key. Each name must differ from every half's.
+  typeset_prefixes:
+    typeset_plain: typeset_plain
+    typeset_distractor: typeset_distractor
+  # The Producer field every typeset PDF carries, set after compiling; every other document-information
+  # field that names the typesetting tool (the Creator and the XMP creator tool) is blanked. An empty
+  # string means blank: the project owner's choice, so no PDF says how it was made.
+  pdf_producer: ""
   geometry_dir: geometry
   # The snapshot's parsing ground truth: <parsing_dir>/<half prefix>.json, one OmniDocBench page per
   # image of that half (config/parsing_config.yml names the evaluator and the tiers scored for layout).
@@ -140,6 +151,10 @@ eval_set:
     - config/
     - augraphy
     - InkBleed
+    # The typesetting tool and the PDF library: a PDF's document information and text layer are
+    # scanned as well as every text file.
+    - Typst
+    - pypdfium2
     # Version control and the provenance record's own keys.
     - git
     - generator_commit

@@ -21,7 +21,7 @@ import yaml
 
 from generators.exporters.eval_projection import ExtractionSchema
 from generators.labels.keys import LABEL_STYLES
-from generators.snapshot.config import HALVES
+from generators.snapshot.config import HALVES, TYPESET_SETS
 from generators.snapshot.manifest import PROVENANCE_NAME
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "readme_template.md"
@@ -252,6 +252,8 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
     """
     descriptions = load_field_descriptions(schema)
     halves = manifest["halves"]
+    typeset_sets = manifest["typeset_sets"]
+    directories = {**halves, **typeset_sets}
     counts = manifest["counts"]
     types_of = {
         field: [t for t, fields in schema.document_fields.items() if field in fields]
@@ -260,11 +262,11 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
     field_rows = [[f"`{field}`", ", ".join(types_of[field]), text] for field, text in descriptions.items()]
     count_rows = [
         [
-            f"`{halves[half]}/`",
+            f"`{directories[half]}/`",
             str(counts[half]["total"]),
             ", ".join(f"{n} {t}" for t, n in counts[half]["by_document_type"].items()),
         ]
-        for half in HALVES
+        for half in (*HALVES, *TYPESET_SETS)
     ]
     style_rows = [
         [doc_type, f"`{field}`", *(str(styles.get(style, 0)) for style in LABEL_STYLES)]
@@ -278,7 +280,7 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
         parsing["layout_scored_tiers"],
         parsing["fold_displacement_max_px"],
     )
-    parsing_files = [f"`{parsing['pages'][half]}`" for half in HALVES]
+    parsing_files = [f"`{parsing['pages'][half]}`" for half in (*HALVES, *TYPESET_SETS)]
     values = {
         "snapshot_dir": manifest["snapshot_dir"],
         "snapshot_date": manifest["snapshot_date"],
@@ -286,10 +288,14 @@ def render_readme(manifest: dict, *, schema: ExtractionSchema) -> str:
         "distractor_dir": halves["distractor"],
         "labelled_varied_dir": halves["labelled_varied"],
         "degraded_dir": halves["degraded"],
+        "typeset_plain_dir": typeset_sets["typeset_plain"],
+        "typeset_distractor_dir": typeset_sets["typeset_distractor"],
+        "pdf_total": str(sum(counts[name]["total"] for name in typeset_sets)),
+        "raster_dpi": str(manifest["typeset_raster_dpi"]),
         "geometry_dir": manifest["geometry_dir"],
         "csv_name": manifest["ground_truth_files"][0],
         "jsonl_name": manifest["ground_truth_files"][1],
-        "image_total": str(sum(counts[half]["total"] for half in halves)),
+        "image_total": str(sum(counts[half]["total"] for half in directories)),
         "clean_total": str(counts["plain"]["total"]),
         "count_table": _table(["Directory", "Images", "By document type"], count_rows),
         "tier_list": ", ".join(f"`_{t['suffix']}` ({t['name']})" for t in tiers),

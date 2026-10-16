@@ -637,12 +637,15 @@ def _print_label_summary(dtype: str, canonical: str, rows: list[dict], fields: t
 def eval_set(
     config: Path = typer.Option(_DEFAULT_CONFIG, help="Path to generation_config.yml"),
 ) -> None:
-    """Export the deliverable: one dated snapshot of four paired halves, with its tree recorded.
+    """Export the deliverable: one dated snapshot of four paired halves and two typeset sets.
 
     Writes `<eval_set.output_root>/<snapshot_dir_prefix>_<date>/`, holding the plain, distractor and
     labelled varied halves (every case of every type under the same generic filenames, with
     byte-identical ground truth), the degraded half (each distractor receipt at every tier, named
-    `CASE001_receipt_v1.png` and up, with its own ground truth), the labelled varied half's
+    `CASE001_receipt_v1.png` and up, with its own ground truth), the two typeset sets (every case
+    typeset plain and with distractors as a native PDF beside the PNG rasterised from it, in
+    `config/typeset_config.yml`'s `export_workers` processes, each page checked as `validate` checks
+    it, every PDF's Producer `eval_set.pdf_producer`), the labelled varied half's
     label_styles.jsonl, the scored-field geometry of the three clean halves, every half's OmniDocBench
     parsing ground truth, the tools, a README generated from the manifest, MANIFEST.json and SHA256SUMS.
     The snapshot says nothing about how it was produced and is refused if it names a term under
@@ -654,7 +657,7 @@ def eval_set(
     from generators.degradation.tiers import TierConfigError
     from generators.drawn_fields import DrawnFieldsError
     from generators.parsing.config import ParsingConfigError
-    from generators.snapshot.config import HALVES
+    from generators.snapshot.config import HALVES, TYPESET_SETS
     from generators.snapshot.export import SnapshotError, export_snapshot
     from generators.snapshot.repo_state import RepoStateError
 
@@ -666,6 +669,7 @@ def eval_set(
         TierConfigError,
         DrawnFieldsError,
         ParsingConfigError,
+        TypesetConfigError,
     )
     try:
         summary = export_snapshot(config)
@@ -679,6 +683,12 @@ def eval_set(
             f"{count} {doc_type}" for doc_type, count in sorted(summary.counts[half].items())
         )
         typer.echo(f"{half}: {summary.total(half)} images ({per_type}) in {summary.half_dirs[half].name}")
+    for name in TYPESET_SETS:
+        per_type = ", ".join(
+            f"{count} {doc_type}" for doc_type, count in sorted(summary.counts[name].items())
+        )
+        directory = summary.typeset_dirs[name].name
+        typer.echo(f"{name}: {summary.total(name)} PDFs and images ({per_type}) in {directory}")
     typer.echo(f"Snapshot: {summary.path}")
     state = summary.repo_state
     if state.dirty:

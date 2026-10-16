@@ -15,6 +15,9 @@ collecting each failure rather than stopping at the first:
 Stage one's page for each case and mode is the very render its own pass made, kept by a `StageOnePages`
 measure handed to `check_overflow`, so no page is drawn twice. A case stage one cannot render (its own
 pass reports why) is not typeset.
+
+The snapshot export runs the same pass (`typeset_pages`) over the pages it publishes, each job naming
+where its PDF and PNG are written (`Publication`), so every published page passed every check above.
 """
 
 import multiprocessing
@@ -34,6 +37,7 @@ from generators.typst.checks import overlay_errors
 from generators.typst.compare import stage_one_differences
 from generators.typst.compile import TypstError
 from generators.typst.config import TypesetConfig
+from generators.typst.metadata import PdfMetadataError, publish_metadata
 from generators.typst.readback import ReadbackError, layout_errors
 from generators.typst.translate import TranslateError
 from generators.typst.typeset import typeset_case
@@ -87,7 +91,22 @@ def _differences(differences: list[str], *, where: str, layout_path: Path, layou
 
 
 @dataclass(frozen=True)
-class _Job:
+class Publication:
+    """Where a checked page's PDF and PNG are written, and the Producer its PDF carries.
+
+    Attributes:
+        pdf_path: The PDF's destination; its metadata is rewritten first (`publish_metadata`).
+        png_path: The PNG's destination: the PDF rasterised at `TypesetConfig.raster_dpi`.
+        producer: `eval_set.pdf_producer`.
+    """
+
+    pdf_path: Path
+    png_path: Path
+    producer: str
+
+
+@dataclass(frozen=True)
+class TypesetJob:
     """One page of the pass: a case in one mode, with stage one's render of it.
 
     Attributes:
@@ -95,46 +114,66 @@ class _Job:
         entry: Its entry, carrying `case_id`.
         layout_id: Its layout.
         layout: The resolved layout.
+        layout_path: The layout YAML holding it.
+        doc_type: The extraction-schema document type (`invoice`), as the density bounds and the overlay
+            protection policy key it.
         distractors: Whether the page draws distractors.
         stage_one: Stage one's render of the same case and mode.
+        context: The OmniDocBench page's context: its image path, layout key and set.
+        publication: Where the page's files are written, or None to check it only (as `validate` does).
     """
 
     case_id: str
     entry: dict
     layout_id: str
     layout: dict
+    layout_path: Path
+    doc_type: str
     distractors: bool
     stage_one: dict
+    context: PageContext
+    publication: Publication | None = None
 
 
 @dataclass(frozen=True)
-class _Shared:
-    """What every page of one document type's pass is checked with."""
+class TypesetChecks:
+    """What every page of the pass is checked with."""
 
-    doc_type: str
-    layout_path: Path
     parsing: ParsingConfig
     distractor_config: DistractorConfig
     config: TypesetConfig
+
+
+@dataclass(frozen=True)
+class CheckedPage:
+    """One page of the pass, typeset and checked.
+
+    Attributes:
+        page: The OmniDocBench page built from the typeset geometry, or None when the page could not be
+            typeset or built.
+        errors: The page's failures, four-part.
+        density: Its density refusals, four-part.
+    """
+
+    page: dict | None
+    errors: list[str]
+    density: list[str]
 
 
 def _mode(distractors: bool) -> str:
     return "distractor" if distractors else "plain"
 
 
-def _check(job: _Job, shared: _Shared) -> tuple[list[str], list[str]]:
-    """Typeset one page and run every check on it.
-
-    Returns:
-        (the page's failures, its density refusals), each four-part.
-    """
+def _check(job: TypesetJob, checks: TypesetChecks) -> CheckedPage:
+    """Typeset one page, run every check on it, and write its files when it is published."""
     mode = _mode(job.distractors)
     density = DensityCheck(
-        shared.distractor_config.density[shared.doc_type],
-        doc_type=shared.doc_type,
+        checks.distractor_config.density[job.doc_type],
+        doc_type=job.doc_type,
         config_path=DISTRACTORS_PATH,
         render=TYPESET_DISTRACTOR_RENDER,
     )
+    where = page_where(job.case_id, job.layout_id, f"typeset {mode}")
     errors: list[str] = []
     with tempfile.TemporaryDirectory(prefix="typeset_validate_") as scratch:
         workdir = Path(scratch) / f"{job.case_id}_{mode}"
@@ -143,31 +182,25 @@ def _check(job: _Job, shared: _Shared) -> tuple[list[str], list[str]]:
                 job.entry,
                 job.layout,
                 layout_id=job.layout_id,
-                layout_path=shared.layout_path,
-                doc_type=shared.doc_type,
+                layout_path=job.layout_path,
+                doc_type=job.doc_type,
                 distractors=job.distractors,
-                config=shared.config,
+                config=checks.config,
                 workdir=workdir,
             )
         except (TranslateError, TypstError, ReadbackError, OverlayError) as err:
-            return [str(err)], []
+            return CheckedPage(None, [str(err)], [])
         geometry = result.geometry
-        where = page_where(job.case_id, job.layout_id, f"typeset {mode}")
-        context = PageContext(
-            f"{job.case_id}.png", shared.doc_type, job.layout_id, f"typeset_{mode}", "none", True
-        )
         try:
-            page = build_page(geometry, context=context, config=shared.parsing)
+            page = build_page(geometry, context=job.context, config=checks.parsing)
         except ValueError as err:
-            return [str(err)], []
-        errors.extend(check_page(page, geometry, where=where, config=shared.parsing))
+            return CheckedPage(None, [str(err)], [])
+        errors.extend(check_page(page, geometry, where=where, config=checks.parsing))
         errors.extend(layout_errors(geometry, where=where))
-        differences = stage_one_differences(page, job.stage_one, context=context)
+        differences = stage_one_differences(page, job.stage_one, context=job.context)
         if differences:
             errors.append(
-                _differences(
-                    differences, where=where, layout_path=shared.layout_path, layout_id=job.layout_id
-                )
+                _differences(differences, where=where, layout_path=job.layout_path, layout_id=job.layout_id)
             )
         if job.distractors:
             density(job.case_id, job.layout_id, geometry)
@@ -176,22 +209,29 @@ def _check(job: _Job, shared: _Shared) -> tuple[list[str], list[str]]:
                     result,
                     case_id=job.case_id,
                     layout_id=job.layout_id,
-                    layout_path=shared.layout_path,
-                    doc_type=shared.doc_type,
-                    config=shared.config,
+                    layout_path=job.layout_path,
+                    doc_type=job.doc_type,
+                    config=checks.config,
                     workdir=workdir / "bare",
                 )
             )
-    return errors, density.errors
+    if job.publication is not None:
+        try:
+            pdf = publish_metadata(result.pdf, producer=job.publication.producer, where=where)
+        except PdfMetadataError as err:
+            return CheckedPage(page, [*errors, str(err)], density.errors)
+        job.publication.pdf_path.write_bytes(pdf)
+        result.image.save(job.publication.png_path)
+    return CheckedPage(page, errors, density.errors)
 
 
-def _crashed(job: _Job, shared: _Shared, err: BaseException) -> str:
+def _crashed(job: TypesetJob, err: BaseException) -> str:
     """Word a page whose check raised (or whose worker died) as a four-part failure naming the case."""
     where = page_where(job.case_id, job.layout_id, f"typeset {_mode(job.distractors)}")
     return (
         "A typeset page could not be checked.\n"
         f"  What:     {where}: checking the page raised {type(err).__name__}: {err}\n"
-        f"  Where:    {shared.layout_path.resolve()} -> {job.layout_id}; the case's entry in its ground "
+        f"  Where:    {job.layout_path.resolve()} -> {job.layout_id}; the case's entry in its ground "
         "truth; generators/typst/validate.py (the typeset pass)\n"
         "  Expected: every page typesets and is checked, each failure reported four-part, e.g. a page that "
         "differs from stage one named with its blocks.\n"
@@ -200,12 +240,45 @@ def _crashed(job: _Job, shared: _Shared, err: BaseException) -> str:
     )
 
 
-def _guarded(job: _Job, shared: _Shared) -> tuple[list[str], list[str]]:
+def _guarded(job: TypesetJob, checks: TypesetChecks) -> CheckedPage:
     """`_check`, with any exception it raises turned into one four-part failure naming the case."""
     try:
-        return _check(job, shared)
+        return _check(job, checks)
     except Exception as err:  # noqa: BLE001  every page must be reported, never lost
-        return [_crashed(job, shared, err)], []
+        return CheckedPage(None, [_crashed(job, err)], [])
+
+
+def typeset_pages(jobs: list[TypesetJob], checks: TypesetChecks, *, workers: int) -> list[CheckedPage]:
+    """Typeset and check every job's page, writing the files of each job that names a publication.
+
+    Pages are independent, so they are typeset in `workers` processes at once (one runs them in this
+    process). The result does not depend on the count: one `CheckedPage` per job, in job order. A page
+    whose check raises, or whose worker process dies, is reported as a four-part failure naming its case;
+    no page is lost and the pass never waits on a dead worker. Workers are spawned, on every platform
+    alike, so a script that calls the pass must guard its own entry point (`if __name__ == "__main__"`),
+    as `python -m generators.pipeline` does.
+
+    Args:
+        jobs: The pages, each with stage one's render of it and its page context.
+        checks: The configurations every page is checked with.
+        workers: How many processes to typeset in (`validate_workers` or `export_workers`).
+
+    Returns:
+        Each job's checked page, in job order.
+    """
+    if workers == 1 or len(jobs) <= 1:
+        return [_guarded(job, checks) for job in jobs]
+    results = []
+    with ProcessPoolExecutor(
+        max_workers=min(workers, len(jobs)), mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        futures = [pool.submit(_guarded, job, checks) for job in jobs]
+        for job, future in zip(jobs, futures, strict=True):
+            try:
+                results.append(future.result())
+            except Exception as err:  # noqa: BLE001  a dead worker loses no page
+                results.append(CheckedPage(None, [_crashed(job, err)], []))
+    return results
 
 
 def typeset_errors(
@@ -221,13 +294,9 @@ def typeset_errors(
 ) -> list[str]:
     """Typeset every case of one document type in each mode stage one rendered it, and check each page.
 
-    Pages are independent, so they are typeset in `config.validate_workers` processes at once (one runs
-    them in this process). The result does not depend on the count: each page's failures are reported in
-    case order and, within a case, plain before distractor, then every density refusal in the same order.
-    A page whose check raises, or whose worker process dies, is reported as a four-part failure naming
-    its case; no page is lost and the pass never waits on a dead worker. Workers are spawned, on every
-    platform alike, so a script that calls the pass must guard its own entry point (`if __name__ ==
-    "__main__"`), as `python -m generators.pipeline` does.
+    The pages are typeset in `config.validate_workers` processes (`typeset_pages`), and nothing is
+    written. Each page's failures are reported in case order and, within a case, plain before distractor,
+    then every density refusal in the same order.
 
     Args:
         gt_data: Case id -> ground-truth entry.
@@ -244,8 +313,7 @@ def typeset_errors(
     Returns:
         Every failure, four-part.
     """
-    shared = _Shared(doc_type, layout_path, parsing, distractor_config, config)
-    jobs: list[_Job] = []
+    jobs: list[TypesetJob] = []
     for case_id, raw in gt_data.items():
         layout_id = str(raw.get("layout", ""))
         layout = layouts.get(layout_id)
@@ -255,22 +323,25 @@ def typeset_errors(
             page_one = stage_one.get((str(case_id), distractors))
             if page_one is None:
                 continue  # stage one's own pass reports a page it cannot render
+            context = PageContext(
+                f"{case_id}.png", doc_type, layout_id, f"typeset_{_mode(distractors)}", "none", True
+            )
             entry = {**raw, "case_id": str(case_id)}
-            jobs.append(_Job(str(case_id), entry, layout_id, layout, distractors, page_one))
-    if config.validate_workers == 1 or len(jobs) <= 1:
-        results = [_guarded(job, shared) for job in jobs]
-    else:
-        results = []
-        with ProcessPoolExecutor(
-            max_workers=min(config.validate_workers, len(jobs)),
-            mp_context=multiprocessing.get_context("spawn"),
-        ) as pool:
-            futures = [pool.submit(_guarded, job, shared) for job in jobs]
-            for job, future in zip(jobs, futures, strict=True):
-                try:
-                    results.append(future.result())
-                except Exception as err:  # noqa: BLE001  a dead worker loses no page
-                    results.append(([_crashed(job, shared, err)], []))
-    return [error for errors, _ in results for error in errors] + [
-        error for _, refusals in results for error in refusals
+            jobs.append(
+                TypesetJob(
+                    str(case_id),
+                    entry,
+                    layout_id,
+                    layout,
+                    layout_path,
+                    doc_type,
+                    distractors,
+                    page_one,
+                    context,
+                )
+            )
+    checks = TypesetChecks(parsing, distractor_config, config)
+    results = typeset_pages(jobs, checks, workers=config.validate_workers)
+    return [error for result in results for error in result.errors] + [
+        error for result in results for error in result.density
     ]

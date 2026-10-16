@@ -10,7 +10,11 @@ fails (exit 1) on:
 - a file present that the manifest does not list (a `.DS_Store` is tolerated and reported as a note);
 - a manifest path that is absolute or climbs out of the snapshot with `..`;
 - a `SHA256SUMS` that disagrees with the manifest's `files` map;
-- a half whose image count disagrees with the images present.
+- a half whose image count disagrees with the images present;
+- a typeset set whose image or PDF count disagrees with the manifest, or an image without its PDF (or a
+  PDF without its image) of the same name.
+
+Every file is checked by its SHA-256, the PDFs included.
 
 It never regenerates anything: the snapshot is checked against the manifest it shipped with. The manifest
 cannot vouch for itself; compare its own SHA-256 with the one recorded beside the upload.
@@ -86,6 +90,7 @@ def inspect(snapshot_root: Path) -> tuple[list[str], list[str]]:
         files = dict(manifest["files"])
         counts = dict(manifest["counts"])
         halves = dict(manifest["halves"])
+        typeset_sets = dict(manifest["typeset_sets"])
     except (ValueError, KeyError, TypeError) as err:
         return [f"unreadable manifest: {MANIFEST_NAME} ({err})"], []
 
@@ -121,6 +126,17 @@ def inspect(snapshot_root: Path) -> tuple[list[str], list[str]]:
             problems.append(
                 f"count mismatch: {directory}/ holds {found} images, the manifest says {expected}"
             )
+    for name, directory in sorted(typeset_sets.items()):
+        expected = counts.get(name, {}).get("total") if isinstance(counts.get(name), dict) else None
+        images = {p.stem for p in (root / str(directory)).glob("*.png")}
+        pdfs = {p.stem for p in (root / str(directory)).glob("*.pdf")}
+        if not len(images) == len(pdfs) == expected:
+            problems.append(
+                f"count mismatch: {directory}/ holds {len(images)} images and {len(pdfs)} PDFs, "
+                f"the manifest says {expected} of each"
+            )
+        problems += _named("unpaired image", [f"{directory}/{stem}.png" for stem in images - pdfs])
+        problems += _named("unpaired PDF", [f"{directory}/{stem}.pdf" for stem in pdfs - images])
     return problems, notes
 
 

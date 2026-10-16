@@ -1,4 +1,4 @@
-"""Export a dated snapshot of four paired halves, rendered in one run from a recorded tree.
+"""Export a dated snapshot of four paired halves and two typeset sets, made in one run from a recorded tree.
 
 `export_snapshot` writes one directory, `<eval_set.output_root>/<snapshot_dir_prefix>_<YYYYMMDD>/`::
 
@@ -7,14 +7,21 @@
     labelled_varied_<YYYYMMDD>/  the distractor pages with their ABN, GST and total labels varied,
                                  plus label_styles.jsonl (one row per image, sorted by image_file)
     degraded_<YYYYMMDD>/         each distractor receipt photographed at every declared tier
+    typeset_plain_<YYYYMMDD>/    every case typeset plain as a native PDF beside the PNG rasterised from
+                                 it (CASE001_invoice.pdf, CASE001_invoice.png), with the plain answer key
+    typeset_distractor_<YYYYMMDD>/  the same, typeset with distractors and overlays
     geometry/                    plain.jsonl, distractor.jsonl, labelled_varied.jsonl: scored boxes
-    parsing/                     plain.json, distractor.json, labelled_varied.json, degraded.json:
-                                 one OmniDocBench page per image of each half, sorted by image_path
+    parsing/                     plain.json, distractor.json, labelled_varied.json, degraded.json,
+                                 typeset_plain.json, typeset_distractor.json: one OmniDocBench page per
+                                 image of each half and set, sorted by image_path
     tools/                       verify_snapshot.py, check_extractions_match_gt.py, score_extractions.ipynb
     README.md                    generated from the manifest (generators/snapshot/readme.py)
     MANIFEST.json, SHA256SUMS    what the snapshot holds and every file's SHA-256 (snapshot/manifest.py)
 
-(directory names from `eval_set.half_prefixes`, `eval_set.geometry_dir` and `eval_set.parsing_dir`).
+(directory names from `eval_set.half_prefixes`, `eval_set.typeset_prefixes`, `eval_set.geometry_dir` and
+`eval_set.parsing_dir`). The typeset sets are not halves (Decision 1 of the stage-two plan): every PDF's
+Producer is `eval_set.pdf_producer`, and every document-information field naming the tool is blanked
+(`generators.typst.metadata`).
 The three clean halves share filenames and byte-identical ground truth, so pairing them is a direct
 join; degraded filenames carry their tier suffix and their own receipt-only ground truth. A parsing
 page's `image_path` is its image's path relative to the snapshot root, so the parsing files hold
@@ -44,11 +51,16 @@ The order is fixed, and each step refuses before the next begins:
    varied render; overlay and unambiguity refusals are raised inside the renderers. Plain renders are
    measured, never bounded. Every render's OmniDocBench page is built from that render's own records
    (`build_page`; a degraded page carries its polygons through the camera warp, `degraded_page`) and
-   checked (`check_page`). Every failure is collected, and any refuses the export as one.
+   checked (`check_page`). Then every rendered case is typeset into each typeset set, in
+   `config/typeset_config.yml`'s `export_workers` processes, each page checked as `validate`'s typeset
+   pass checks it, against the stage-one render of the same case and mode
+   (`generators.typst.validate.typeset_pages`). Every failure is collected, and any refuses the export
+   as one.
 5. Ground truth, sidecar, geometry, parsing pages and tools are written; then the README, from the
    manifest without its `files`; then every file is hashed and MANIFEST.json and SHA256SUMS written last.
-6. Every file name and non-image file in the staging directory is scanned for `eval_set.forbidden_terms`;
-   one hit refuses the export. The provenance record (and the patch, when the tree was modified) is
+6. Every file name and non-image file in the staging directory (a PDF's document information, XMP and
+   text layer included) is scanned for `eval_set.forbidden_terms`, then for every layout id; one hit
+   refuses the export. The provenance record (and the patch, when the tree was modified) is
    written into its own staging directory beside the snapshot's.
 7. The repository state is read again. Any difference from the first read (a moved HEAD, a path changed,
    reverted or edited again) means the tree changed during the export, so the snapshot would mix two
@@ -103,7 +115,7 @@ from generators.parsing.config import PARSING_CONFIG_PATH, ParsingConfig, load_p
 from generators.parsing.degraded import degraded_page
 from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.schema import field_names_for, validate_entry
-from generators.snapshot.config import HALVES, SnapshotConfig, load_snapshot_config
+from generators.snapshot.config import HALVES, TYPESET_SETS, SnapshotConfig, load_snapshot_config
 from generators.snapshot.manifest import (
     MANIFEST_NAME,
     README_NAME,
@@ -120,10 +132,15 @@ from generators.snapshot.publication import find_forbidden, layout_refusal, refu
 from generators.snapshot.readme import find_previous, load_field_descriptions, render_readme
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange, read_repo_state
 from generators.snapshot.summary import ParsingSummary, SnapshotSummary
+from generators.typst.config import TYPESET_CONFIG_PATH, load_typeset_config
+from generators.typst.validate import Publication, TypesetChecks, TypesetJob, typeset_pages
 
 # The three halves rendered directly (the fourth, degraded, is made from the distractor render).
 CLEAN_HALVES = HALVES[:3]
 PLAIN, DISTRACTOR, LABELLED_VARIED, DEGRADED = HALVES
+
+# Whether each typeset set's pages draw their distractors (and overlays), as the half of the same name.
+_TYPESET_DISTRACTORS = dict(zip(TYPESET_SETS, (False, True), strict=True))
 
 # The tier of a clean half's parsing page (Decision 9), every one of which counts for layout detection.
 _CLEAN_TIER = "none"
@@ -159,6 +176,7 @@ class _TypePlan:
     canonical: str
     renderer: Callable[..., Image.Image]
     layouts: dict
+    layout_path: Path
     entries: list[tuple[str, dict, str, dict]]  # (case id, entry, filename, projected fields)
     plain_drawn: DrawnFieldsCheck
     varied_drawn: DrawnFieldsCheck
@@ -175,11 +193,14 @@ class _Rendered:
     degraded_documents: list[dict] = field(default_factory=list)
     geometry: dict[str, list[dict]] = field(default_factory=lambda: {h: [] for h in CLEAN_HALVES})
     sidecar_rows: list[dict] = field(default_factory=list)
-    pages: dict[str, list[dict]] = field(default_factory=lambda: {h: [] for h in HALVES})
+    pages: dict[str, list[dict]] = field(default_factory=lambda: {h: [] for h in (*HALVES, *TYPESET_SETS)})
     density: dict[str, dict[str, DensityReport]] = field(
         default_factory=lambda: {h: {} for h in CLEAN_HALVES}
     )
-    counts: dict[str, dict[str, int]] = field(default_factory=lambda: {h: {} for h in HALVES})
+    counts: dict[str, dict[str, int]] = field(
+        default_factory=lambda: {h: {} for h in (*HALVES, *TYPESET_SETS)}
+    )
+    typeset_jobs: list[TypesetJob] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
 
 
@@ -365,6 +386,7 @@ def _plan_type(
         canonical=canonical,
         renderer=renderer,
         layouts=layouts,
+        layout_path=layout_path,
         entries=entries,
         plain_drawn=plain_drawn,
         varied_drawn=varied_drawn,
@@ -404,13 +426,19 @@ def _render_type(
     plan: _TypePlan,
     *,
     half_dirs: dict[str, Path],
+    typeset_dirs: dict[str, Path],
+    producer: str,
     tiers: list[Tier],
     label_config: LabelConfig,
     parsing_config: ParsingConfig,
     out: _Rendered,
 ) -> None:
-    """Render one type's cases into the staging halves, checking every render and collecting failures."""
-    for half in CLEAN_HALVES:
+    """Render one type's cases into the staging halves, checking every render and collecting failures.
+
+    Each case rendered is also queued for typesetting into each typeset set (`out.typeset_jobs`), with
+    stage one's render of the same mode to be compared with; `_typeset` runs the queue.
+    """
+    for half in (*CLEAN_HALVES, *typeset_dirs):
         out.counts[half].setdefault(plan.canonical, 0)
     for case_id, entry, filename, projected in plan.entries:
         layout_id = str(entry.get("layout", ""))
@@ -472,6 +500,31 @@ def _render_type(
             out.failures.extend(check_page(page, geometry, where=where_page, config=parsing_config))
             out.pages[half].append(page)
         out.documents.append({"filename": filename, "fields": projected})
+        stage_one = {False: plain_geometry, True: distractor_geometry}
+        for name, directory in typeset_dirs.items():
+            distractors = _TYPESET_DISTRACTORS[name]
+            context = PageContext(
+                f"{directory.name}/{filename}", plan.canonical, layout_key, name, _CLEAN_TIER, True
+            )
+            publication = Publication(
+                pdf_path=directory / f"{filename.removesuffix('.png')}.pdf",
+                png_path=directory / filename,
+                producer=producer,
+            )
+            out.typeset_jobs.append(
+                TypesetJob(
+                    case_id,
+                    fresh(),
+                    layout_id,
+                    layout,
+                    plan.layout_path,
+                    plan.canonical,
+                    distractors,
+                    stage_one[distractors],
+                    context,
+                    publication,
+                )
+            )
         out.sidecar_rows.append(
             sidecar_row(
                 image_file=filename,
@@ -510,15 +563,30 @@ def _render_type(
             out.counts[DEGRADED][plan.canonical] = out.counts[DEGRADED].get(plan.canonical, 0) + 1
 
 
-def _write_ground_truth(config: SnapshotConfig, half_dirs: dict[str, Path], out: _Rendered) -> None:
-    """Write each half's ground truth: one file for the clean halves, copied byte for byte."""
+def _typeset(jobs: list[TypesetJob], *, workers: int, checks: TypesetChecks, out: _Rendered) -> None:
+    """Typeset every queued page into its set, checked as `validate` checks it, collecting failures."""
+    for job, checked in zip(jobs, typeset_pages(jobs, checks, workers=workers), strict=True):
+        out.failures.extend(checked.errors + checked.density)
+        if checked.page is not None:
+            name = job.context.half
+            out.pages[name].append(checked.page)
+            out.counts[name][job.doc_type] += 1
+
+
+def _write_ground_truth(
+    config: SnapshotConfig, half_dirs: dict[str, Path], typeset_dirs: dict[str, Path], out: _Rendered
+) -> None:
+    """Write each half's ground truth: one file for the clean halves and typeset sets, copied byte for byte.
+
+    The degraded half keeps its own, one row per tier of each receipt.
+    """
     documents = sorted(out.documents, key=lambda doc: doc["filename"])
     plain_dir = half_dirs[PLAIN]
     jsonl = write_jsonl(documents, plain_dir / config.jsonl_name)
     csv_path = csv_from_jsonl(jsonl, plain_dir / config.csv_name)
-    for half in (DISTRACTOR, LABELLED_VARIED):
-        shutil.copyfile(jsonl, half_dirs[half] / config.jsonl_name)
-        shutil.copyfile(csv_path, half_dirs[half] / config.csv_name)
+    for directory in (half_dirs[DISTRACTOR], half_dirs[LABELLED_VARIED], *typeset_dirs.values()):
+        shutil.copyfile(jsonl, directory / config.jsonl_name)
+        shutil.copyfile(csv_path, directory / config.csv_name)
     degraded = sorted(out.degraded_documents, key=lambda doc: doc["filename"])
     degraded_jsonl = write_jsonl(degraded, half_dirs[DEGRADED] / config.jsonl_name)
     csv_from_jsonl(degraded_jsonl, half_dirs[DEGRADED] / config.csv_name)
@@ -535,12 +603,17 @@ def _write_geometry(config: SnapshotConfig, staging: Path, out: _Rendered) -> No
 
 
 def _write_parsing(config: SnapshotConfig, staging: Path, out: _Rendered) -> dict[str, str]:
-    """Write one parsing file per half, pages sorted by image_path; return half -> its relative path."""
+    """Write one parsing file per half and typeset set, pages sorted by image_path.
+
+    Returns:
+        Half or set -> its parsing file, relative to the snapshot root.
+    """
     parsing_dir = staging / config.parsing_dir
     parsing_dir.mkdir()
+    prefixes = {**config.half_prefixes, **config.typeset_prefixes}
     written = {}
-    for half in HALVES:
-        relative = f"{config.parsing_dir}/{config.half_prefixes[half]}.json"
+    for half in (*HALVES, *TYPESET_SETS):
+        relative = f"{config.parsing_dir}/{prefixes[half]}.json"
         pages = sorted(out.pages[half], key=lambda page: page["page_info"]["image_path"])
         (staging / relative).write_text(json.dumps(pages, indent=1, ensure_ascii=False) + "\n")
         written[half] = relative
@@ -621,7 +694,7 @@ def export_snapshot(
     renderers: dict | None = None,
     repo_state: Callable[[], RepoState] | None = None,
 ) -> SnapshotSummary:
-    """Render and publish one dated snapshot of the four paired halves, documented and checksummed.
+    """Render and publish one dated snapshot of four halves and two typeset sets, with checksums.
 
     Args:
         config_path: Path to generation_config.yml.
@@ -642,6 +715,8 @@ def export_snapshot(
             the export.
         TierConfigError: The receipt_degradation block is missing or malformed.
         ParsingConfigError: config/parsing_config.yml is missing or invalid.
+        TypesetConfigError: config/typeset_config.yml is missing or invalid, or Typst is not the pinned
+            version.
     """
     config = load_snapshot_config(config_path)
     schema = load_extraction_schema()
@@ -671,6 +746,7 @@ def export_snapshot(
     pools = load_pools()
     distractor_config = load_distractor_config(DISTRACTORS_PATH)
     label_config = load_label_config()
+    typeset_config = load_typeset_config(TYPESET_CONFIG_PATH)
 
     failures: list[str] = []
     seen: dict[str, str] = {}
@@ -697,13 +773,16 @@ def export_snapshot(
     staging.mkdir()
     try:
         half_dirs = {half: staging / f"{config.half_prefixes[half]}_{stamp}" for half in HALVES}
-        for directory in half_dirs.values():
+        typeset_dirs = {name: staging / f"{config.typeset_prefixes[name]}_{stamp}" for name in TYPESET_SETS}
+        for directory in (*half_dirs.values(), *typeset_dirs.values()):
             directory.mkdir()
         out = _Rendered()
         for plan in ready:
             _render_type(
                 plan,
                 half_dirs=half_dirs,
+                typeset_dirs=typeset_dirs,
+                producer=config.pdf_producer,
                 tiers=tiers,
                 label_config=label_config,
                 parsing_config=parsing_config,
@@ -711,10 +790,16 @@ def export_snapshot(
             )
             out.failures.extend(plan.plain_drawn.errors + plan.density.errors)
             out.failures.extend(plan.varied_density.errors + plan.varied_drawn.errors)
+        _typeset(
+            out.typeset_jobs,
+            workers=typeset_config.export_workers,
+            checks=TypesetChecks(parsing_config, distractor_config, typeset_config),
+            out=out,
+        )
         if out.failures:
             raise _checks_failed(out.failures, stage="while rendering", config_path=config.config_path)
 
-        _write_ground_truth(config, half_dirs, out)
+        _write_ground_truth(config, half_dirs, typeset_dirs, out)
         rows = sorted(out.sidecar_rows, key=lambda row: row["image_file"])
         write_sidecar(half_dirs[LABELLED_VARIED], rows)
         _write_geometry(config, staging, out)
@@ -726,9 +811,11 @@ def export_snapshot(
             stamp=stamp,
             repo_state=start,
             half_dirs=half_dirs,
+            typeset_dirs=typeset_dirs,
             counts=out.counts,
             sidecar_rows=tuple(rows),
             density=out.density,
+            typeset_raster_dpi=typeset_config.raster_dpi,
             tiers=tuple((tier.name, tier.suffix) for tier in tiers),
             geometry_dir=config.geometry_dir,
             csv_name=config.csv_name,
@@ -783,6 +870,7 @@ def export_snapshot(
     return replace(
         staged,
         half_dirs={half: final / directory.name for half, directory in half_dirs.items()},
+        typeset_dirs={name: final / directory.name for name, directory in typeset_dirs.items()},
         manifest_sha256=manifest_sha256,
         provenance_dir=provenance_final,
     )

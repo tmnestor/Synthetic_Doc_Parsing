@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pypdfium2
 import pytest
 import yaml
 from PIL import Image
@@ -31,7 +32,7 @@ from generators.parsing.degraded import degraded_page
 from generators.parsing.omnidocbench import PageContext, build_page, check_page, page_where
 from generators.schema import field_names_for
 from generators.snapshot import export as export_module
-from generators.snapshot.config import HALVES, load_snapshot_config, resolve_output_root
+from generators.snapshot.config import HALVES, TYPESET_SETS, load_snapshot_config, resolve_output_root
 from generators.snapshot.export import SnapshotError, SnapshotSummary, export_snapshot, opaque_layout_keys
 from generators.snapshot.repo_state import RepoState, RepoStateError, TreeChange
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
@@ -273,10 +274,18 @@ def test_the_file_set_is_exactly_the_layout(export: SnapshotSummary) -> None:
     expected |= {"parsing", *(f"parsing/{half}.json" for half in HALVES)}
     expected |= {"README.md", "MANIFEST.json", "SHA256SUMS", "tools", "tools/verify_snapshot.py"}
     expected |= {"tools/check_extractions_match_gt.py", "tools/score_extractions.ipynb"}
+    expected |= {f"{name}_{STAMP}" for name in TYPESET_SETS}
+    expected |= {f"parsing/{name}.json" for name in TYPESET_SETS}
     for half in HALVES:
         directory = export.half_dirs[half]
         expected |= {f"{directory.name}/ground_truth.csv", f"{directory.name}/ground_truth.jsonl"}
         expected |= {f"{directory.name}/{p.name}" for p in directory.glob("*.png")}
+    for name in TYPESET_SETS:
+        directory = export.typeset_dirs[name]
+        expected |= {f"{directory.name}/ground_truth.csv", f"{directory.name}/ground_truth.jsonl"}
+        # A PDF and its PNG per case of the plain half, under the plain half's names.
+        for image in export.half_dirs["plain"].glob("*.png"):
+            expected |= {f"{directory.name}/{image.name}", f"{directory.name}/{image.stem}.pdf"}
     assert set(_entries(export.path)) == expected
     assert not list(export.path.parent.glob(".*.partial"))
 
@@ -476,6 +485,19 @@ def test_the_sidecar_names_each_page_by_its_opaque_layout_key(export: SnapshotSu
         assert row["layout"] == f"{row['doc_type']}_layout_{registry.index(layout_id) + 1}", row
 
 
+def _published_text(path: Path) -> str:
+    """A published non-image file's text: a PDF's document information, XMP and text layer, read here
+    independently of the export's own scan; any other file as UTF-8."""
+    if path.suffix != ".pdf":
+        return path.read_text()
+    data = path.read_bytes()
+    with pypdfium2.PdfDocument(data) as document:
+        parts = list(document.get_metadata_dict().values())
+        parts += [page.get_textpage().get_text_range() for page in document]
+    xmp = data[data.find(b"<?xpacket begin") : data.find(b"<?xpacket end")]
+    return "\n".join([*parts, xmp.decode()])
+
+
 def _layout_id_hits(root: Path) -> list[str]:
     """Every real layout id that a published non-image file under `root` names, as a whole word."""
     ids = [layout_id for registry in _layout_registries().values() for layout_id in registry]
@@ -483,7 +505,7 @@ def _layout_id_hits(root: Path) -> list[str]:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix == ".png":
             continue
-        text = path.read_text()
+        text = _published_text(path)
         hits += [
             f"{path.relative_to(root)}: {layout_id}"
             for layout_id in ids
@@ -525,7 +547,7 @@ def test_nothing_leaks_into_the_snapshot(export: SnapshotSummary) -> None:
     for path in export.path.rglob("*"):
         if not path.is_file() or path.suffix == ".png":
             continue
-        text = path.read_text()
+        text = _published_text(path)
         for token in banned:
             assert token not in text, (path, token)
         assert not re.search(r"tfn|tax file", text, re.IGNORECASE), path
