@@ -8,7 +8,7 @@
 | **Objective** | Score document parsers on synthetic Australian business documents (bank statements, receipts, tax invoices) whose ground truth is exact, because it is recorded as each page is drawn. Tested: MinerU VLM, MinerU pipeline, Docling, Marker ([the tools](#the-tools-tested)), and on native PDFs a no-model text-layer baseline ([stage two](#native-pdfs-stage-2)) |
 | **Approach** | Ground truth is written by the code that draws each page, so it is exact without annotation: no GPU pre-annotation or expert correction is needed, and every printed line is checked to belong to a block ([how](#how-the-ground-truth-is-made)). Stage two typesets the same cases into native PDFs and scores the parsers on them. Limits: three single-page document types with fairly sparse pages; multi-page documents come next |
 | **Details** | [Results](#results), [what is measured](#what-it-measures), [the pages](#the-pages), [the runbook](docs/parsing_benchmark_runbook.md) |
-| **Summary** | On images (stage one, 14 October 2026), MinerU VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). On native PDFs (stage two, 16 October 2026), on these synthetic documents, the text layer alone, with no model, reads text far better than any parser (text edit distance 0.009 on plain pages, 0.051 on cluttered) but gives no table structure (TEDS 0); for tables MinerU VLM is again best (TEDS 0.598 and 0.492), so a native PDF is best routed to the text layer for text and reading order and to a table model for tables. Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
+| **Summary** | On images (stage one, 14 October 2026), MinerU VLM is the best overall: first on tables and reading order on every clean half, and on text on plain pages, though Docling reads text slightly better on cluttered pages. On photographed receipts no tool reads tables well (TEDS below 0.12). On native PDFs (stage two, 16 October 2026), on these synthetic documents, the text layer alone, with no model, reads text far better than any parser (text edit distance 0.009 on plain pages, 0.051 on cluttered) but gives no table structure (TEDS 0); for tables MinerU VLM is again best (TEDS 0.598 and 0.492), so, on these documents, a native PDF is best routed to the text layer for text and reading order and to a table model for tables. Run locally on an Apple M1 Pro laptop (16 GB), with no GPU instance needed, over 660 pages, scored with the OmniDocBench evaluator (text edit distance, table TEDS, reading-order edit distance) |
 
 ## Overview
 
@@ -25,8 +25,8 @@ this repository writes ground truth in OmniDocBench's format and does not write 
 ## The tools tested
 
 Four tools, one of them in two forms, and a no-model baseline for native PDFs. Both MinerU entries are
-the same release, MinerU 3.4.5, run with its two different back-ends: they share the package and its output format, but read a page in
-entirely different ways.
+the same release, MinerU 3.4.5, run with its two different back-ends: they share the package and its
+output format, but read a page in entirely different ways.
 
 | Name used here | What it is | How it reads a page | Weights | Time per page |
 |---|---|---|---|---|
@@ -184,8 +184,9 @@ TEDS is 0.
   order far better (0.105 and 0.099 against 0.315 and 0.365 at best). It gives no table structure.
 - **Tables.** MinerU VLM is best (TEDS 0.598 plain, 0.492 cluttered), then Docling (0.492, 0.461), then
   MinerU pipeline (0.471, 0.428).
-- **MinerU pipeline barely improves on PDFs.** Its text edit distance is 0.619 on plain PDFs against 0.637
-  on plain images.
+- **MinerU pipeline still trails far behind the text layer.** On plain PDFs its text edit distance is
+  0.619 against the text layer's 0.009, although it reads the same text layer, so its layout step, not
+  character reading, limits it.
 - **Routing.** On these synthetic documents, a native PDF is best read for text and reading order from its
   text layer, with a table model used where table structure matters. This is a finding about these
   documents, not a claim about all PDFs.

@@ -579,7 +579,7 @@ ranking, plus table gains only, each labelled as measured against the tool's sta
 text gains and reading-order gains are left out of the README, this runbook and the stage-two design.
 The control's TEDS difference is within the threshold, which is what lets the table gains be reported, but
 they are still not a same-render comparison: Docling's plain-set TEDS gain of +0.068 includes whatever
-part of the control's +0.019 is the render's.
+part of the control's +0.019 is the render's, so its true table gain may be as low as about +0.05.
 
 ## Publishing the snapshot
 

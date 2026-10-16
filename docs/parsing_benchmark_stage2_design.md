@@ -210,8 +210,8 @@ Each step is planned task by task in a stage-two plan written after this spec is
 
 ## 10. Outcome
 
-Stage two ran on 16 October 2026 against `snapshot_20261016`, scored with the pinned
-evaluator. The figures below are from `leaderboard_20261016.md`; the [README](../README.md#native-pdfs-stage-2) has the tables and the
+Stage two ran on 16 October 2026 against `snapshot_20261016`, scored with the
+pinned evaluator. The figures below are from `leaderboard_20261016.md`; the [README](../README.md#native-pdfs-stage-2) has the tables and the
 [runbook](parsing_benchmark_runbook.md#native-pdf-runs-16-october-2026) the commands and timings.
 
 ### What was run
@@ -230,8 +230,9 @@ On these synthetic documents (plain, then cluttered):
   against 0.315 and 0.365 at best). It gives no table structure (TEDS 0).
 - For tables, MinerU `vlm-engine` is best (TEDS 0.598 and 0.492), then Docling (0.492 and 0.461), then
   MinerU `pipeline` (0.471 and 0.428).
-- MinerU `pipeline` barely improves on PDFs: text edit distance 0.619 on plain PDFs against 0.637 on plain
-  images.
+- MinerU `pipeline` still trails far behind the text layer: on plain PDFs its text edit distance is 0.619
+  against the text layer's 0.009, although it reads the same text layer, so its layout step, not
+  character reading, limits it.
 - The routing this suggests: for a native PDF, take text and reading order from the text layer and use a
   table model where table structure matters. This is a finding about these documents, not a claim about
   all PDFs.
