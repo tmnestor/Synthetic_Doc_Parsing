@@ -232,7 +232,8 @@ dependencies:
 #   python-dateutil 2.9.0.post0  six 1.17.0   typing_extensions 4.16.0
 #
 # Dev tooling is intentionally absent from the spec above (install separately
-# if you run the suite): pytest 9.1.1, ruff 0.15.15, mypy 2.3.0.
+# if you run the suite): pytest 9.1.1, pytest-xdist 3.8.0 (for `pytest -n auto`),
+# ruff 0.15.15, mypy 2.3.0.
 #
 # =============================================================================
 # CONDA ENVIRONMENT CRUD COMMANDS - QUICK REFERENCE
