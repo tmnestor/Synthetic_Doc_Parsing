@@ -407,7 +407,7 @@ label_variation:
   #   receipt: BUSINESS_ABN 20/17/18, GST_AMOUNT 20/18/17, TOTAL_AMOUNT 21/20/14;
   #     refused: collision 1, total_near_miss_twin 9, total_not_last 9
   #     abn_receipt: ABN NO. 10, ABN NUMBER: 7
-  #     gst_receipt: TAX 13, GST 10% 5
+  #     gst_receipt: TAX INCLUDED 13, INCL. GST 5
   #     total_receipt: AMOUNT 4, TOTAL (INC GST) 5, AMOUNT DUE 7, BALANCE 4
   #   invoice: BUSINESS_ABN 22/20/13, GST_AMOUNT 19/21/15, TOTAL_AMOUNT 23/18/14;
   #     refused: collision 54, gst_below_total 3, total_not_last 2
@@ -422,8 +422,9 @@ label_variation:
   # against either. So 'Amount due:' and 'Balance:' print on no invoice, and 'Amount:' on one, and they
   # stay in the pool as wordings the validator would accept on a page without those lines. Collision
   # already keeps 'Balance:' off every invoice here, so `withheld_by_state` below changes no page in this
-  # corpus; it guards a page that collision would let through. The receipt GST pool offers no 'includes'
-  # wording: a receipt's SUBTOTAL is its total less GST, so GST is an added line there. The GST-inclusive
+  # corpus; it guards a page that collision would let through. The receipt GST pool offers only 'included'
+  # wordings: a receipt's line prices include GST and sum to its total, so its GST is the GST the total
+  # already includes, and it prints no subtotal (GSTR 2013/1, paras 13 and 33). The GST-inclusive
   # layout prints GST after its total, so it never prints GST unlabelled (gst_below_total) nor its total
   # unlabelled (total_not_last): none of its 6 cases shows either.
   fields:
@@ -442,7 +443,7 @@ label_variation:
   pools:
     abn_receipt: ["ABN NO. ", "ABN NUMBER: "]
     abn_invoice: ["ABN No. ", "Australian Business Number: "]
-    gst_receipt: ["TAX", "GST 10%"]
+    gst_receipt: ["TAX INCLUDED", "INCL. GST"]
     gst_invoice_added: ["Tax:", "GST:", "GST amount:"]
     gst_invoice_included: ["Includes GST of", "GST incl.:", "Tax included:"]
     total_receipt: ["AMOUNT", "TOTAL (INC GST)", "AMOUNT DUE", "BALANCE"]

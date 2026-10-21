@@ -72,7 +72,8 @@ def _before_labels(doc_type: str) -> dict[str, dict[str, str]]:
     """Per layout, the label each site's block printed before label sites existed.
 
     Read from a pinned fixture, captured from the layouts as they stood before this stage, so the
-    test does not depend on git history.
+    test does not depend on git history. One entry has since changed deliberately: the receipt GST
+    label became "GST INCLUDED" on 21 October 2026, when receipts stopped printing a subtotal.
     """
     pinned = json.loads(BEFORE_FIXTURE.read_text())
     return pinned[doc_type]

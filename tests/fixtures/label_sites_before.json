@@ -54,32 +54,32 @@
   "receipt": {
     "receipt_fuel": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     },
     "receipt_hospitality": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     },
     "receipt_professional": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     },
     "receipt_retail_tax": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     },
     "receipt_thermal_57mm": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     },
     "receipt_thermal_80mm": {
       "BUSINESS_ABN": "ABN: ",
-      "GST_AMOUNT": "GST",
+      "GST_AMOUNT": "GST INCLUDED",
       "TOTAL_AMOUNT": "TOTAL"
     }
   }

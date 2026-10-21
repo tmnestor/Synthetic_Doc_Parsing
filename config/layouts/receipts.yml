@@ -63,26 +63,28 @@ _receipt_defaults_values: &receipt_defaults_values
   split_gap: 0
   split_divider_color: "black"
 
-# Every receipt derives the same three sets of off-ground-truth values: the POS
-# detail line (time/register/staff/receipt number), the EFTPOS terminal slip,
-# and the ex-GST subtotal. See generators/layout_dsl/field_providers.py.
+# Every receipt derives the same two sets of off-ground-truth values: the POS
+# detail line (time/register/staff/receipt number) and the EFTPOS terminal slip.
+# See generators/layout_dsl/field_providers.py. A receipt prints no subtotal:
+# its line prices include GST and sum to its TOTAL, so a subtotal of the total
+# less GST would match nothing printed above it (GSTR 2013/1, paras 13 and 33).
 # `receipt_distractors` draws nothing on a plain render; with distractors on it
 # selects 3 to 6 of the items below per case (config/distractors.yml).
 # `label_styles` words the ABN, GST and TOTAL labels through their label sites:
-# each site's `labelled` is exactly what the receipt printed before label sites
-# existed (the ABN line's ": " folded into its wording), which every plain and
-# distractor render draws; `pool` names the variant wordings in
+# each site's `labelled` is what the receipt printed before label sites existed
+# (the ABN line's ": " folded into its wording; GST, once plain "GST", now says
+# it is included), which every plain and distractor render draws; `pool` names
+# the variant wordings in
 # config/distractors.yml -> label_variation.pools.
 _receipt_field_providers: &receipt_field_providers
   - {name: receipt_pos, params: {}}
   - {name: receipt_payment, params: {}}
-  - {name: computed_totals, params: {}}
   - {name: receipt_distractors, params: {}}
   - name: label_styles
     params:
       sites:
         BUSINESS_ABN: {labelled: "ABN: ", pool: abn_receipt}
-        GST_AMOUNT: {labelled: "GST", pool: gst_receipt}
+        GST_AMOUNT: {labelled: "GST INCLUDED", pool: gst_receipt}
         TOTAL_AMOUNT: {labelled: "TOTAL", pool: total_receipt}
 
 # The shared body draws every receipt item, each block gated on its own DX_ key,
@@ -209,15 +211,11 @@ _receipt_main: &receipt_main
     # The totals block, declared as the page's one totals region (a stack draws
     # exactly what its children would draw in its place). GST and TOTAL label
     # their values through label sites, each with the empty separator it
-    # always had.
+    # always had. GST is the GST the total already includes, so it is labelled
+    # as included and nothing is added to reach the total.
     - type: stack
       region: totals
       children:
-        # SUBTOTAL is suppressed on its own derived key rather than GST_AMOUNT:
-        # `computed_totals` emits it only when both TOTAL and GST are present,
-        # which is exactly legacy's `if gst and total:` guard.
-        - {type: pair, label: "SUBTOTAL", value: "{SUBTOTAL_AMOUNT}", value_align: right,
-           separator: "", currency: plain, when: SUBTOTAL_AMOUNT}
         - {type: pair, label: "{LABEL_GST_AMOUNT}", value: "{GST_AMOUNT}", value_align: right,
            separator: "", currency: plain, field: GST_AMOUNT, when: GST_AMOUNT}
         - {type: pair, label: "{LABEL_TOTAL_AMOUNT}", value: "{TOTAL_AMOUNT}", value_align: right,

@@ -343,6 +343,6 @@ def test_a_malformed_withholding_is_refused(tmp_path: Path, value: object, key: 
     _refused(tmp_path, data, f"{ROOT}.{key}", token)
 
 
-def test_no_receipt_wording_says_gst_is_included() -> None:
-    """A receipt's SUBTOTAL is the total less GST, so GST is an added line there, never an included one."""
-    assert not [w for w in load_label_config().pools["gst_receipt"] if "INCL" in w.upper()]
+def test_every_receipt_wording_says_gst_is_included() -> None:
+    """A receipt's line prices include GST and sum to its total, so every GST wording says it is included."""
+    assert [w for w in load_label_config().pools["gst_receipt"] if "INCL" not in w.upper()] == []

@@ -3,9 +3,9 @@
 Visual DNA per receipt format now lives in config/layouts/receipts.yml as a
 `body:` tree of layout primitives; this module only sets up the page, delegates
 to the DSL, and crops the result. The values a receipt draws that exist nowhere
-in ground truth — POS time/register/staff, the receipt number, the sixteen
-EFTPOS terminal-slip values and the ex-GST subtotal — come from the
-`receipt_pos`, `receipt_payment` and `computed_totals` field providers
+in ground truth (POS time/register/staff, the receipt number and the sixteen
+EFTPOS terminal-slip values) come from the `receipt_pos` and `receipt_payment`
+field providers
 (generators/layout_dsl/field_providers.py), which each layout declares under
 `field_providers:`; the line items come from the `receipt_line_items` row
 provider (generators/layout_dsl/providers.py).

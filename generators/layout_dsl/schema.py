@@ -2972,7 +2972,7 @@ _LABEL_SITE_EXAMPLE = (
     "                  params:\n"
     "                    sites:\n"
     '                      BUSINESS_ABN: {labelled: "ABN: ", pool: abn_receipt}\n'
-    '                      GST_AMOUNT: {labelled: "GST", pool: gst_receipt}\n'
+    '                      GST_AMOUNT: {labelled: "GST INCLUDED", pool: gst_receipt}\n'
     '                      TOTAL_AMOUNT: {labelled: "TOTAL", pool: total_receipt}'
 )
 

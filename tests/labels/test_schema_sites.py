@@ -102,7 +102,7 @@ def test_a_bank_layout_with_label_styles_is_refused() -> None:
 def test_sites_not_matching_the_varied_fields_are_refused() -> None:
     layout = _layout("receipt", RECEIPT)
     del _sites(layout)["GST_AMOUNT"]
-    _refused("receipt", RECEIPT, layout, f"{RECEIPT}.field_providers[4].params.sites", "GST_AMOUNT")
+    _refused("receipt", RECEIPT, layout, f"{RECEIPT}.field_providers[3].params.sites", "GST_AMOUNT")
 
 
 def test_a_placeholder_with_no_site_is_refused() -> None:
@@ -143,21 +143,21 @@ def test_an_unknown_pool_is_refused() -> None:
         "receipt",
         RECEIPT,
         layout,
-        f"{RECEIPT}.field_providers[4].params.sites.TOTAL_AMOUNT.pool",
+        f"{RECEIPT}.field_providers[3].params.sites.TOTAL_AMOUNT.pool",
         "total_shouted",
     )
 
 
 def test_a_pool_holding_the_sites_own_wording_is_refused() -> None:
     layout = _layout("receipt", RECEIPT)
-    _sites(layout)["GST_AMOUNT"]["labelled"] = "Tax"
+    _sites(layout)["GST_AMOUNT"]["labelled"] = "Tax included"
     _refused(
         "receipt",
         RECEIPT,
         layout,
-        f"{RECEIPT}.field_providers[4].params.sites.GST_AMOUNT.pool",
-        "'TAX'",
-        "'tax'",
+        f"{RECEIPT}.field_providers[3].params.sites.GST_AMOUNT.pool",
+        "'TAX INCLUDED'",
+        "'tax included'",
     )
 
 
@@ -165,7 +165,7 @@ def test_a_pool_holding_the_sites_own_wording_is_refused() -> None:
 def test_a_malformed_site_is_refused(spec: object) -> None:
     layout = _layout("receipt", RECEIPT)
     _sites(layout)["GST_AMOUNT"] = spec
-    _refused("receipt", RECEIPT, layout, f"{RECEIPT}.field_providers[4].params.sites.GST_AMOUNT")
+    _refused("receipt", RECEIPT, layout, f"{RECEIPT}.field_providers[3].params.sites.GST_AMOUNT")
 
 
 @pytest.mark.parametrize(("key", "value"), [("value_align", "left"), ("separator", ":")])

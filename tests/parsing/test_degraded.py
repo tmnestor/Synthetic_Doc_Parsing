@@ -159,7 +159,7 @@ def test_a_real_receipt_cropped_by_the_camera_ignores_exactly_its_cropped_blocks
     """The first receipt (by case id) whose heavy photograph crops blocks off the frame: exactly the
     blocks whose mapped poly leaves the frame are ignored, each clipped to it, and the page keeps every
     invariant."""
-    case_id, index = "CASE008", 2
+    case_id, index = "CASE007", 2
     entry = {**load_ground_truth(REPO_ROOT / "ground_truth" / "receipts.yml")[case_id], "case_id": case_id}
     layout_id = str(entry["layout"])
     geometry: dict = {}
