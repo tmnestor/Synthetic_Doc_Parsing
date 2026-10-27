@@ -60,7 +60,11 @@ layout.
 published OmniDocBench results:
 
 - The first table matched on a page drops out of the predicted reading order, which costs every tool
-  about one edit on each page with a table.
+  about one edit on each page with a table, even for a perfect transcription. It is upstream issue #229,
+  confirmed by the maintainers and not yet fixed. Leaderboards from 27 October 2026 report, beside the
+  unmodified score, a corrected reading-order score from a second run with the fault fixed in memory
+  (`scripts/omnidocbench_corrected.py`); the checkout itself is never changed. The reading-order table below
+  is the unmodified score.
 - A markdown pipe table loses every cell that holds a colon. Html tables (both MinerU back-ends) are
   immune; Docling and Marker write markdown.
 - Table edit distance compares html strings, and a markdown table converts to html with attributes an

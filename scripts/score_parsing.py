@@ -98,6 +98,18 @@ METRICS = (
     ("table_edit_dist", "Table edit distance", ("table", "Edit_dist")),
     ("reading_order_edit_dist", "Reading-order edit distance", ("reading_order", "Edit_dist")),
 )
+# Reading order again, from a second run of the same checkout with the table matcher's first-table fault fixed
+# in memory (scripts/omnidocbench_corrected.py, OmniDocBench issue #229). Reported beside, never instead of,
+# the unmodified evaluator's score; its breakdown is kept under its own key.
+CORRECTED = (
+    "reading_order_edit_dist_corrected",
+    "Reading-order edit distance, corrected",
+    ("reading_order", "Edit_dist_corrected"),
+)
+REPORTED = (*METRICS, CORRECTED)
+CORRECTED_DIR = "corrected_reading_order"
+# Every score but reading order must be identical in the corrected run, or it is refused.
+UNMOVED = tuple(name for name, _, _ in METRICS if name != "reading_order_edit_dist")
 # The page attributes broken down, as the evaluator names them, with each one's section and column title.
 BREAKDOWNS = (
     ("doc_type", "By document type", "Document type"),
@@ -109,9 +121,15 @@ _NOTES = {
     'table into html with `colspan="1" rowspan="1"` on every cell, which an html table does not carry, '
     "so a perfect markdown table can score 0.5 here while scoring TEDS 1: compare it only between "
     "tools with the same output form (html or markdown). TEDS is not affected.",
-    "reading_order_edit_dist": "Reading order includes one known artefact of the pinned evaluator: once "
-    "matched, a page's first predicted table drops out of the predicted order, one edit on every such page "
-    "for every tool alike (the design's section 5.3).",
+    "reading_order_edit_dist": "Reading order includes one known fault of the pinned evaluator, as upstream "
+    "publishes it: once matched, a page's first predicted table drops out of the predicted order, one edit "
+    "on every such page for every tool alike, even for a perfect prediction (OmniDocBench issue #229; the "
+    "design's section 5.3). The corrected score below removes it.",
+    "reading_order_edit_dist_corrected": "The same evaluator checkout, run again with that one fault fixed "
+    "in memory (scripts/omnidocbench_corrected.py, the change OmniDocBench PR #230 proposes): a matched "
+    "first table keeps its place in the predicted order. The checkout is not modified, and every other "
+    "score of the corrected run is checked identical to the unmodified run's. Compare this one with "
+    "other corrected scores, and the score above with upstream's published numbers.",
 }
 RECORD_KEYS = ("tool", "half", "snapshot", "backend", "tool_version", "device", "page_count", "seconds")
 _RUN_FIELDS = (("backend", "Backend"), ("tool_version", "Version"), ("device", "Device"))
@@ -304,6 +322,41 @@ def _breakdown(source: Path) -> dict[tuple[str, str], dict[str, float]]:
     return breakdown
 
 
+def _same(a: float, b: float) -> bool:
+    return (math.isnan(a) and math.isnan(b)) or a == b
+
+
+def _check_only_reading_order_moved(
+    official: dict[str, float],
+    fixed: dict[str, float],
+    official_breakdown: dict[tuple[str, str], dict[str, float]],
+    fixed_breakdown: dict[tuple[str, str], dict[str, float]],
+    *,
+    source: Path,
+) -> None:
+    """Refuse a corrected run in which any score but reading order differs from the unmodified run."""
+    moved = [name for name in UNMOVED if not _same(official[name], fixed[name])]
+    for name, _, key in METRICS:
+        if name in UNMOVED and set(official_breakdown[key]) != set(fixed_breakdown[key]):
+            moved.append(f"{name} (its page groups)")
+        elif name in UNMOVED:
+            moved += [
+                f"{name} ({g})"
+                for g in official_breakdown[key]
+                if not _same(official_breakdown[key][g], fixed_breakdown[key][g])
+            ]
+    if moved:
+        raise _diagnostic(
+            "The corrected run moved a score other than reading order.",
+            what=f"{moved[:5]} differ from the unmodified run, but the fix only restores a matched table's "
+            "position in the predicted order.",
+            where=f"{source}",
+            expected="text and table scores identical in both runs, reading order alone different",
+            recover="check scripts/omnidocbench_corrected.py against the evaluator checkout at "
+            "evaluator.commit; until they agree, report only the unmodified scores.",
+        )
+
+
 def _number(value: float | None) -> str:
     if value is None:
         return ""
@@ -390,7 +443,20 @@ def score(
             work = output_root / SCORES_DIR / tool.name / column
             source = result_path(pred, work_dir=work)
             headline = _headline(run_end2end(gt, pred, checkout=checkout, work_dir=work), source=source)
-            runs[(tool.name, column)] = (record, headline, _breakdown(source))
+            breakdown = _breakdown(source)
+            fixed_work = work / CORRECTED_DIR
+            fixed_source = result_path(pred, work_dir=fixed_work)
+            fixed = _headline(
+                run_end2end(gt, pred, checkout=checkout, work_dir=fixed_work, corrected=True),
+                source=fixed_source,
+            )
+            fixed_breakdown = _breakdown(fixed_source)
+            _check_only_reading_order_moved(
+                headline, fixed, breakdown, fixed_breakdown, source=fixed_source
+            )
+            headline[CORRECTED[0]] = fixed["reading_order_edit_dist"]
+            breakdown[CORRECTED[2]] = fixed_breakdown[("reading_order", "Edit_dist")]
+            runs[(tool.name, column)] = (record, headline, breakdown)
     if not runs:
         raise _diagnostic(
             "There is nothing to score.",
@@ -586,7 +652,7 @@ def _native(runs: dict, tools: list[str], *, config: ParsingConfig) -> Native:
                     )
                     continue
                 image, other = runs[(tool, half)][1], runs[run][1]
-                for metric, title, _ in METRICS:
+                for metric, title, _ in REPORTED:
                     if kind == "pdf":
                         gain = pdf_gain(metric, image=image[metric], pdf=other[metric])
                         gains.append((tool, name, metric, image[metric], other[metric], gain))
@@ -641,14 +707,14 @@ def _rows(runs: dict, tools: list[str], columns: list[str], native: Native) -> R
                 half,
                 f"{record['seconds'] / record['page_count']:.1f}",
             )
-    for name, _, _ in METRICS:
+    for name, _, _ in REPORTED:
         for tool in tools:
             for half in columns:
                 if (tool, half) in runs:
                     put(("all", name, tool, ""), half, _raw(runs[(tool, half)][1][name]))
     for attribute, _, _ in BREAKDOWNS:
         prefix = f"{attribute}: "
-        for name, _, source in METRICS:
+        for name, _, source in REPORTED:
             for tool in tools:
                 groups = sorted(
                     {
@@ -695,7 +761,7 @@ def _native_section(native: Native, *, config: ParsingConfig) -> list[str]:
     """The "Native PDFs" section: any control warning, the notes, the control and the gain tables."""
     control = config.native_pdf_control
     limit = f"{control.max_difference:g}"
-    titles = {name: title for name, title, _ in METRICS}
+    titles = {name: title for name, title, _ in REPORTED}
     checked = ", ".join(titles[name] for name in control.metrics)
     where = f"`native_pdf_control` in config/{PARSING_CONFIG_PATH.name}"
     lines = ["", "## Native PDFs", ""]
@@ -831,7 +897,7 @@ def _markdown(
         "",
         "## Scores",
     ]
-    for name, title, _ in METRICS:
+    for name, title, _ in REPORTED:
         lines += ["", f"### {title}", ""]
         lines += _table(
             ["Tool", *halves], [[tool, *_cells(rows, ("all", name, tool, ""), halves)] for tool in tools]
@@ -842,7 +908,7 @@ def _markdown(
         lines += _native_section(native, config=config)
     for attribute, section, column in BREAKDOWNS:
         lines += ["", f"## {section}"]
-        for name, title, _ in METRICS:
+        for name, title, _ in REPORTED:
             body = [
                 [tool, group, *_cells(rows, (attribute, name, tool, group), halves)]
                 for (kind, metric, tool, group) in rows

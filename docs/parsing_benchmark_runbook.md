@@ -69,7 +69,9 @@ table TEDS 1 and table edit distance 0. Reading order is exact up to one known e
 pinned evaluator drops the first predicted table of a page from the predicted reading order
 (`src/core/matching/match.py` line 714), costing one edit on every page with a table, for every tool
 alike. The evaluator runs unmodified, so the test asserts that this is the only difference, page by page,
-and that the aggregate equals the value it predicts (about 0.062 over the probe). Section 5.3 of
+and that the aggregate equals the value it predicts (about 0.062 over the probe). The same test runs the
+corrected launcher (`scripts/omnidocbench_corrected.py`, the fault fixed in memory) over the same pages and
+asserts reading order 0, every other score identical, and the checkout unmodified. Section 5.3 of
 `docs/parsing_benchmark_design.md` records it, with the alternative left to the matcher gate. This proves
 the export and the pinned evaluator agree on the format, and that the evaluator pairs `.png` pages with `.md` predictions. It is a slow test, skipped
 with its reason where the env or the checkout is absent:
@@ -325,7 +327,12 @@ is not, the degraded runs must be made again on the new snapshot.
   and is never replaced by an average of the other components.
 - *Runs*: each run's back-end, version, device, pages and seconds per page, from its `run.json`.
 - *Scores*: rows per tool, columns per half: text edit distance, table TEDS, structure-only TEDS, table
-  edit distance and reading-order edit distance. Tables lead with TEDS. Table edit distance carries its
+  edit distance, reading-order edit distance and, beside it, the corrected reading-order edit distance.
+  Each run is scored twice: unmodified, and again through `scripts/omnidocbench_corrected.py`, which fixes
+  the first-table fault (upstream issue #229) in memory, under
+  `scores/<tool>/<run>/corrected_reading_order/`.
+  Only reading order is taken from the second run, and scoring stops if any other score differs between
+  the two. Tables lead with TEDS. Table edit distance carries its
   caveat: it compares html strings, and the evaluator writes a markdown pipe table's cells with
   `colspan="1" rowspan="1"`, which an html table does not carry, so it compares only tools with the same
   output form (both MinerU back-ends write html tables; Docling and Marker write markdown).

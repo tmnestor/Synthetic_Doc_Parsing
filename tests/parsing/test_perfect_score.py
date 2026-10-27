@@ -109,3 +109,20 @@ def test_the_probe_ground_truth_scores_perfectly_against_itself(tmp_path: Path) 
     expected = sum(expected_edits) / len(expected_edits)
     print(f"reading order: {scores['reading_order_edit_dist']} (the table artefact predicts {expected})")
     assert scores["reading_order_edit_dist"] == pytest.approx(expected, abs=1e-12), scores
+
+    # The corrected run (the matcher fault fixed in memory, checkout untouched) scores the same pages
+    # perfectly on every number, reading order included, and moves nothing but reading order.
+    fixed = run_end2end(
+        probe / PROBE_JSON, predictions, checkout=checkout, work_dir=tmp_path / "corrected", corrected=True
+    )
+    print(f"corrected run: {fixed}")
+    assert fixed["reading_order_edit_dist"] == 0, fixed
+    assert {k: v for k, v in fixed.items() if k != "reading_order_edit_dist"} == {
+        k: v for k, v in scores.items() if k != "reading_order_edit_dist"
+    }
+    head = subprocess.run(
+        ["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout == "", f"the corrected run changed the checkout: {head.stdout}"

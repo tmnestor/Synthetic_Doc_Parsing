@@ -47,9 +47,21 @@ _NAMES = (
 )
 
 
-def _breakdown(tool: str, half: str) -> dict:
-    """An invented per-attribute breakdown: each value is the headline plus a small per-group offset."""
+def _scores(tool: str, half: str, corrected: bool = False) -> dict:
+    """The headline scores a stub run returns; the corrected run halves reading order alone."""
+    scores = dict(zip(_NAMES, HEADLINES[(tool, half)], strict=True))
+    if corrected:
+        scores["reading_order_edit_dist"] /= 2
+    return scores
+
+
+def _breakdown(tool: str, half: str, corrected: bool = False) -> dict:
+    """An invented per-attribute breakdown: each value is the headline plus a small per-group offset.
+
+    The corrected run's reading order is half the unmodified run's, every other value the same.
+    """
     text, teds, teds_s, table_edit, order = HEADLINES[(tool, half)]
+    order = order / 2 if corrected else order
     tier = "light" if half == "degraded" else "none"
     groups = {"doc_type: invoice": 0.0, "doc_type: receipt": 0.0625, f"tier: {tier}": 0.0}
     groups |= {"layout_id: invoice_layout_1": 0.0, "half: x": 0.0, "language: en": 0.0, "ALL": 0.0}
@@ -90,13 +102,15 @@ def scored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path,
 
     stub_calls: list[tuple] = []
 
-    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+    def stub(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
         tool, half = pred_dir.parent.name, pred_dir.name
-        stub_calls.append((gt_json, pred_dir, checkout, work_dir))
+        stub_calls.append((gt_json, pred_dir, checkout, work_dir, corrected))
         source = result_path(pred_dir, work_dir=work_dir)
         source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text(json.dumps(_breakdown(tool, half)))
-        return dict(zip(_NAMES, HEADLINES[(tool, half)], strict=True))
+        source.write_text(json.dumps(_breakdown(tool, half, corrected)))
+        return _scores(tool, half, corrected)
 
     monkeypatch.setattr(score_parsing, "run_end2end", stub)
     markdown, table = score(
@@ -115,7 +129,7 @@ def test_each_collected_run_is_scored_against_its_half(tmp_path: Path, scored: t
     assert markdown == tmp_path / "out" / "leaderboard_20990102.md"
     assert table == tmp_path / "out" / "leaderboard_20990102.csv"
     parsing = tmp_path / "snapshot_20990101" / SNAPSHOT_CONFIG.parsing_dir
-    assert [(gt, pred, work) for gt, pred, _, work in stub_calls] == [
+    assert [(gt, pred, work) for gt, pred, _, work, corrected in stub_calls if not corrected] == [
         (
             parsing / "plain.json",
             tmp_path / "out/predictions/docling/plain",
@@ -132,7 +146,13 @@ def test_each_collected_run_is_scored_against_its_half(tmp_path: Path, scored: t
             tmp_path / "out/scores/marker/plain",
         ),
     ]
-    assert {checkout for _, _, checkout, _ in stub_calls} == {tmp_path / "checkout"}
+    assert {checkout for _, _, checkout, _, _ in stub_calls} == {tmp_path / "checkout"}
+    # Each run is scored again with the matcher fault fixed, in its own work directory beside the first.
+    assert [(pred, work) for _, pred, _, work, corrected in stub_calls if corrected] == [
+        (pred, work / score_parsing.CORRECTED_DIR)
+        for _, pred, _, work, corrected in stub_calls
+        if not corrected
+    ]
 
 
 def _degraded_page(stamp: str, text: str) -> dict:
@@ -170,9 +190,12 @@ def _overridden(
         (raw / RUN_RECORD).write_text(json.dumps(record))
     calls: list[Path] = []
 
-    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
-        calls.append(gt_json)
-        return _stub()(gt_json, pred_dir, checkout=checkout, work_dir=work_dir)
+    def stub(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
+        if not corrected:
+            calls.append(gt_json)
+        return _stub()(gt_json, pred_dir, checkout=checkout, work_dir=work_dir, corrected=corrected)
 
     monkeypatch.setattr(score_parsing, "run_end2end", stub)
     markdown, _ = score(
@@ -301,6 +324,72 @@ def test_the_headline_tables_hold_the_exact_scores(scored: tuple) -> None:
         f"| marker | {OVERALL} |  |  |  |",
     ]
     assert OVERALL == "n/a (no formulas in stage one)"
+
+
+def test_the_corrected_reading_order_is_reported_beside_the_unmodified_one(scored: tuple) -> None:
+    text = scored[0].read_text()
+    # The stub's corrected run halves reading order: 0.125 / 2, 0.3125 / 2 and 0.
+    assert _section(text, "### Reading-order edit distance, corrected")[2:] == [
+        "| docling | 0.062 |  |  | 0.156 |",
+        "| marker | 0.000 |  |  |  |",
+    ]
+    assert _section(text, "### Reading-order edit distance")[2:] == [
+        "| docling | 0.125 |  |  | 0.312 |",
+        "| marker | 0.000 |  |  |  |",
+    ]
+    official = text[
+        text.index("### Reading-order edit distance\n") : text.index(
+            "### Reading-order edit distance, corrected"
+        )
+    ]
+    corrected = text[text.index("### Reading-order edit distance, corrected") :]
+    assert "issue #229" in official and "corrected score below" in official
+    assert "PR #230" in corrected and "not modified" in corrected
+    by_tier = text[text.index("## By degradation tier") : text.index("## By layout")]
+    assert _section(by_tier, "### Reading-order edit distance, corrected")[2:] == [
+        "| docling | light |  |  |  | 0.156 |",
+        "| docling | none | 0.062 |  |  |  |",
+        "| marker | none | 0.000 |  |  |  |",
+    ]
+    rows = {(r["section"], r["metric"], r["tool"], r["group"]): r for r in csv.DictReader(scored[1].open())}
+    assert rows[("all", "reading_order_edit_dist_corrected", "docling", "")]["degraded"] == "0.15625"
+    assert rows[("tier", "reading_order_edit_dist_corrected", "docling", "light")]["degraded"] == "0.15625"
+
+
+@pytest.mark.parametrize("moved", ["headline", "page"])
+def test_a_corrected_run_that_moves_another_score_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, moved: str
+) -> None:
+    snapshot = _one_run(tmp_path)
+    normal = _stub()
+
+    def stub(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
+        scores = normal(gt_json, pred_dir, checkout=checkout, work_dir=work_dir, corrected=corrected)
+        if corrected and moved == "headline":
+            scores["text_block_edit_dist"] += 0.0625
+        if corrected and moved == "page":
+            source = result_path(pred_dir, work_dir=work_dir)
+            result = json.loads(source.read_text())
+            result["table"]["page"]["TEDS"]["doc_type: invoice"] += 0.0625
+            source.write_text(json.dumps(result))
+        return scores
+
+    monkeypatch.setattr(score_parsing, "run_end2end", stub)
+    with pytest.raises(ScoreError) as caught:
+        score(
+            snapshot,
+            output_root=tmp_path,
+            config=load_parsing_config(PARSING_CONFIG_PATH),
+            snapshot_config=SNAPSHOT_CONFIG,
+            checkout=tmp_path,
+            today=TODAY,
+        )
+    assert_diagnostic_error(caught.value)
+    assert ("text_block_edit_dist" if moved == "headline" else "table_teds (doc_type: invoice)") in str(
+        caught.value
+    )
 
 
 def test_tables_lead_with_teds_and_carry_the_output_form_caveat(scored: tuple) -> None:
@@ -458,14 +547,16 @@ def _one_run(root: Path) -> Path:
 def _stub(drop_headline: str | None = None, drop_page: tuple[str, str] | None = None):
     """A run_end2end stand-in whose headline or breakdown lacks one metric."""
 
-    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
-        result = _breakdown("docling", "plain")
+    def stub(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
+        result = _breakdown("docling", "plain", corrected)
         if drop_page is not None:
             del result[drop_page[0]]["page"][drop_page[1]]
         source = result_path(pred_dir, work_dir=work_dir)
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(json.dumps(result))
-        scores = dict(zip(_NAMES, HEADLINES[("docling", "plain")], strict=True))
+        scores = _scores("docling", "plain", corrected)
         if drop_headline is not None:
             del scores[drop_headline]
         return scores
@@ -743,12 +834,18 @@ def _typeset_scored(
 
     calls: list[tuple[Path, Path, Path]] = []
 
-    def stub(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
-        calls.append((gt_json, pred_dir, work_dir))
+    def stub(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
+        if not corrected:
+            calls.append((gt_json, pred_dir, work_dir))
         source = result_path(pred_dir, work_dir=work_dir)
         source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text(json.dumps(_breakdown("docling", "plain")))
-        return dict(zip(_NAMES, headlines[(pred_dir.parent.name, pred_dir.name)], strict=True))
+        source.write_text(json.dumps(_breakdown("docling", "plain", corrected)))
+        scores = dict(zip(_NAMES, headlines[(pred_dir.parent.name, pred_dir.name)], strict=True))
+        if corrected:
+            scores["reading_order_edit_dist"] /= 2
+        return scores
 
     monkeypatch.setattr(score_parsing, "run_end2end", stub)
     markdown, table = score(
@@ -825,11 +922,13 @@ def test_the_gain_table_holds_each_tool_s_gain_over_its_stage_one_image_score(
         "| mineru_pipeline | typeset_distractor | Table TEDS, structure only | n/a | 0.750 | n/a |",
         "| mineru_pipeline | typeset_distractor | Table edit distance | n/a | 0.500 | n/a |",
         "| mineru_pipeline | typeset_distractor | Reading-order edit distance | 0.250 | 0.250 | +0.000 |",
+        "| mineru_pipeline | typeset_distractor | Reading-order edit distance, corrected | 0.125 | 0.125 | +0.000 |",
         "| docling | typeset_plain | Text edit distance | 0.250 | 0.125 | +0.125 |",
         "| docling | typeset_plain | Table TEDS | 0.500 | 0.750 | +0.250 |",
         "| docling | typeset_plain | Table TEDS, structure only | 0.625 | 0.500 | -0.125 |",
         "| docling | typeset_plain | Table edit distance | 0.750 | 0.750 | +0.000 |",
         "| docling | typeset_plain | Reading-order edit distance | 0.125 | 0.250 | -0.125 |",
+        "| docling | typeset_plain | Reading-order edit distance, corrected | 0.062 | 0.125 | -0.062 |",
     ]
     section = text[text.index("## Native PDFs") :]
     # The baseline is named for what it is: not a same-render comparison.
@@ -871,6 +970,7 @@ def test_the_control_within_its_threshold_is_reported_beside_the_stage_one_score
         "| docling | typeset_plain | Table TEDS, structure only | 0.500 | 0.625 | -0.125 | not checked |",
         "| docling | typeset_plain | Table edit distance | 0.875 | 0.750 | +0.125 | not checked |",
         "| docling | typeset_plain | Reading-order edit distance | 0.250 | 0.125 | +0.125 | not checked |",
+        "| docling | typeset_plain | Reading-order edit distance, corrected | 0.125 | 0.062 | +0.062 | not checked |",
     ]
     control = text[text.index(heading) : text.index("### Native-PDF gain")]
     assert (

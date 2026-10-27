@@ -23,6 +23,7 @@ from generators.parsing.config import (
 )
 from scripts import omnidocbench_eval
 from scripts.omnidocbench_eval import (
+    CORRECTED_LAUNCHER,
     EVALUATOR_ENV,
     EvaluatorError,
     ensure_checkout,
@@ -254,6 +255,28 @@ def test_run_end2end_writes_its_config_runs_the_pinned_script_and_returns_its_sc
     }
 
 
+def test_the_corrected_run_goes_through_the_launcher_with_the_same_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(omnidocbench_eval.subprocess, "run", _fake_evaluator(calls))
+    checkout, work, preds = tmp_path / "OmniDocBench", tmp_path / "work", tmp_path / "preds"
+    scores = run_end2end(tmp_path / "probe.json", preds, checkout=checkout, work_dir=work, corrected=True)
+
+    assert scores["table_teds"] == pytest.approx(0.7957058028722995)
+    (call,) = calls
+    assert call["command"][-6:] == [
+        "python",
+        str(CORRECTED_LAUNCHER),
+        "--checkout",
+        str(checkout),
+        "--config",
+        str(work / "end2end.yaml"),
+    ]
+    assert CORRECTED_LAUNCHER.is_file()
+    assert call["config"]["end2end_eval"]["dataset"]["match_method"] == "quick_match"
+
+
 def test_run_end2end_refuses_a_failed_evaluator_four_part(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -283,8 +306,11 @@ def test_the_cli_checks_out_under_the_output_root_and_prints_the_scores(
         seen["root"] = root
         return root / "OmniDocBench"
 
-    def end2end(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+    def end2end(
+        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    ) -> dict:
         seen["run"] = (gt_json, pred_dir, checkout, work_dir)
+        seen["corrected"] = corrected
         return {"text_block_edit_dist": 0.0, "table_teds": float("nan")}
 
     monkeypatch.setattr(omnidocbench_eval, "ensure_checkout", checkout)
@@ -307,6 +333,9 @@ def test_the_cli_checks_out_under_the_output_root_and_prints_the_scores(
     assert omnidocbench_eval.main([*args, "--work-dir", str(tmp_path / "w")]) == 0
     assert seen["run"] == (tmp_path / "p.json", tmp_path / "md", tools / "OmniDocBench", tmp_path / "w")
     assert json.loads(capsys.readouterr().out) == {"text_block_edit_dist": 0.0, "table_teds": None}
+    assert seen["corrected"] is False
+    assert omnidocbench_eval.main([*args, "--work-dir", str(tmp_path / "c"), "--corrected"]) == 0
+    assert seen["corrected"] is True
 
 
 def test_the_cli_prints_a_refusal_and_exits_one(

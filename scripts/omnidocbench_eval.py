@@ -3,6 +3,7 @@
 
     python scripts/omnidocbench_eval.py checkout [--config config/generation_config.yml]
     python scripts/omnidocbench_eval.py end2end --gt probe.json --pred predictions/ --work-dir scores/
+    python scripts/omnidocbench_eval.py end2end --corrected --gt probe.json --pred predictions/ --work-dir scores/c
 
 The evaluator is pinned, not vendored (Decision 10): `config/parsing_config.yml` names its repository and
 commit, `ensure_checkout` clones it once into `<eval_set.output_root>/tools/OmniDocBench` at that commit,
@@ -43,6 +44,8 @@ from generators.parsing.config import (  # noqa: E402
 
 # The conda env `envs/omnidocbench.yml` builds (its file stem), and the checkout's directory name.
 EVALUATOR_ENV = "omnidocbench"
+# Runs the checkout with the table matcher's reading-order fault fixed in memory (OmniDocBench issue #229).
+CORRECTED_LAUNCHER = REPO_ROOT / "scripts" / "omnidocbench_corrected.py"
 CHECKOUT_NAME = "OmniDocBench"
 # The evaluator's own names: its task, dataset and matcher, and the directory it writes results to.
 _TASK = "end2end_eval"
@@ -249,7 +252,9 @@ def parse_result(result: dict, *, source: Path) -> dict[str, float]:
     return scores
 
 
-def run_end2end(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path) -> dict:
+def run_end2end(
+    gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+) -> dict:
     """Score `pred_dir` against `gt_json` with the pinned evaluator, in its own env.
 
     Args:
@@ -257,6 +262,9 @@ def run_end2end(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path
         pred_dir: The directory of `<image stem>.md` predictions.
         checkout: The evaluator checkout `ensure_checkout` returned.
         work_dir: Where the config and the evaluator's `result/` directory are written.
+        corrected: Run the evaluator through `scripts/omnidocbench_corrected.py`, which fixes in memory the
+            table matcher's dropped first-table position (OmniDocBench issue #229) and leaves the checkout
+            untouched; only reading order can differ from the unmodified run. Give it its own `work_dir`.
 
     Returns:
         The headline scores `parse_result` reads.
@@ -270,16 +278,12 @@ def run_end2end(gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path
     config_file = work_dir / "end2end.yaml"
     config_file.write_text(yaml.safe_dump(end2end_config(gt_json, pred_dir), sort_keys=False))
     conda = os.environ.get("CONDA_EXE") or shutil.which("conda") or "conda"
-    command = [
-        conda,
-        "run",
-        "-n",
-        EVALUATOR_ENV,
-        "python",
-        str(checkout / "pdf_validation.py"),
-        "--config",
-        str(config_file),
-    ]
+    entry = (
+        [str(CORRECTED_LAUNCHER), "--checkout", str(checkout)]
+        if corrected
+        else [str(checkout / "pdf_validation.py")]
+    )
+    command = [conda, "run", "-n", EVALUATOR_ENV, "python", *entry, "--config", str(config_file)]
     done = subprocess.run(
         command, cwd=work_dir, env={**os.environ, **_OFFLINE}, capture_output=True, text=True, check=False
     )
@@ -333,6 +337,11 @@ def main(argv: list[str] | None = None) -> int:
     end2end_cmd.add_argument("--gt", type=Path, required=True, help="OmniDocBench ground-truth JSON")
     end2end_cmd.add_argument("--pred", type=Path, required=True, help="Directory of <image stem>.md")
     end2end_cmd.add_argument("--work-dir", type=Path, required=True, help="Where the result is written")
+    end2end_cmd.add_argument(
+        "--corrected",
+        action="store_true",
+        help="Fix the first-table reading-order fault in memory (OmniDocBench issue #229); checkout untouched",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -344,7 +353,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Evaluator checkout: {checkout}")
             return 0
         scores = run_end2end(
-            args.gt.resolve(), args.pred.resolve(), checkout=checkout, work_dir=args.work_dir
+            args.gt.resolve(),
+            args.pred.resolve(),
+            checkout=checkout,
+            work_dir=args.work_dir,
+            corrected=args.corrected,
         )
     except (EvaluatorError, ParsingConfigError, FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

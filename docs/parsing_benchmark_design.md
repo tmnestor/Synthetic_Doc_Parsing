@@ -252,6 +252,15 @@ Reading order did not, for two reasons:
   equals the value the artefact predicts. Stage one runs C; whether to adopt B is decided at the matcher
   gate.
 
+  *Decided 27 October 2026: both.* The unmodified score stays the headline, comparable with upstream's;
+  from that date every leaderboard also reports a corrected reading-order score from a second run of the
+  same checkout through `scripts/omnidocbench_corrected.py` (option B), which tests the unmatched marker
+  (`pred_idx != ""`) instead of truthiness, the change upstream PR #230 proposes. Upstream issue #229
+  reports the fault and a maintainer confirmed it; neither PR #230 nor PR #260 is merged, and upstream main
+  still carries it. The launcher refuses unless the function holds exactly the two faulty conditions, and
+  `score_parsing.py` refuses a corrected run in which any score but reading order differs. On the probe the
+  corrected run scores reading order 0, the four other scores unchanged, and the checkout unmodified.
+
 **Gate notes.** Two items are left for the matcher gate.
 
 - *Unrecorded separator glyphs.* The lines of separator glyphs described in section 4.2 record no ink, so
