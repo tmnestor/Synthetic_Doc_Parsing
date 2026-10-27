@@ -32,7 +32,7 @@ from generators.exporters.eval_projection import FIELD_ALIASES as SHARED_FIELD_A
 from generators.exporters.eval_projection import load_extraction_schema
 from generators.pipeline import _RENDERERS, app
 from generators.snapshot import export as export_module
-from generators.snapshot.config import HALVES, load_snapshot_config
+from generators.snapshot.config import HALVES, TYPESET_SETS, load_snapshot_config
 from generators.snapshot.export import SnapshotSummary
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.eval_export_tools import (
@@ -60,6 +60,8 @@ REQUIRED_KEYS = [
     "jsonl_name",
     "provenance_suffix",
     "forbidden_terms",
+    "typeset_prefixes",
+    "pdf_producer",
 ]
 
 
@@ -264,14 +266,18 @@ def test_export_creates_dated_half_directories(export: SnapshotSummary) -> None:
     Expected names are derived from the configured prefixes, so renaming a half does not require editing
     a list here.
     """
-    expected = {f"{EVAL_CFG['half_prefixes'][half]}_{STAMP}" for half in HALVES} | {
-        EVAL_CFG["geometry_dir"],
-        EVAL_CFG["parsing_dir"],
-        "tools",
-        "README.md",
-        "MANIFEST.json",
-        "SHA256SUMS",
-    }
+    expected = (
+        {f"{EVAL_CFG['half_prefixes'][half]}_{STAMP}" for half in HALVES}
+        | {f"{EVAL_CFG['typeset_prefixes'][name]}_{STAMP}" for name in TYPESET_SETS}
+        | {
+            EVAL_CFG["geometry_dir"],
+            EVAL_CFG["parsing_dir"],
+            "tools",
+            "README.md",
+            "MANIFEST.json",
+            "SHA256SUMS",
+        }
+    )
     assert export.path.name == f"{EVAL_CFG['snapshot_dir_prefix']}_{STAMP}"
     assert {p.name for p in export.path.iterdir()} == expected
     assert {directory.parent for directory in export.half_dirs.values()} == {export.path}

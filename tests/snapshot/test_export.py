@@ -11,6 +11,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pypdfium2
@@ -18,7 +19,6 @@ import pytest
 import yaml
 from PIL import Image
 
-from generators import abn_register
 from generators.degradation import degrade_receipt, load_tiers, tier_seed
 from generators.drawn_fields import DrawnFieldsCheck
 from generators.exporters.eval_projection import load_extraction_schema
@@ -527,7 +527,7 @@ def test_a_layout_id_reaching_a_published_file_refuses_the_export(
     four-part diagnostic naming the file and the id, and nothing is published."""
     real_row = export_module.sidecar_row
 
-    def leaking_row(**kwargs: object) -> dict:
+    def leaking_row(**kwargs: Any) -> dict:
         return {**real_row(**kwargs), "layout": "receipt_thermal_80mm"}
 
     monkeypatch.setattr(export_module, "sidecar_row", leaking_row)
@@ -620,8 +620,8 @@ def test_an_earlier_snapshot_of_the_same_name_is_replaced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The owner's ruling: a same-day re-export replaces the earlier snapshot, and a leftover staging
-    directory is cleared. The register loader raising shows the export never reads the ABN register,
-    and the repository's own status is unchanged by an export."""
+    directory is cleared, and the repository's own status is unchanged by an export. (The export reads
+    the ABN register, here the suite's stand-in, to screen distractor ACNs against registered companies.)"""
     config = _receipt_config(tmp_path)
     root = load_snapshot_config(config).output_root
     stale = root / f"snapshot_{STAMP}" / "stale.txt"
@@ -631,10 +631,6 @@ def test_an_earlier_snapshot_of_the_same_name_is_replaced(
     leftover.parent.mkdir()
     leftover.write_text("interrupted")
 
-    def no_register(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the export read the ABN register")
-
-    monkeypatch.setattr(abn_register, "load_abn_register", no_register)
     status = ["git", "-C", str(REPO_ROOT), "status", "--porcelain"]
     before = subprocess.run(status, capture_output=True, text=True, check=True).stdout
     summary = _export(config)

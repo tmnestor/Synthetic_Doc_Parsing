@@ -149,9 +149,11 @@ def test_geometry_records_carry_scored_geometry_only(
         assert set(json.loads(line)) == {"case_id", "image_file", "width", "height", "boxes"}
 
 
-def test_the_readme_documents_the_switch() -> None:
-    readme = (REPO_ROOT / "README.md").read_text()
-    assert "generate --distractors" in readme and "distractor_output_subdir" in readme
+def test_the_generator_reference_documents_the_switch() -> None:
+    """The README is the parsing benchmark's; every generator command is in the reference it links."""
+    reference = (REPO_ROOT / "docs" / "generator_reference.md").read_text()
+    assert "generate --distractors" in reference and "distractor_output_subdir" in reference
+    assert "docs/generator_reference.md" in (REPO_ROOT / "README.md").read_text()
 
 
 def test_the_clean_directory_name_has_one_source() -> None:

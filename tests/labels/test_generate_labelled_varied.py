@@ -27,6 +27,7 @@ from generators.labels.keys import LABEL_STYLES
 from generators.labels.sidecar import REFUSAL_KEYS, ROW_KEYS, SIDECAR_NAME, read_sidecar, summarise
 from generators.loader import load_generation_config
 from generators.pipeline import app
+from generators.snapshot.config import HALVES, TYPESET_SETS
 from tests.conftest import REPO_ROOT, assert_diagnostic_error
 from tests.snapshot_tools import (
     DISTRACTOR_SNAPSHOT_PATH,
@@ -341,7 +342,7 @@ def test_no_derived_export_or_extraction_file_carries_a_label_style(tmp_path: Pa
     ]
     assert len(scanned) >= 5 and any(f.parent.name == "derived" for f in scanned), scanned
     (parsing_dir,) = (tmp_path / "out").glob(f"*/{data['eval_set']['parsing_dir']}")
-    assert len(list(parsing_dir.glob("*.json"))) == 4, parsing_dir
+    assert len(list(parsing_dir.glob("*.json"))) == len(HALVES) + len(TYPESET_SETS), parsing_dir
     for path in scanned:
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if path.parent == parsing_dir:
