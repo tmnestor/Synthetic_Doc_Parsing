@@ -7,7 +7,9 @@ The snapshot directory defaults to the parent of the `tools/` directory this scr
 fails (exit 1) on:
 
 - a file listed in the manifest that is missing, or whose SHA-256 differs;
-- a file present that the manifest does not list (a `.DS_Store` is tolerated and reported as a note);
+- a file present that the manifest does not list (a `.DS_Store`, and anything in an `.ipynb_checkpoints`
+  folder, is tolerated and reported as a note: a file manager and a Jupyter server write those beside any
+  file that is opened, and neither is data);
 - a file the manifest both lists and declares outside its cover;
 - a manifest path that is absolute or climbs out of the snapshot with `..`;
 - a `SHA256SUMS` that disagrees with the manifest's `files` map;
@@ -37,6 +39,8 @@ MANIFEST_NAME = "MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS"
 UNHASHED = (MANIFEST_NAME, CHECKSUMS_NAME)
 TOLERATED = ".DS_Store"
+# The folder a Jupyter server writes beside any file opened in it, at any depth. Nothing in one is data.
+TOLERATED_FOLDER = ".ipynb_checkpoints"
 # The manifest key that names the paths its `files` map does not cover.
 NOT_COVERED_KEY = "not_covered"
 # The most paths named per kind of problem; the total is always given.
@@ -128,11 +132,17 @@ def inspect(snapshot_root: Path) -> tuple[list[str], list[str]]:
         for path in present
         if path not in listed and path not in UNHASHED and not _under(path, outside)
     ]
-    tolerated = [path for path in extra if PurePosixPath(path).name == TOLERATED]
+    checkpoints = [path for path in extra if TOLERATED_FOLDER in PurePosixPath(path).parts[:-1]]
+    tolerated = [
+        path for path in extra if PurePosixPath(path).name == TOLERATED and path not in checkpoints
+    ]
     problems += _named("missing file", missing)
     problems += _named("changed file", changed)
-    problems += _named("extra file", [path for path in extra if path not in tolerated])
+    problems += _named(
+        "extra file", [path for path in extra if path not in tolerated and path not in checkpoints]
+    )
     notes += _named(f"tolerated {TOLERATED}", tolerated)
+    notes += _named(f"tolerated {TOLERATED_FOLDER}", checkpoints)
 
     checksums_path = root / CHECKSUMS_NAME
     if not checksums_path.is_file():

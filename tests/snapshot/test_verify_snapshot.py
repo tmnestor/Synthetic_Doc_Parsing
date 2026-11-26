@@ -243,3 +243,29 @@ def test_a_file_both_listed_and_declared_not_covered_fails(copy: Path) -> None:
 def test_a_not_covered_path_that_climbs_out_or_is_absolute_fails(copy: Path, bad: str) -> None:
     _rewrite_manifest(copy, lambda manifest: manifest.update(not_covered=[bad]))
     assert f"unsafe not_covered path: {bad}" in verify(copy)
+
+
+def test_a_jupyter_checkpoint_folder_is_tolerated_with_a_note_at_any_depth(copy: Path) -> None:
+    """Opening a file of a snapshot in JupyterLab writes a copy of it into a hidden folder beside it."""
+    for folder in (copy, _image(copy).parent, copy / "tools"):
+        (folder / ".ipynb_checkpoints").mkdir()
+        (folder / ".ipynb_checkpoints" / "README-checkpoint.md").write_text("a copy the server made")
+    problems, notes = inspect(copy)
+    assert problems == []
+    assert sorted(notes) == sorted(
+        f"tolerated .ipynb_checkpoints: {folder}.ipynb_checkpoints/README-checkpoint.md"
+        for folder in ("", f"{_image(copy).parent.name}/", "tools/")
+    )
+    result = _run(copy)
+    assert result.returncode == 0, result.stderr
+    assert "note: tolerated .ipynb_checkpoints: .ipynb_checkpoints/README-checkpoint.md" in result.stdout
+
+
+def test_a_file_that_is_only_named_like_a_checkpoint_folder_still_fails(copy: Path) -> None:
+    (copy / ".ipynb_checkpoints").write_text("a file, not the folder")
+    (copy / "ipynb_checkpoints").mkdir()
+    (copy / "ipynb_checkpoints" / "stray.png").write_bytes(b"x")
+    assert sorted(verify(copy)) == [
+        "extra file: .ipynb_checkpoints",
+        "extra file: ipynb_checkpoints/stray.png",
+    ]
