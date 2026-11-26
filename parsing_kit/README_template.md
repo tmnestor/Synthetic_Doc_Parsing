@@ -62,11 +62,17 @@ Start with the `plain` set. It is the easiest, and every other set is a variatio
 | `tools/score_parsing.ipynb` | The scoring notebook (section 8). |
 | `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py` | The launcher the notebook runs the evaluator through, and the two files it uses. They correct the evaluator in memory (section 7). Keep the three together. |
 | `tools/omnidocbench_env.yml` | The conda environment file for the evaluator (section 6). |
-| `tools/verify_snapshot.py` | Checks every file against the manifest (section 11). |
-| `MANIFEST.json`, `SHA256SUMS` | What the kit holds, and the SHA-256 of every file. |
+| `tools/SCORER.json` | The scorer's own record: the evaluator commit, and the SHA-256 of each launcher file and of each source file of the evaluator, which the notebook's preflight checks (section 8). |
+| `tools/verify_snapshot.py` | Checks every page and ground-truth file against the manifest (section 11). |
+| `MANIFEST.json`, `SHA256SUMS` | The SHA-256 of every page and every ground-truth file, and nothing else (section 11). |
 
-Nothing here needs editing, and nothing should be written into this folder: the verifier fails on any
-file it does not expect. Keep your parser's output and the scores somewhere else.
+Nothing here needs editing, and nothing should be written into the folders of pages or into `parsing/`:
+the verifier fails on any file it does not expect there. Keep your parser's output and the scores
+somewhere else.
+
+The manifest covers the data alone, on purpose. If this guide or a file in `tools/` is corrected, you
+can be sent the corrected file to put in place of the old one, and the data and its checksum stay as they
+were.
 
 ## 3. The pages
 
@@ -348,9 +354,17 @@ Made to measure since the flood
   content: the scorer rewrites a pipe table as html before the evaluator sees it (section 7).
 - A pipe table needs a header row and a delimiter row (`|---|---|`). Outer pipes are optional, alignment
   colons are allowed, and a pipe inside a cell must be written `\|`. Leave a blank line after the table.
-- A pipe table cannot say that a cell spans several columns. If your parser can detect a spanning cell,
-  write that table as html with `colspan`; if it cannot, the date rows of the 21 statements that have
-  them (section 4) will cost a little table score, which is a real difference between the two outputs.
+- **A pipe table cannot say that a cell spans several columns, and that costs about a third of the table
+  score on the statements with date rows** (section 4). Written as an ordinary row, with the date in the
+  first cell and the others empty, each date row is charged for its structure although every character
+  is read correctly. Write those tables as html, with the date row as `<td colspan="5">`. The cost was
+  measured on this snapshot on {{SPANNING_DATE}}, with a complete transcription that differs from a
+  perfect one only in those rows (section 9 explains the arithmetic):
+
+{{SPANNING_ROWS_TABLE}}
+
+If your parser can write only pipe tables, report its bank statement scores with that said beside them.
+
 - An html table may use `<th>`, `<thead>` and `<tbody>`, attributes on `<table>`, and line breaks
   between rows; none of these is scored.
 - **Write each cell as plain text.** Inside a table cell, unlike in a paragraph, everything is compared
@@ -393,7 +407,7 @@ conda run -n omnidocbench python -m ipykernel install --user --name omnidocbench
 Then open the notebook with the `omnidocbench` kernel.
 
 - **The commit matters.** The ground truth follows that commit's format, and the corrections in section 7
-  were written for and checked against that commit. `MANIFEST.json` lists the SHA-256 of each of the
+  were written for and checked against that commit. `tools/SCORER.json` lists the SHA-256 of each of the
   evaluator's source files at that commit; the notebook's preflight compares your copy with that list and
   refuses any other, and the launcher refuses evaluator code that is not what it expects.
 - **Python 3.10 or 3.11.** The evaluator pins its own package versions (pandas 2.0.3, numpy 1.24.4 and
@@ -523,6 +537,40 @@ paths). The results appear in `./result/`.
 Each overall score is the plain mean over pages (or over tables, which is the same here: every page has
 exactly one table).
 
+### How a table is scored, and what that means for a bank statement
+
+TEDS treats a table as a tree: the table, its rows, and the cells of each row. It counts the cheapest
+set of changes that turns your tree into the ground truth's, and divides by the number of rows and cells
+in the larger of the two tables.
+
+| Difference between your table and the ground truth | What it costs |
+| --- | --- |
+| A row missing, or a row too many | 1 for the row and 1 for each of its cells: 6 for a row of five cells. |
+| A cell missing or added within a row | 1. |
+| A cell that spans a different number of columns | 1, whatever its text. |
+| A cell whose text differs | The edit distance between the two texts divided by the length of the longer: between 0 and 1. |
+| A cell that is empty in one table and filled in the other | 1. |
+
+Take a statement of 30 transactions: 31 rows of five cells with the header, so 186 rows and cells.
+
+| What went wrong | Cost | TEDS for the page |
+| --- | --- | --- |
+| One transaction left out | 6 | 0.968 |
+| One amount written in the withdrawals column that belongs in the deposits column | 2 | 0.989 |
+| One digit wrong in an amount of seven characters | 0.14 | 0.999 |
+
+A date row written as an ordinary row costs 5: 1 for the cell whose span differs and 1 for each of the
+four empty cells added beside it. A statement of 30 rows of which 12 are date rows, written that way, has
+30 rows and 150 cells, and loses 60 of 180: a TEDS of 0.667 with every character right (section 5 gives
+the measured figures).
+
+Read the second and third rows of the table with care. **TEDS measures how much of the table was reproduced, not
+whether the table means the same thing.** It does not know a withdrawal from a deposit, and it does not
+add up a balance. A parser that puts every amount in the wrong column, or reads one digit of every amount
+wrongly, still scores well above 0.9. If the transactions are to be used as figures, a high TEDS is not
+evidence that they are right: compare the amounts column by column yourself (the notebook's section 8
+shows your table beside the ground truth's for any page).
+
 ### Things to know when interpreting them
 
 - **Read the three document types separately.** A statement's score is nearly all table, a receipt's
@@ -577,8 +625,11 @@ the degraded set's overall mean with a clean set's: one holds receipts only.
 
 ## 11. Verifying the download
 
-`MANIFEST.json` lists the SHA-256 of every file except itself and `SHA256SUMS`, which repeats the same
-list in the form the standard checksum tools read. From the folder that holds the kit:
+`MANIFEST.json` lists the SHA-256 of every page image, every PDF and every ground-truth file.
+`SHA256SUMS` repeats the same list in the form the standard checksum tools read. Neither lists this
+guide or anything in `tools/`: the manifest names the data, so its own SHA-256 is the same for every
+copy of the kit cut from snapshot `{{SNAPSHOT}}`, whichever edition of the guide and the notebook came
+with it. From the folder that holds the kit:
 
 ```sh
 cd {{KIT_DIR}}
@@ -587,11 +638,15 @@ sha256sum -c SHA256SUMS            # Linux
 shasum -a 256 -c SHA256SUMS        # macOS
 ```
 
-`verify_snapshot.py` fails on a missing file, a changed file, an extra file, or an image count that
-disagrees with the manifest. Run it on arrival, before anything else. It also fails if anything has been
-written into the folder since, which is the reason to keep outputs elsewhere. The manifest cannot vouch
-for itself: whoever gave you the kit can give you its SHA-256 to compare with
-`sha256sum MANIFEST.json`.
+`verify_snapshot.py` fails on a missing page or ground-truth file, a changed one, an extra file among
+them, or an image count that disagrees with the manifest. Run it on arrival, before anything else. It
+reports `README.md` and `tools` as not covered, which is as intended. The manifest cannot vouch for
+itself: whoever gave you the kit can give you its SHA-256 to compare with `sha256sum MANIFEST.json`.
+
+The scorer is checked another way. The notebook's preflight compares the three launcher files and the
+evaluator's source files with the SHA-256 values in `tools/SCORER.json`, and its self-test (section 8)
+then proves the whole installation by scoring the ground truth against itself. A scorer that passes the
+self-test is a working one, whatever edition it is.
 
 ## 12. Limits of this kit
 
@@ -606,6 +661,9 @@ for itself: whoever gave you the kit can give you its SHA-256 to compare with
 - **Photographs are of receipts only**, at three fixed severities.
 - **Layout detection is not scored by the notebook** (section 4).
 - **The text score does not see punctuation or spacing** outside tables (section 9).
+- **The table scores do not check what a transaction means.** An amount in the wrong column of a bank
+  statement, or with a digit wrong, barely moves TEDS (section 9). These scores say how well a page was
+  transcribed, not whether figures taken from the transcription are right.
 
 ## 13. Troubleshooting
 
@@ -616,7 +674,8 @@ for itself: whoever gave you the kit can give you its SHA-256 to compare with
 | "The evaluator did not finish" | Read `WORK_DIR/evaluator.log`. `No module named src` or `No module named yaml` means `EVALUATOR_PYTHON` is not the environment the evaluator was installed in. |
 | "The evaluator's table matcher is not the code this fix was written for" | The `OmniDocBench` folder is not at the commit in section 6. |
 | "The ground truth holds a formula" | The launcher was pointed at ground truth that is not this kit's. |
-| The self-test fails | The installation differs from the one this kit was checked with. Check the commit, and that the three launcher files in `tools/` are the kit's own (`python tools/verify_snapshot.py`). Do not use scores from that installation. |
+| The self-test fails | The installation differs from the one this kit was checked with. Check the commit, and that the preflight did not report a launcher file in `tools/` as changed. Do not use scores from that installation. |
+| The preflight says a launcher file differs | A file in `tools/` was edited, or files of two editions of the kit are mixed. Put back the three launcher files and `SCORER.json` from one edition. |
 | TEDS is 0 on pages where the table looks right | Open the page in section 8 of the notebook. If "Your output" shows no table, your file's table was not recognised: check the pipe table has a delimiter row and a blank line after it, or that the html has `<table>` and `</table>`. |
 | TEDS is lower than the table looks | Look for bold or italic markup inside cells (section 5), and for spanning rows written as ordinary rows. |
-| `verify_snapshot.py` reports an extra or changed file | Something was written into the kit, most often by running the notebook in place: a `.ipynb_checkpoints` folder, or the notebook saved with its outputs. Unpack a fresh copy, and work on a copy of the notebook outside it. |
+| `verify_snapshot.py` reports an extra or changed file | Something was written into a folder of pages or into `parsing/`, or a file there was altered. Unpack a fresh copy. Files written into `tools/` do not trouble the verifier, but work on a copy of the notebook outside the kit all the same. |

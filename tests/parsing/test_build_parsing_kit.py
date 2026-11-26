@@ -32,6 +32,8 @@ SETS = {
     "typeset_plain": "typeset_plain_20310102",
 }
 TABLE = "<table><tr><td>Sprocket</td><td>$8.20</td></tr></table>"
+# What the verifier notes about a sound kit: the two paths its manifest declares outside its cover.
+NOT_COVERED_NOTES = ["not covered by the manifest: README.md", "not covered by the manifest: tools"]
 
 
 def _page(directory: str, text: str) -> dict:
@@ -146,7 +148,41 @@ def _evaluator(
     (checkout / "pdf_validation.py").write_text("entry = 1\n")
     (checkout / "src" / "core" / "match.py").write_text("matcher = 1\n")
     (checkout / "src" / "notes.txt").write_text("not a source file\n")
-    return {"checkout": checkout, "commit": commit, "forbidden_terms": forbidden_terms}
+    return {
+        "checkout": checkout,
+        "commit": commit,
+        "forbidden_terms": forbidden_terms,
+        "spanning_results": _spanning(root),
+    }
+
+
+def _spanning(root: Path, **changes: object) -> Path:
+    """A stand-in measurement of spanning rows: one set has them, the others have none."""
+    measured = {
+        "snapshot": "snapshot_20310102",
+        "measured": "2031-01-04",
+        "failures": [],
+        "sets": [
+            {
+                "set": "plain",
+                "pages": 1,
+                "tables": 1,
+                "tables_with_spanning_rows": 1,
+                "their_teds_mean": 0.6704,
+                "their_teds_lowest": 0.625,
+                "their_teds_highest": 0.75,
+                "table_teds": 0.9581,
+                "table_teds_structure_only": 0.9581,
+                "table_edit_dist": 0.023,
+            },
+            {"set": "distractor", "pages": 1, "tables_with_spanning_rows": 0},
+            {"set": "typeset_plain", "pages": 1, "tables_with_spanning_rows": 0},
+        ],
+        **changes,
+    }
+    path = root / "spanning_rows_as_pipe.json"
+    path.write_text(json.dumps(measured))
+    return path
 
 
 def test_a_date_is_written_day_month_year() -> None:
@@ -171,9 +207,10 @@ def test_the_kit_holds_the_pages_the_ground_truth_and_the_scorer_and_no_extracti
             f"{SETS['typeset_plain']}/CASE901_receipt.pdf",
             *(f"parsing/{name}.json" for name in SETS),
             *(f"tools/{name}" for name in build_parsing_kit.TOOLS),
+            "tools/SCORER.json",
         ]
     )
-    assert inspect(kit) == ([], [])
+    assert inspect(kit) == ([], NOT_COVERED_NOTES)
     with zipfile.ZipFile(archive) as bundle:
         assert sorted(bundle.namelist()) == [f"parsing_kit_20310102/{path}" for path in held]
 
@@ -185,10 +222,106 @@ def test_the_kit_holds_the_pages_the_ground_truth_and_the_scorer_and_no_extracti
     manifest = json.loads((kit / "MANIFEST.json").read_text())
     assert manifest["parsing"]["evaluator"]["commit"] == "c" * 40
     assert "geometry_dir" not in manifest and "ground_truth_files" not in manifest
-    assert manifest["evaluator_files"] == {
+    assert "| `plain` | 1 of 1 | 0.670 (0.625 to 0.750) | 0.958 | 0.958 | 0.023 |" in readme
+    assert "No table of `distractor`, `typeset_plain` has a spanning cell." in readme
+    assert "on 4 January 2031" in readme
+    scorer = json.loads((kit / "tools" / "SCORER.json").read_text())
+    assert scorer["evaluator_commit"] == "c" * 40
+    assert scorer["perfect_score_check"]["measured"] == "2031-01-03"
+    assert scorer["evaluator_files"] == {
         "pdf_validation.py": hashlib.sha256(b"entry = 1\n").hexdigest(),
         "src/core/match.py": hashlib.sha256(b"matcher = 1\n").hexdigest(),
     }
+    assert scorer["launcher_files"] == {
+        name: hashlib.sha256((kit / "tools" / name).read_bytes()).hexdigest()
+        for name in build_parsing_kit.LAUNCHER_FILES
+    }
+
+
+def test_the_manifest_names_the_pages_and_the_ground_truth_and_nothing_else(tmp_path: Path) -> None:
+    """The manifest's own SHA-256 is the data's: no guide, tool or check result can move it."""
+    snapshot = _snapshot(tmp_path)
+    source = json.loads((snapshot / "MANIFEST.json").read_text())
+    kit, _archive = build(
+        snapshot, output_root=tmp_path, results=_results(tmp_path), **_evaluator(tmp_path)
+    )
+    manifest = json.loads((kit / "MANIFEST.json").read_text())
+    data = sorted(
+        [
+            *(f"{directory}/CASE901_receipt.png" for directory in SETS.values()),
+            f"{SETS['typeset_plain']}/CASE901_receipt.pdf",
+            *(f"parsing/{name}.json" for name in SETS),
+        ]
+    )
+    assert sorted(manifest["files"]) == data
+    assert manifest["files"] == {relative: source["files"][relative] for relative in data}
+    assert manifest["not_covered"] == ["README.md", "tools"]
+    assert not {"evaluator_files", "perfect_score_check"} & set(manifest)
+    assert (kit / "SHA256SUMS").read_text().count("\n") == len(data)
+
+
+def test_correcting_the_guide_or_a_tool_leaves_the_manifest_and_the_verifier_as_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments = {"output_root": tmp_path, "results": _results(tmp_path), **_evaluator(tmp_path)}
+    kit, _archive = build(_snapshot(tmp_path), **arguments)
+    before = (kit / "MANIFEST.json").read_bytes()
+
+    # A reader puts a corrected guide in place, and a notebook checkpoint appears in tools/.
+    (kit / "README.md").write_text("a corrected guide\n")
+    (kit / "tools" / ".ipynb_checkpoints").mkdir()
+    (kit / "tools" / ".ipynb_checkpoints" / "score_parsing-checkpoint.ipynb").write_text("{}")
+    assert inspect(kit) == ([], NOT_COVERED_NOTES)
+
+    # A later build, with another guide, another check date and another launcher, has the same manifest.
+    template = tmp_path / "template.md"
+    template.write_text(README_TEMPLATE.read_text() + "\nA paragraph added to the guide later.\n")
+    launcher = tmp_path / "pipe_tables.py"
+    launcher.write_text("# a corrected launcher file\n")
+    monkeypatch.setattr(build_parsing_kit, "README_TEMPLATE", template)
+    monkeypatch.setitem(build_parsing_kit.TOOLS, "pipe_tables.py", launcher)
+    arguments["results"] = _results(tmp_path, measured="2031-02-05")
+    rebuilt, _archive = build(tmp_path / "snapshot_20310102", **arguments)
+    assert (rebuilt / "MANIFEST.json").read_bytes() == before
+    assert "A paragraph added to the guide later." in (rebuilt / "README.md").read_text()
+
+
+def test_a_changed_page_still_fails_the_kits_verifier(tmp_path: Path) -> None:
+    kit, _archive = build(
+        _snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **_evaluator(tmp_path)
+    )
+    (kit / "parsing" / "plain.json").write_text("[]")
+    (kit / SETS["plain"] / "stray.png").write_bytes(b"an extra page")
+    problems, _notes = inspect(kit)
+    assert any("changed file: parsing/plain.json" in problem for problem in problems)
+    assert any("extra file" in problem and "stray.png" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
+    ("changes", "named"),
+    [
+        ({"snapshot": "snapshot_20300101"}, "snapshot_20300101"),
+        ({"failures": ["plain: the text or the reading order was charged"]}, "was charged"),
+        ({"sets": []}, "no record for"),
+    ],
+)
+def test_a_measurement_of_spanning_rows_that_is_not_this_snapshots_stops_the_build(
+    tmp_path: Path, changes: dict, named: str
+) -> None:
+    arguments = {**_evaluator(tmp_path), "spanning_results": _spanning(tmp_path, **changes)}
+    with pytest.raises(KitError) as caught:
+        build(_snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **arguments)
+    assert_diagnostic_error(caught.value)
+    assert named in str(caught.value)
+    assert not (tmp_path / "parsing_kit_20310102.zip").exists()
+
+
+def test_spanning_rows_that_were_never_measured_stop_the_build(tmp_path: Path) -> None:
+    arguments = {**_evaluator(tmp_path), "spanning_results": tmp_path / "absent.json"}
+    with pytest.raises(KitError) as caught:
+        build(_snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **arguments)
+    assert_diagnostic_error(caught.value)
+    assert "spanning_rows_as_pipe.py" in str(caught.value)
 
 
 def test_a_kit_that_says_how_the_pages_were_made_is_not_zipped(tmp_path: Path) -> None:
@@ -223,7 +356,7 @@ def test_an_existing_kit_of_the_same_name_is_replaced(tmp_path: Path) -> None:
     kit, _archive = build(
         _snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **_evaluator(tmp_path)
     )
-    assert not stale.exists() and inspect(kit) == ([], [])
+    assert not stale.exists() and inspect(kit) == ([], NOT_COVERED_NOTES)
 
 
 @pytest.mark.parametrize(
@@ -298,6 +431,7 @@ def test_a_token_the_builder_does_not_fill_is_refused(tmp_path: Path) -> None:
             manifest=manifest,
             pages_by_set=pages,
             check=check,
+            spanning=json.loads(_spanning(tmp_path).read_text()),
             kit_dir="k",
         )
     assert_diagnostic_error(caught.value)

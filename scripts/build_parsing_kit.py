@@ -22,9 +22,17 @@ scanned, as a snapshot is, for the terms that would say how the pages were made
 (`eval_set.forbidden_terms`): its guide, its notebook and its scripts say what the data is and how to use
 it, and nothing else.
 
-The kit's manifest also lists the SHA-256 of each source file of the evaluator at the pinned commit, read
-from the local checkout, so that the notebook can tell its reader whether the evaluator they installed is
-the one the kit was checked with.
+The kit's manifest lists the pages and the ground truth and nothing else, and declares the guide and
+`tools/` outside its cover. Its SHA-256 therefore names the data: it is the same for every kit cut from
+one snapshot, and correcting the guide, the notebook or a launcher does not change it.
+
+What the scorer needs is recorded apart, in `tools/SCORER.json`: the SHA-256 of each source file of the
+evaluator at the pinned commit, read from the local checkout, and of each launcher file, so that the
+notebook can tell its reader whether the evaluator they installed and the launcher they run are the ones
+the kit was checked with.
+
+The guide states what a spanning row costs a parser that writes pipe tables, from
+`scripts/spanning_rows_as_pipe.json`; the kit is refused without that measurement for this snapshot.
 """
 
 import argparse
@@ -52,7 +60,8 @@ from generators.snapshot.manifest import (
 from generators.snapshot.publication import find_forbidden
 from scripts.omnidocbench_eval import EvaluatorError, ensure_checkout
 from scripts.perfect_score_snapshot import LAUNCHERS, RESULTS, TABLE_FORMS, TRANSCRIPTIONS
-from scripts.verify_snapshot import inspect
+from scripts.spanning_rows_as_pipe import RESULTS as SPANNING_RESULTS
+from scripts.verify_snapshot import NOT_COVERED_KEY, inspect
 
 KIT_PREFIX = "parsing_kit"
 KIT_SOURCES = REPO_ROOT / "parsing_kit"
@@ -66,6 +75,12 @@ TOOLS = {
     "pipe_tables.py": REPO_ROOT / "scripts" / "pipe_tables.py",
     "verify_snapshot.py": REPO_ROOT / "scripts" / "verify_snapshot.py",
 }
+# What the kit's manifest does not cover: the guide and the scorer, which may be corrected without the
+# data changing.
+NOT_COVERED = ("README.md", "tools")
+# The scorer's own record, in tools/, and the launcher files whose SHA-256 it lists.
+SCORER_NAME = "SCORER.json"
+LAUNCHER_FILES = ("omnidocbench_formula_free.py", "omnidocbench_corrected.py", "pipe_tables.py")
 PAGE_SUFFIXES = (".png", ".pdf")
 # The manifest keys the kit keeps from the snapshot's: what the shipped verifier and the notebook read.
 KEPT_KEYS = (
@@ -321,8 +336,97 @@ def check_left_out_table(check: dict, names: list) -> str:
     return _table(header, rows)
 
 
-def render_readme(template: str, *, manifest: dict, pages_by_set: dict, check: dict, kit_dir: str) -> str:
-    """Fill the guide's template from the snapshot's manifest, its ground truth and the check's results.
+def measured_spanning_rows(snapshot_name: str, *, results: Path) -> dict:
+    """Read what spanning rows cost as pipe-table rows, refusing a measurement that is not this snapshot's.
+
+    Args:
+        snapshot_name: The snapshot the kit is cut from.
+        results: `scripts/spanning_rows_as_pipe.json`.
+
+    Returns:
+        The parsed measurement.
+
+    Raises:
+        KitError: The file is absent, is for another snapshot or records a failure.
+    """
+    recover = (
+        "run `python scripts/spanning_rows_as_pipe.py --snapshot <the snapshot> --workers 3` and build "
+        "the kit once it exits 0."
+    )
+    if not results.is_file():
+        raise _refuse(
+            "What a spanning row costs as a pipe-table row has not been measured.",
+            what=f"{results} does not exist, and the guide states that cost.",
+            where=str(results),
+            expected=f'the measurement for {snapshot_name}, with "failures": [].',
+            recover=recover,
+        )
+    measured = json.loads(results.read_text())
+    if measured["snapshot"] != snapshot_name or measured["failures"]:
+        raise _refuse(
+            "The measurement of spanning rows is not a clean one of this snapshot.",
+            what=f"it is for {measured['snapshot']}, with failures {measured['failures']}; the kit is cut "
+            f"from {snapshot_name}.",
+            where=f"{results} -> snapshot, failures",
+            expected=f'"snapshot": "{snapshot_name}" and "failures": [].',
+            recover=recover,
+        )
+    return measured
+
+
+def spanning_rows_table(measured: dict, names: list) -> str:
+    """Per set: the tables with a spanning row and what they score with that row as an ordinary one.
+
+    Raises:
+        KitError: The measurement lacks a set of the kit.
+    """
+    by_set = {record["set"]: record for record in measured["sets"]}
+    absent = [name for name in names if name not in by_set]
+    if absent:
+        raise _refuse(
+            "The measurement of spanning rows does not cover every set.",
+            what=f"no record for {absent}.",
+            where=f"{SPANNING_RESULTS} -> sets",
+            expected=f"one record for each of {names}.",
+            recover="run scripts/spanning_rows_as_pipe.py again on the whole snapshot.",
+        )
+    rows, without = [], []
+    for name in names:
+        record = by_set[name]
+        if not record["tables_with_spanning_rows"]:
+            without.append(f"`{name}`")
+            continue
+        rows.append(
+            [
+                f"`{name}`",
+                f"{record['tables_with_spanning_rows']} of {record['tables']}",
+                (
+                    f"{record['their_teds_mean']:.3f} ({record['their_teds_lowest']:.3f} to "
+                    f"{record['their_teds_highest']:.3f})"
+                ),
+                _number(record["table_teds"]),
+                _number(record["table_teds_structure_only"]),
+                _number(record["table_edit_dist"]),
+            ]
+        )
+    header = [
+        "Set",
+        "Tables with date rows",
+        "TEDS of those tables: mean (lowest to highest)",
+        "TEDS of the whole set",
+        "TEDS, structure only, of the whole set",
+        "Table edit distance of the whole set",
+    ]
+    table = _table(header, rows)
+    if without:
+        table += f"\n\nNo table of {', '.join(without)} has a spanning cell."
+    return table
+
+
+def render_readme(
+    template: str, *, manifest: dict, pages_by_set: dict, check: dict, spanning: dict, kit_dir: str
+) -> str:
+    """Fill the guide's template from the snapshot's manifest, its ground truth and the stored results.
 
     Raises:
         KitError: The template holds a token this function does not fill.
@@ -342,6 +446,8 @@ def render_readme(template: str, *, manifest: dict, pages_by_set: dict, check: d
         "CHECK_DATE": written_date(check["measured"]),
         "CHECK_COMPLETE_TABLE": check_complete_table(check, names),
         "CHECK_LEFT_OUT_TABLE": check_left_out_table(check, names),
+        "SPANNING_DATE": written_date(spanning["measured"]),
+        "SPANNING_ROWS_TABLE": spanning_rows_table(spanning, names),
     }
     text = template
     for token, value in values.items():
@@ -444,6 +550,7 @@ def build(
     *,
     output_root: Path,
     results: Path,
+    spanning_results: Path,
     checkout: Path,
     commit: str,
     forbidden_terms: tuple,
@@ -454,14 +561,15 @@ def build(
         snapshot: The snapshot directory the kit is cut from.
         output_root: Where the kit and its zip are written.
         results: The perfect-score results the kit is conditional on.
-        checkout: The evaluator checkout whose source files the kit's manifest lists.
+        spanning_results: The measurement of what spanning rows cost as pipe-table rows.
+        checkout: The evaluator checkout whose source files the scorer's record lists.
         commit: The commit that checkout is at.
         forbidden_terms: The terms no file of the kit may hold.
 
     Raises:
-        KitError: The check has not passed, the snapshot's ground truth is for another evaluator commit, a
-            snapshot file is wrong, the guide leaks real content, the kit says how the pages were made, or
-            the finished kit fails its own verifier.
+        KitError: The check has not passed, the spanning rows are not measured, the snapshot's ground
+            truth is for another evaluator commit, a snapshot file is wrong, the guide leaks real content,
+            the kit says how the pages were made, or the finished kit fails its own verifier.
     """
     source = json.loads((snapshot / MANIFEST_NAME).read_text())
     named = source["parsing"]["evaluator"]["commit"]
@@ -475,6 +583,7 @@ def build(
             recover="cut the kit from a snapshot exported with the current evaluator pin, or export one.",
         )
     check = passed_check(source["snapshot_dir"], results=results)
+    spanning = measured_spanning_rows(source["snapshot_dir"], results=spanning_results)
     directories = set_directories(source)
     parsing_dir = source["parsing"]["dir"]
     pages_by_set = {
@@ -486,6 +595,7 @@ def build(
         manifest=source,
         pages_by_set=pages_by_set,
         check=check,
+        spanning=spanning,
         kit_dir=kit_dir,
     )
     refuse_real_examples(readme, pages_by_set)
@@ -507,19 +617,32 @@ def build(
     for name, origin in TOOLS.items():
         shutil.copyfile(origin, kit / "tools" / name)
     (kit / "README.md").write_text(readme)
+    scorer = {
+        "evaluator_commit": commit,
+        "perfect_score_check": {
+            "snapshot": check["snapshot"],
+            "measured": check["measured"],
+            "evaluator_commit": check["evaluator_commit"],
+        },
+        "launcher_files": {name: sha256_file(kit / "tools" / name) for name in LAUNCHER_FILES},
+        "evaluator_files": evaluator_files(checkout),
+    }
+    (kit / "tools" / SCORER_NAME).write_text(json.dumps(scorer, indent=2) + "\n")
 
+    # The manifest names the data and nothing that can be corrected without the data changing, so that
+    # its own SHA-256 is the same for every kit cut from this snapshot.
     manifest = {key: source[key] for key in KEPT_KEYS}
     manifest["kit_dir"] = kit_dir
     manifest["cut_from"] = {
         "snapshot_dir": source["snapshot_dir"],
         "manifest_sha256": sha256_file(snapshot / MANIFEST_NAME),
     }
-    manifest["perfect_score_check"] = {
-        "measured": check["measured"],
-        "evaluator_commit": check["evaluator_commit"],
+    manifest[NOT_COVERED_KEY] = list(NOT_COVERED)
+    manifest["files"] = {
+        relative: digest
+        for relative, digest in hash_files(kit).items()
+        if relative.split("/")[0] not in NOT_COVERED
     }
-    manifest["evaluator_files"] = evaluator_files(checkout)
-    manifest["files"] = hash_files(kit)
     write_manifest(manifest, kit)
     write_checksums(manifest, kit)
     hits = find_forbidden(kit, forbidden_terms)
@@ -563,6 +686,7 @@ def main(argv: list[str] | None = None) -> int:
             args.snapshot.resolve(),
             output_root=config.output_root,
             results=RESULTS,
+            spanning_results=SPANNING_RESULTS,
             checkout=ensure_checkout(pin, root=config.output_root / "tools"),
             commit=pin.evaluator.commit,
             forbidden_terms=config.forbidden_terms,
@@ -571,10 +695,10 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     files = json.loads((kit / MANIFEST_NAME).read_text())["files"]
-    print(f"Kit: {kit} ({len(files)} files)")
+    print(f"Kit: {kit} ({len(files)} pages and ground-truth files in the manifest)")
     print(f"Zip: {archive} ({archive.stat().st_size / 1e6:.0f} MB)")
-    print(f"SHA-256 of {MANIFEST_NAME}: {sha256_file(kit / MANIFEST_NAME)}")
-    print(f"SHA-256 of the zip: {sha256_file(archive)}")
+    print(f"SHA-256 of {MANIFEST_NAME}, which names the data: {sha256_file(kit / MANIFEST_NAME)}")
+    print(f"SHA-256 of the zip, which changes with any file in it: {sha256_file(archive)}")
     return 0
 
 

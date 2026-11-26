@@ -671,13 +671,37 @@ It writes `../evaluation_data/parsing_kit_<YYYYMMDD>/` and zips it beside it, re
 name, and prints the SHA-256 of the kit's manifest and of the zip. Give the zip, and tell its reader the
 manifest's SHA-256 separately.
 
+**The manifest names the data and nothing else.** It lists the pages and `parsing/`, and declares
+`README.md` and `tools/` outside its cover (`not_covered`, which `scripts/verify_snapshot.py` honours and
+reports as a note; a snapshot's manifest has no such key and covers every file). The manifest's SHA-256 is
+therefore the same for every kit cut from one snapshot. When the guide, the notebook or a launcher is
+corrected, send the corrected file to whoever holds the kit: they put it in place, the verifier still
+passes, and the checksum they were given still holds. The scorer's own record is `tools/SCORER.json`: the
+evaluator commit, the perfect-score check's date, and the SHA-256 of each launcher file and of each source
+file of the evaluator, which the notebook's preflight compares the reader's copies with.
+
+The guide states what a spanning row costs a parser that writes pipe tables (about a third of the TEDS of
+the 21 bank statements in each clean set that print the date as a row across the table). That figure is
+measured, not typed:
+
+```bash
+conda run --no-capture-output -n synthetic python scripts/spanning_rows_as_pipe.py \
+    --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --workers 5
+```
+
+It writes the ground truth back complete, every table a pipe table and each spanning row an ordinary one,
+scores it through the formula-free launcher, and stores the result in `scripts/spanning_rows_as_pipe.json`.
+It exits 1 if the text or the reading order is charged at all or a table without a spanning row scores
+less than 1, since the figures would then measure something else. About five minutes for five sets.
+
 | In the kit | From |
 |---|---|
 | Every page image and PDF of the six sets, and `parsing/` | The snapshot, each file checked against the snapshot's manifest as it is copied |
-| `README.md` | `parsing_kit/README_template.md`, its counts filled from the ground truth and its evidence tables from `scripts/perfect_score_snapshot.json` |
+| `README.md` | `parsing_kit/README_template.md`, its counts filled from the ground truth and its evidence tables from `scripts/perfect_score_snapshot.json` and `scripts/spanning_rows_as_pipe.json` |
 | `tools/score_parsing.ipynb`, `tools/omnidocbench_env.yml` | `parsing_kit/` |
 | `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py`, `tools/verify_snapshot.py` | `scripts/` |
-| `MANIFEST.json`, `SHA256SUMS` | Written last. The manifest also lists the SHA-256 of each source file of the evaluator at the pinned commit, which the notebook compares the reader's copy with |
+| `tools/SCORER.json` | Written by the build: the SHA-256 of each launcher file and of each source file of the evaluator at the pinned commit |
+| `MANIFEST.json`, `SHA256SUMS` | Written last, from the pages and `parsing/` alone |
 
 It leaves out the extraction answer keys, the field geometry, the label sidecar and the extraction tools.
 
@@ -685,6 +709,8 @@ The build is refused, each with a four-part message, when:
 
 - `scripts/perfect_score_snapshot.json` is absent, is for another snapshot, records a failure or lacks a
   run: the launcher is not handed over unless it passed on the snapshot the kit is cut from;
+- `scripts/spanning_rows_as_pipe.json` is absent, is for another snapshot, records a failure or lacks a
+  set;
 - the snapshot's ground truth was written for another evaluator commit than `evaluator.commit`;
 - a snapshot file differs from the snapshot's own manifest;
 - an example in the guide shows a real line or cell of the ground truth. The guide is read by the people

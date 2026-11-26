@@ -127,7 +127,7 @@ def test_a_ds_store_is_tolerated_with_a_note(copy: Path) -> None:
 def test_a_tampered_checksum_file_fails(copy: Path) -> None:
     sums = copy / "SHA256SUMS"
     lines = sums.read_text().splitlines()
-    digest, _, path = lines[0].partition("  ")
+    _digest, _, path = lines[0].partition("  ")
     lines[0] = f"{'0' * 64}  {path}"
     sums.write_text("\n".join(lines) + "\n")
     assert verify(copy) == [f"SHA256SUMS disagrees with MANIFEST.json: {path}"]
@@ -180,3 +180,66 @@ def test_the_verifier_imports_only_the_standard_library() -> None:
             assert node.level == 0 and node.module is not None
             modules.add(node.module.split(".")[0])
     assert modules and modules <= set(sys.stdlib_module_names), modules - set(sys.stdlib_module_names)
+
+
+def _cover_the_data_alone(root: Path, outside: list[str]) -> None:
+    """Rewrite the manifest and the checksum file to leave `outside` out of the manifest's cover."""
+
+    def edit(manifest: dict) -> None:
+        manifest["files"] = {
+            path: digest
+            for path, digest in manifest["files"].items()
+            if not any(path == top or path.startswith(f"{top}/") for top in outside)
+        }
+        manifest["not_covered"] = outside
+
+    _rewrite_manifest(root, edit)
+    files = json.loads((root / "MANIFEST.json").read_text())["files"]
+    (root / "SHA256SUMS").write_text(
+        "".join(f"{digest}  {path}\n" for path, digest in sorted(files.items()))
+    )
+
+
+def test_a_path_the_manifest_declares_not_covered_may_change_and_is_noted(copy: Path) -> None:
+    _cover_the_data_alone(copy, ["README.md", "tools"])
+    before = (copy / "MANIFEST.json").read_bytes()
+    (copy / "README.md").write_text("a corrected guide\n")
+    (copy / "tools" / "a_new_tool.py").write_text("\n")
+    (copy / "tools" / "nested").mkdir()
+    (copy / "tools" / "nested" / "notes.txt").write_text("x")
+
+    problems, notes = inspect(copy)
+    assert problems == []
+    assert notes == ["not covered by the manifest: README.md", "not covered by the manifest: tools"]
+    assert (copy / "MANIFEST.json").read_bytes() == before
+    result = _run(copy)
+    assert result.returncode == 0, result.stderr
+    assert "note: not covered by the manifest: tools" in result.stdout
+
+
+def test_a_path_not_covered_may_be_absent(copy: Path) -> None:
+    _cover_the_data_alone(copy, ["README.md"])
+    (copy / "README.md").unlink()
+    assert verify(copy) == []
+
+
+def test_the_data_is_still_checked_beside_a_path_that_is_not_covered(copy: Path) -> None:
+    _cover_the_data_alone(copy, ["README.md", "tools"])
+    image = _image(copy)
+    image.write_bytes(image.read_bytes() + b"\x00")
+    (copy / "toolshed.txt").write_text("a name that only begins like a path not covered")
+    problems = verify(copy)
+    assert any(problem.startswith("changed file: ") and image.name in problem for problem in problems)
+    assert "extra file: toolshed.txt" in problems
+
+
+def test_a_file_both_listed_and_declared_not_covered_fails(copy: Path) -> None:
+    _rewrite_manifest(copy, lambda manifest: manifest.update(not_covered=["tools"]))
+    problems = verify(copy)
+    assert any(problem.startswith("listed and declared not_covered: tools/") for problem in problems)
+
+
+@pytest.mark.parametrize("bad", ["../elsewhere", "/etc"])
+def test_a_not_covered_path_that_climbs_out_or_is_absolute_fails(copy: Path, bad: str) -> None:
+    _rewrite_manifest(copy, lambda manifest: manifest.update(not_covered=[bad]))
+    assert f"unsafe not_covered path: {bad}" in verify(copy)
