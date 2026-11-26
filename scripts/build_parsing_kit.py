@@ -33,6 +33,10 @@ the kit was checked with.
 
 The guide states what a spanning row costs a parser that writes pipe tables, from
 `scripts/spanning_rows_as_pipe.json`; the kit is refused without that measurement for this snapshot.
+
+The notebook also counts, for a bank statement, whether each amount is in the right column
+(`scripts/transaction_columns.py`, shipped in `tools/`). That check is a scorer too, so the kit is refused
+unless `scripts/transaction_columns_check.json` records that it passed on this snapshot.
 """
 
 import argparse
@@ -61,6 +65,8 @@ from generators.snapshot.publication import find_forbidden
 from scripts.omnidocbench_eval import EvaluatorError, ensure_checkout
 from scripts.perfect_score_snapshot import LAUNCHERS, RESULTS, TABLE_FORMS, TRANSCRIPTIONS
 from scripts.spanning_rows_as_pipe import RESULTS as SPANNING_RESULTS
+from scripts.transaction_columns_check import FAULTS, SAVED_RUNS
+from scripts.transaction_columns_check import RESULTS as TRANSACTION_RESULTS
 from scripts.verify_snapshot import NOT_COVERED_KEY, inspect
 
 KIT_PREFIX = "parsing_kit"
@@ -73,6 +79,7 @@ TOOLS = {
     "omnidocbench_formula_free.py": REPO_ROOT / "scripts" / "omnidocbench_formula_free.py",
     "omnidocbench_corrected.py": REPO_ROOT / "scripts" / "omnidocbench_corrected.py",
     "pipe_tables.py": REPO_ROOT / "scripts" / "pipe_tables.py",
+    "transaction_columns.py": REPO_ROOT / "scripts" / "transaction_columns.py",
     "verify_snapshot.py": REPO_ROOT / "scripts" / "verify_snapshot.py",
 }
 # What the kit's manifest does not cover: the guide and the scorer, which may be corrected without the
@@ -81,6 +88,8 @@ NOT_COVERED = ("README.md", "tools")
 # The scorer's own record, in tools/, and the launcher files whose SHA-256 it lists.
 SCORER_NAME = "SCORER.json"
 LAUNCHER_FILES = ("omnidocbench_formula_free.py", "omnidocbench_corrected.py", "pipe_tables.py")
+# The files the notebook imports, whose SHA-256 the scorer's record lists beside the launcher's.
+NOTEBOOK_FILES = ("transaction_columns.py",)
 PAGE_SUFFIXES = (".png", ".pdf")
 # The manifest keys the kit keeps from the snapshot's: what the shipped verifier and the notebook read.
 KEPT_KEYS = (
@@ -423,8 +432,102 @@ def spanning_rows_table(measured: dict, names: list) -> str:
     return table
 
 
+def passed_transaction_check(snapshot_name: str, *, results: Path) -> dict:
+    """Read the transaction check's results, refusing any that do not show this snapshot passing.
+
+    Args:
+        snapshot_name: The snapshot the kit is cut from.
+        results: `scripts/transaction_columns_check.json`.
+
+    Returns:
+        The parsed results.
+
+    Raises:
+        KitError: The file is absent, is for another snapshot or records a failure.
+    """
+    recover = (
+        "run `python scripts/transaction_columns_check.py --snapshot <the snapshot>` and build the kit "
+        "once it exits 0."
+    )
+    if not results.is_file():
+        raise _refuse(
+            "The transaction check has not been proved on this snapshot.",
+            what=f"{results} does not exist, and the kit ships that check.",
+            where=str(results),
+            expected=f'the check\'s results for {snapshot_name}, with "failures": [].',
+            recover=recover,
+        )
+    proved = json.loads(results.read_text())
+    if proved["snapshot"] != snapshot_name or proved["failures"]:
+        raise _refuse(
+            "The transaction check did not pass on this snapshot, so it is not fit to hand over.",
+            what=f"its results are for {proved['snapshot']}, with failures {proved['failures']}; the kit is "
+            f"cut from {snapshot_name}.",
+            where=f"{results} -> snapshot, failures",
+            expected=f'"snapshot": "{snapshot_name}" and "failures": [].',
+            recover="correct scripts/transaction_columns.py if it failed, then " + recover,
+        )
+    return proved
+
+
+def transaction_check_table(proved: dict, names: list) -> str:
+    """Per set with a bank statement: what the transaction check judged, perfect and with one fault.
+
+    Raises:
+        KitError: The results lack a run or a fault the guide reports.
+    """
+    by_set = {record["set"]: record for record in proved["sets"]}
+    rows, without = [], []
+    for name in names:
+        if name not in by_set:
+            without.append(f"`{name}`")
+            continue
+        record = by_set[name]
+        absent = [key for key in SAVED_RUNS if key not in record["read_back"]]
+        absent += [key for key in FAULTS if key not in record["one_fault"]]
+        if absent:
+            raise _refuse(
+                "The transaction check's results do not cover what the guide reports.",
+                what=f"set {name} has no result for {absent}.",
+                where=f"{TRANSACTION_RESULTS} -> sets",
+                expected=f"a result for each of {list(SAVED_RUNS)} and {list(FAULTS)}.",
+                recover="run scripts/transaction_columns_check.py again on the whole snapshot.",
+            )
+        row = [f"`{name}`", record["statements"]]
+        row += [
+            f"{record['read_back'][key]['right']} of {record['read_back'][key]['rows_with_an_amount']}"
+            for key in SAVED_RUNS
+        ]
+        row += [
+            f"{record['one_fault'][key]['named_that_fault_alone']} of {record['one_fault'][key]['judged']}"
+            for key in FAULTS
+        ]
+        rows.append(row)
+    header = [
+        "Set",
+        "Statements",
+        "Rows judged right: tables as html",
+        "Rows judged right: as pipe tables",
+        "Rows judged right: date rows as ordinary pipe rows",
+        "Tables where an amount in the other column was named alone",
+        "Tables where one changed digit was named alone",
+        "Tables where the row left out was named alone",
+    ]
+    table = _table(header, rows)
+    if without:
+        table += f"\n\n{', '.join(without)} holds no bank statement."
+    return table
+
+
 def render_readme(
-    template: str, *, manifest: dict, pages_by_set: dict, check: dict, spanning: dict, kit_dir: str
+    template: str,
+    *,
+    manifest: dict,
+    pages_by_set: dict,
+    check: dict,
+    spanning: dict,
+    transactions: dict,
+    kit_dir: str,
 ) -> str:
     """Fill the guide's template from the snapshot's manifest, its ground truth and the stored results.
 
@@ -448,6 +551,8 @@ def render_readme(
         "CHECK_LEFT_OUT_TABLE": check_left_out_table(check, names),
         "SPANNING_DATE": written_date(spanning["measured"]),
         "SPANNING_ROWS_TABLE": spanning_rows_table(spanning, names),
+        "TRANSACTION_CHECK_DATE": written_date(transactions["measured"]),
+        "TRANSACTION_CHECK_TABLE": transaction_check_table(transactions, names),
     }
     text = template
     for token, value in values.items():
@@ -551,6 +656,7 @@ def build(
     output_root: Path,
     results: Path,
     spanning_results: Path,
+    transaction_results: Path,
     checkout: Path,
     commit: str,
     forbidden_terms: tuple,
@@ -562,12 +668,13 @@ def build(
         output_root: Where the kit and its zip are written.
         results: The perfect-score results the kit is conditional on.
         spanning_results: The measurement of what spanning rows cost as pipe-table rows.
+        transaction_results: The results of the transaction check on this snapshot.
         checkout: The evaluator checkout whose source files the scorer's record lists.
         commit: The commit that checkout is at.
         forbidden_terms: The terms no file of the kit may hold.
 
     Raises:
-        KitError: The check has not passed, the spanning rows are not measured, the snapshot's ground
+        KitError: A check has not passed, the spanning rows are not measured, the snapshot's ground
             truth is for another evaluator commit, a snapshot file is wrong, the guide leaks real content,
             the kit says how the pages were made, or the finished kit fails its own verifier.
     """
@@ -584,6 +691,7 @@ def build(
         )
     check = passed_check(source["snapshot_dir"], results=results)
     spanning = measured_spanning_rows(source["snapshot_dir"], results=spanning_results)
+    transactions = passed_transaction_check(source["snapshot_dir"], results=transaction_results)
     directories = set_directories(source)
     parsing_dir = source["parsing"]["dir"]
     pages_by_set = {
@@ -596,6 +704,7 @@ def build(
         pages_by_set=pages_by_set,
         check=check,
         spanning=spanning,
+        transactions=transactions,
         kit_dir=kit_dir,
     )
     refuse_real_examples(readme, pages_by_set)
@@ -624,7 +733,9 @@ def build(
             "measured": check["measured"],
             "evaluator_commit": check["evaluator_commit"],
         },
+        "transaction_check": {"snapshot": transactions["snapshot"], "measured": transactions["measured"]},
         "launcher_files": {name: sha256_file(kit / "tools" / name) for name in LAUNCHER_FILES},
+        "notebook_files": {name: sha256_file(kit / "tools" / name) for name in NOTEBOOK_FILES},
         "evaluator_files": evaluator_files(checkout),
     }
     (kit / "tools" / SCORER_NAME).write_text(json.dumps(scorer, indent=2) + "\n")
@@ -687,6 +798,7 @@ def main(argv: list[str] | None = None) -> int:
             output_root=config.output_root,
             results=RESULTS,
             spanning_results=SPANNING_RESULTS,
+            transaction_results=TRANSACTION_RESULTS,
             checkout=ensure_checkout(pin, root=config.output_root / "tools"),
             commit=pin.evaluator.commit,
             forbidden_terms=config.forbidden_terms,

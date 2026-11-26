@@ -1,0 +1,288 @@
+{
+  "snapshot": "snapshot_20261021",
+  "measured": "2026-11-27",
+  "repository_commit": "3190f11f60a3cd5bd2b55fd33564a7514fe2c46d-dirty",
+  "failures": [],
+  "sets": [
+    {
+      "set": "distractor",
+      "statements": 55,
+      "read_back": {
+        "complete, tables as html": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, tables as pipe tables": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, date rows as ordinary pipe rows": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        }
+      },
+      "one_fault": {
+        "amount_in_the_other_column": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "one_digit_changed": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "row_left_out": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        }
+      }
+    },
+    {
+      "set": "labelled_varied",
+      "statements": 55,
+      "read_back": {
+        "complete, tables as html": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, tables as pipe tables": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, date rows as ordinary pipe rows": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        }
+      },
+      "one_fault": {
+        "amount_in_the_other_column": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "one_digit_changed": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "row_left_out": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        }
+      }
+    },
+    {
+      "set": "plain",
+      "statements": 55,
+      "read_back": {
+        "complete, tables as html": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, tables as pipe tables": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, date rows as ordinary pipe rows": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        }
+      },
+      "one_fault": {
+        "amount_in_the_other_column": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "one_digit_changed": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "row_left_out": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        }
+      }
+    },
+    {
+      "set": "typeset_distractor",
+      "statements": 55,
+      "read_back": {
+        "complete, tables as html": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, tables as pipe tables": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, date rows as ordinary pipe rows": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        }
+      },
+      "one_fault": {
+        "amount_in_the_other_column": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "one_digit_changed": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "row_left_out": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        }
+      }
+    },
+    {
+      "set": "typeset_plain",
+      "statements": 55,
+      "read_back": {
+        "complete, tables as html": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, tables as pipe tables": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        },
+        "complete, date rows as ordinary pipe rows": {
+          "statements": 55,
+          "rows_with_an_amount": 1498,
+          "right": 1498,
+          "wrong_column": 0,
+          "amount_misread": 0,
+          "amount_missing": 0,
+          "row_missing": 0,
+          "not_judged": 0,
+          "rows_added": 0
+        }
+      },
+      "one_fault": {
+        "amount_in_the_other_column": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "one_digit_changed": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        },
+        "row_left_out": {
+          "judged": 110,
+          "named_that_fault_alone": 110,
+          "exceptions": []
+        }
+      }
+    }
+  ]
+}

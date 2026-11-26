@@ -61,6 +61,7 @@ Start with the `plain` set. It is the easiest, and every other set is a variatio
 | `parsing/` | The ground truth: one JSON file per set (section 4). |
 | `tools/score_parsing.ipynb` | The scoring notebook (section 8). |
 | `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py` | The launcher the notebook runs the evaluator through, and the two files it uses. They correct the evaluator in memory (section 7). Keep the three together. |
+| `tools/transaction_columns.py` | The check of whether each amount of a bank statement is in the right column, which the notebook's section 10 runs (section 9). |
 | `tools/omnidocbench_env.yml` | The conda environment file for the evaluator (section 6). |
 | `tools/SCORER.json` | The scorer's own record: the evaluator commit, and the SHA-256 of each launcher file and of each source file of the evaluator, which the notebook's preflight checks (section 8). |
 | `tools/verify_snapshot.py` | Checks every page and ground-truth file against the manifest (section 11). |
@@ -489,12 +490,13 @@ finds the kit through its `KIT` setting. Run it from the top; only the first cod
 | --- | --- | --- |
 | 2. Functions | Defines everything; changes nothing on disk. | Instant |
 | 3. Preflight | Checks that the evaluator's files are those of the right commit, the paths, and that every page has a markdown file. Lists missing, empty and stray files, and warns if your table cells hold bold or italic markup. Stops with a list of what to fix. | Seconds |
-| 4. Self-test | Writes the set's own ground truth back as markdown, with html tables and with pipe tables, and scores both. Both must be perfect. Run it once after installing, and again after any change to the installation. It also leaves you two folders of perfectly formed output to look at. | A few minutes |
+| 4. Self-test | Writes the set's own ground truth back as markdown, with html tables and with pipe tables, and scores both. Both must be perfect, and every amount of every bank statement must be judged to be in the right column. Run it once after installing, and again after any change to the installation. It also leaves you two folders of perfectly formed output to look at. | A few minutes |
 | 5. Score your parser | The real run. Shows the five overall scores. | A few minutes for 165 pages |
 | 6. By document type, layout and tier | One row per page (`scores`, also saved as `scores_per_page.csv`), then the means by document type and by layout or tier. | Instant |
 | 7. Worst pages | The pages with the highest text edit distance. | Instant |
 | 8. One page, line by line | For any page: each ground-truth line beside the text of your output it was paired with, and the page's table beside yours. This is where to look to understand a score. | Instant |
 | 9. Comparing two sets | How to pair two runs page by page. | |
+| 10. Bank statements: is each amount in the right column? | For every row of every statement that holds an amount: whether your table holds that amount in the same column. Read it beside the table scores whenever the set holds statements (section 9). | Instant |
 
 ### What is written to `WORK_DIR`
 
@@ -503,6 +505,8 @@ finds the kit through its `KIT` setting. Run it from the top; only the first cod
 | `end2end.json` | The configuration the evaluator ran with. |
 | `evaluator.log` | Everything the evaluator printed. Read it if a run fails. |
 | `scores_per_page.csv` | One row per page: document type, layout, tier and the five scores. |
+| `transactions_per_statement.csv` | One row per bank statement: how many of its rows hold an amount, and how many of those were right, in the wrong column, misread, without an amount, missing or not judged. |
+| `transactions_not_right.csv` | One row per transaction that was not right: what was wrong, the row in the ground truth and the row in your table. |
 | `result/<your folder>_quick_match_metric_result.json` | The evaluator's own summary. |
 | `result/<your folder>_quick_match_text_block_result.json` | Every ground-truth line with the text it was paired with and its edit distance. |
 | `result/<your folder>_quick_match_table_result.json`, `..._table_per_table_TEDS.json` | Every table pair and its scores. |
@@ -564,12 +568,60 @@ four empty cells added beside it. A statement of 30 rows of which 12 are date ro
 30 rows and 150 cells, and loses 60 of 180: a TEDS of 0.667 with every character right (section 5 gives
 the measured figures).
 
-Read the second and third rows of the table with care. **TEDS measures how much of the table was reproduced, not
-whether the table means the same thing.** It does not know a withdrawal from a deposit, and it does not
-add up a balance. A parser that puts every amount in the wrong column, or reads one digit of every amount
-wrongly, still scores well above 0.9. If the transactions are to be used as figures, a high TEDS is not
-evidence that they are right: compare the amounts column by column yourself (the notebook's section 8
-shows your table beside the ground truth's for any page).
+Read the second and third rows of the table with care. **TEDS measures how much of the table was
+reproduced, not whether the table means the same thing.** It does not know a withdrawal from a deposit,
+and it does not add up a balance. A parser that puts every amount in the wrong column, or reads one digit
+of every amount wrongly, still scores well above 0.9. If the transactions are to be used as figures, a
+high TEDS is not evidence that they are right. The next check is.
+
+### Is each amount in the right column? (the notebook's section 10)
+
+For anyone who goes on to take figures from a statement, a withdrawal read as a deposit is the worst
+error a transcription can hold, and the table scores hide it. So the notebook counts it directly, with
+`tools/transaction_columns.py`, beside the table scores and not in place of them.
+
+Every row of a statement's ground-truth table that holds an amount in its withdrawals or its deposits
+column is paired with a row of your table, as the evaluator recorded it, and given one judgement:
+
+| Judgement | What it means |
+| --- | --- |
+| `right` | Your row holds the same amounts in the same two columns. |
+| `wrong_column` | An amount is in the other column, or in both, or in a column that should be empty. |
+| `amount_misread` | The amounts are in the right columns and at least one figure differs. |
+| `amount_missing` | Your row holds no amount in either column. |
+| `row_missing` | No row of your table is this row. A page with no table has every row missing. |
+| `not_judged` | Your table's withdrawals and deposits columns could not be told apart. |
+
+`rows_added` counts rows of your table that hold an amount and stand for no row of the page.
+
+How it works, so that you can judge what it will and will not catch:
+
+- **The two columns are found by your table's own header**: one heading that begins `withdraw` or
+  `debit`, and one that begins `deposit` or `credit`. A parser that exchanges the two columns, headings
+  and all, has kept every amount's meaning and is judged right; TEDS charges it for the transcription.
+  If your header cannot be read that way and your table has as many columns as the ground truth's, the
+  columns are taken by position. Otherwise the table is `not_judged`.
+- **Rows are paired in order, by what they say.** Rows that agree on every filled cell are paired first;
+  between them, a row is paired with the most similar remaining row if the two are at least 0.6 alike.
+  A row whose description was badly misread can therefore be reported as `row_missing` with a row of
+  yours in `rows_added`.
+- **Amounts are compared as figures**: on their digits, decimal point and minus sign. `$1,204.50` and
+  `1204.50` are the same amount here, and a dash in a cell that should be empty is an empty cell. A
+  dropped currency sign or thousands separator is a matter of transcription, which TEDS charges.
+- **The balance column is not judged**, and nothing is added up.
+- **Rows that hold no amount are not counted**: the opening balance, a balance brought forward, and the
+  date rows of the statements that have them, however your table writes them.
+
+The check was itself checked on snapshot `{{SNAPSHOT}}` on {{TRANSACTION_CHECK_DATE}}, in the two ways a
+scorer must be. A complete transcription must be judged wholly right, read back from the evaluator's own
+results for tables written as html, as pipe tables, and with date rows as ordinary pipe rows. And with
+one thing wrong in each statement (the middle transaction's amount moved to the other column, or one
+digit of it changed, or the row left out), written as html and as a pipe table, the check must name that
+one row and that one fault and judge every other row right:
+
+{{TRANSACTION_CHECK_TABLE}}
+
+The self-test in the notebook's section 4 repeats the first of these on your installation.
 
 ### Things to know when interpreting them
 
@@ -640,8 +692,10 @@ shasum -a 256 -c SHA256SUMS        # macOS
 
 `verify_snapshot.py` fails on a missing page or ground-truth file, a changed one, an extra file among
 them, or an image count that disagrees with the manifest. Run it on arrival, before anything else. It
-reports `README.md` and `tools` as not covered, which is as intended. The manifest cannot vouch for
-itself: whoever gave you the kit can give you its SHA-256 to compare with `sha256sum MANIFEST.json`.
+reports `README.md` and `tools` as not covered, which is as intended. If you open a file of the kit in
+JupyterLab, the server writes a copy into a hidden `.ipynb_checkpoints` folder beside it; the verifier
+tolerates those folders wherever they appear and lists what they hold as notes. The manifest cannot vouch
+for itself: whoever gave you the kit can give you its SHA-256 to compare with `sha256sum MANIFEST.json`.
 
 The scorer is checked another way. The notebook's preflight compares the three launcher files and the
 evaluator's source files with the SHA-256 values in `tools/SCORER.json`, and its self-test (section 8)
@@ -662,8 +716,10 @@ self-test is a working one, whatever edition it is.
 - **Layout detection is not scored by the notebook** (section 4).
 - **The text score does not see punctuation or spacing** outside tables (section 9).
 - **The table scores do not check what a transaction means.** An amount in the wrong column of a bank
-  statement, or with a digit wrong, barely moves TEDS (section 9). These scores say how well a page was
-  transcribed, not whether figures taken from the transcription are right.
+  statement, or with a digit wrong, barely moves TEDS (section 9). The notebook's section 10 counts both
+  for bank statements. Nothing of the kind is done for invoices and receipts, whose tables have no such
+  pair of columns, and no balance or total is added up on any page. This kit scores transcription; it
+  does not score the extraction of named fields.
 
 ## 13. Troubleshooting
 
@@ -675,7 +731,9 @@ self-test is a working one, whatever edition it is.
 | "The evaluator's table matcher is not the code this fix was written for" | The `OmniDocBench` folder is not at the commit in section 6. |
 | "The ground truth holds a formula" | The launcher was pointed at ground truth that is not this kit's. |
 | The self-test fails | The installation differs from the one this kit was checked with. Check the commit, and that the preflight did not report a launcher file in `tools/` as changed. Do not use scores from that installation. |
-| The preflight says a launcher file differs | A file in `tools/` was edited, or files of two editions of the kit are mixed. Put back the three launcher files and `SCORER.json` from one edition. |
+| The preflight says a launcher file differs | A file in `tools/` was edited, or files of two editions of the kit are mixed. Put back the three launcher files, `transaction_columns.py` and `SCORER.json` from one edition. |
+| Section 10 shows `not_judged` for a statement | Your table's header does not name a withdrawals and a deposits column, and the table has a different number of columns from the page's. Look at the page in section 8 of the notebook. |
+| Section 10 shows `row_missing` and `rows_added` for the same statement | A row was read too differently to be recognised as the same row. `transactions_not_right.csv` shows the ground-truth row; find yours in section 8. |
 | TEDS is 0 on pages where the table looks right | Open the page in section 8 of the notebook. If "Your output" shows no table, your file's table was not recognised: check the pipe table has a delimiter row and a blank line after it, or that the html has `<table>` and `</table>`. |
 | TEDS is lower than the table looks | Look for bold or italic markup inside cells (section 5), and for spanning rows written as ordinary rows. |
-| `verify_snapshot.py` reports an extra or changed file | Something was written into a folder of pages or into `parsing/`, or a file there was altered. Unpack a fresh copy. Files written into `tools/` do not trouble the verifier, but work on a copy of the notebook outside the kit all the same. |
+| `verify_snapshot.py` reports an extra or changed file | Something was written into a folder of pages or into `parsing/`, or a file there was altered. Unpack a fresh copy. Files written into `tools/`, and Jupyter's `.ipynb_checkpoints` folders anywhere, do not trouble the verifier, but work on a copy of the notebook outside the kit all the same. |

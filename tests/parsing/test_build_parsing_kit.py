@@ -23,6 +23,7 @@ from scripts.build_parsing_kit import (
     written_date,
 )
 from scripts.perfect_score_snapshot import LAUNCHERS, TABLE_FORMS, TRANSCRIPTIONS
+from scripts.transaction_columns_check import FAULTS, SAVED_RUNS
 from scripts.verify_snapshot import inspect
 from tests.conftest import assert_diagnostic_error
 
@@ -153,7 +154,30 @@ def _evaluator(
         "commit": commit,
         "forbidden_terms": forbidden_terms,
         "spanning_results": _spanning(root),
+        "transaction_results": _transactions(root),
     }
+
+
+def _transactions(root: Path, **changes: object) -> Path:
+    """Stand-in results of the transaction check: one set holds a statement, and it passed."""
+    judged = {"statements": 1, "rows_with_an_amount": 31, "right": 31, "rows_added": 0}
+    proved = {
+        "snapshot": "snapshot_20310102",
+        "measured": "2031-01-05",
+        "failures": [],
+        "sets": [
+            {
+                "set": "plain",
+                "statements": 1,
+                "read_back": {key: dict(judged) for key in SAVED_RUNS},
+                "one_fault": {key: {"judged": 2, "named_that_fault_alone": 2} for key in FAULTS},
+            }
+        ],
+        **changes,
+    }
+    path = root / "transaction_columns_check.json"
+    path.write_text(json.dumps(proved))
+    return path
 
 
 def _spanning(root: Path, **changes: object) -> Path:
@@ -236,6 +260,15 @@ def test_the_kit_holds_the_pages_the_ground_truth_and_the_scorer_and_no_extracti
         name: hashlib.sha256((kit / "tools" / name).read_bytes()).hexdigest()
         for name in build_parsing_kit.LAUNCHER_FILES
     }
+    assert scorer["notebook_files"] == {
+        "transaction_columns.py": hashlib.sha256(
+            (kit / "tools" / "transaction_columns.py").read_bytes()
+        ).hexdigest()
+    }
+    assert scorer["transaction_check"] == {"snapshot": "snapshot_20310102", "measured": "2031-01-05"}
+    assert "| `plain` | 1 | 31 of 31 | 31 of 31 | 31 of 31 | 2 of 2 | 2 of 2 | 2 of 2 |" in readme
+    assert "`distractor`, `typeset_plain` holds no bank statement." in readme
+    assert "on 5 January 2031" in readme
 
 
 def test_the_manifest_names_the_pages_and_the_ground_truth_and_nothing_else(tmp_path: Path) -> None:
@@ -314,6 +347,33 @@ def test_a_measurement_of_spanning_rows_that_is_not_this_snapshots_stops_the_bui
     assert_diagnostic_error(caught.value)
     assert named in str(caught.value)
     assert not (tmp_path / "parsing_kit_20310102.zip").exists()
+
+
+@pytest.mark.parametrize(
+    ("changes", "named"),
+    [
+        ({"snapshot": "snapshot_20300101"}, "snapshot_20300101"),
+        ({"failures": ["plain, row_left_out: 1 of 2 tables are not judged"]}, "1 of 2 tables"),
+        ({"sets": [{"set": "plain", "statements": 1, "read_back": {}, "one_fault": {}}]}, "no result for"),
+    ],
+)
+def test_a_transaction_check_that_does_not_show_this_snapshot_passing_stops_the_build(
+    tmp_path: Path, changes: dict, named: str
+) -> None:
+    arguments = {**_evaluator(tmp_path), "transaction_results": _transactions(tmp_path, **changes)}
+    with pytest.raises(KitError) as caught:
+        build(_snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **arguments)
+    assert_diagnostic_error(caught.value)
+    assert named in str(caught.value)
+    assert not (tmp_path / "parsing_kit_20310102.zip").exists()
+
+
+def test_a_transaction_check_that_was_never_run_stops_the_build(tmp_path: Path) -> None:
+    arguments = {**_evaluator(tmp_path), "transaction_results": tmp_path / "absent.json"}
+    with pytest.raises(KitError) as caught:
+        build(_snapshot(tmp_path), output_root=tmp_path, results=_results(tmp_path), **arguments)
+    assert_diagnostic_error(caught.value)
+    assert "transaction_columns_check.py" in str(caught.value)
 
 
 def test_spanning_rows_that_were_never_measured_stop_the_build(tmp_path: Path) -> None:
@@ -432,6 +492,7 @@ def test_a_token_the_builder_does_not_fill_is_refused(tmp_path: Path) -> None:
             pages_by_set=pages,
             check=check,
             spanning=json.loads(_spanning(tmp_path).read_text()),
+            transactions=json.loads(_transactions(tmp_path).read_text()),
             kit_dir="k",
         )
     assert_diagnostic_error(caught.value)

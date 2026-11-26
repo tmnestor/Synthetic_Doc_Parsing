@@ -694,12 +694,34 @@ scores it through the formula-free launcher, and stores the result in `scripts/s
 It exits 1 if the text or the reading order is charged at all or a table without a spanning row scores
 less than 1, since the figures would then measure something else. About five minutes for five sets.
 
+**The transaction check.** TEDS does not know a withdrawal from a deposit: an amount in the wrong one of a
+statement's two columns costs two cells of about two hundred, and the page still scores 0.99. For anyone
+who goes on to take figures from the transcription that is the worst error it can hold, so the notebook
+counts it directly with `scripts/transaction_columns.py` (shipped as `tools/transaction_columns.py`): every
+row of a statement's ground-truth table that holds an amount is paired with a row of the parsed table and
+judged `right`, `wrong_column`, `amount_misread`, `amount_missing`, `row_missing` or `not_judged`. It is a
+scorer, so it is proved like one before it is handed over:
+
+```bash
+conda run --no-capture-output -n synthetic python scripts/transaction_columns_check.py \
+    --snapshot ../evaluation_data/snapshot_<YYYYMMDD>
+```
+
+It reads back the evaluator's saved per-table results for the perfect transcriptions of
+`perfect_score_snapshot.py` (tables as html and as pipe tables) and of `spanning_rows_as_pipe.py`, where
+every row must be judged right; then spoils the middle transaction of every statement in one of three ways
+(amount moved to the other column, one digit changed, row left out), in both table forms, where that one
+fault must be named and nothing else. It runs no evaluator, takes seconds, and must be run after those
+two scripts. Results: `scripts/transaction_columns_check.json`. On `snapshot_20261021` (27 November 2026):
+1,498 of 1,498 rows right in each of the five sets that hold statements, in all three forms, and each fault
+named alone on 110 of 110 tables.
+
 | In the kit | From |
 |---|---|
 | Every page image and PDF of the six sets, and `parsing/` | The snapshot, each file checked against the snapshot's manifest as it is copied |
 | `README.md` | `parsing_kit/README_template.md`, its counts filled from the ground truth and its evidence tables from `scripts/perfect_score_snapshot.json` and `scripts/spanning_rows_as_pipe.json` |
 | `tools/score_parsing.ipynb`, `tools/omnidocbench_env.yml` | `parsing_kit/` |
-| `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py`, `tools/verify_snapshot.py` | `scripts/` |
+| `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py`, `tools/transaction_columns.py`, `tools/verify_snapshot.py` | `scripts/` |
 | `tools/SCORER.json` | Written by the build: the SHA-256 of each launcher file and of each source file of the evaluator at the pinned commit |
 | `MANIFEST.json`, `SHA256SUMS` | Written last, from the pages and `parsing/` alone |
 
@@ -711,6 +733,7 @@ The build is refused, each with a four-part message, when:
   run: the launcher is not handed over unless it passed on the snapshot the kit is cut from;
 - `scripts/spanning_rows_as_pipe.json` is absent, is for another snapshot, records a failure or lacks a
   set;
+- `scripts/transaction_columns_check.json` is absent, is for another snapshot or records a failure;
 - the snapshot's ground truth was written for another evaluator commit than `evaluator.commit`;
 - a snapshot file differs from the snapshot's own manifest;
 - an example in the guide shows a real line or cell of the ground truth. The guide is read by the people
