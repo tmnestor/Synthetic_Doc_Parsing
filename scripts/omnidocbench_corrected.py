@@ -55,7 +55,8 @@ def fix_source(source: str, *, where: str) -> str:
             f"  What: {FUNCTION} holds {found} occurrences of `{BROKEN}`, not {OCCURRENCES}.\n"
             f"  Where: {where} -> {FUNCTION}\n"
             f"  Expected: exactly {OCCURRENCES}, at the pinned commit's lines 713 and 714.\n"
-            "  Recover: check the checkout is at evaluator.commit in config/parsing_config.yml; if upstream "
+            "  Recover: check the checkout is at the pinned commit (evaluator.commit in the parsing "
+            "configuration); if upstream "
             "has fixed the fault, score without the corrected run."
         )
     return source.replace(BROKEN, FIXED)
@@ -64,8 +65,8 @@ def fix_source(source: str, *, where: str) -> str:
 def install_fix(checkout: Path) -> None:
     """Rebind the fixed `match_gt2pred_simple` in every evaluator module that holds the faulty one."""
     sys.path.insert(0, str(checkout))
-    import src.core.matching as matching_package  # noqa: PLC0415  (the checkout is on sys.path only now)
-    import src.core.matching.match as match_module  # noqa: PLC0415
+    import src.core.matching as matching_package
+    import src.core.matching.match as match_module
 
     faulty = getattr(match_module, FUNCTION)
     namespace = match_module.__dict__
@@ -73,7 +74,7 @@ def install_fix(checkout: Path) -> None:
     exec(compile(fixed_source, str(match_module.__file__), "exec"), namespace)  # noqa: S102
     fixed = namespace[FUNCTION]
     matching_package.__dict__[FUNCTION] = fixed
-    import src.dataset.end2end_dataset as end2end_dataset  # noqa: PLC0415
+    from src.dataset import end2end_dataset
 
     end2end_dataset.__dict__[FUNCTION] = fixed
     stale = [

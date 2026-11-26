@@ -4,6 +4,7 @@
     python scripts/omnidocbench_eval.py checkout [--config config/generation_config.yml]
     python scripts/omnidocbench_eval.py end2end --gt probe.json --pred predictions/ --work-dir scores/
     python scripts/omnidocbench_eval.py end2end --corrected --gt probe.json --pred predictions/ --work-dir scores/c
+    python scripts/omnidocbench_eval.py end2end --formula-free --gt probe.json --pred predictions/ --work-dir scores/f
 
 The evaluator is pinned, not vendored (Decision 10): `config/parsing_config.yml` names its repository and
 commit, `ensure_checkout` clones it once into `<eval_set.output_root>/tools/OmniDocBench` at that commit,
@@ -36,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from generators.parsing.config import (  # noqa: E402
+from generators.parsing.config import (
     PARSING_CONFIG_PATH,
     ParsingConfig,
     ParsingConfigError,
@@ -46,6 +47,9 @@ from generators.parsing.config import (  # noqa: E402
 EVALUATOR_ENV = "omnidocbench"
 # Runs the checkout with the table matcher's reading-order fault fixed in memory (OmniDocBench issue #229).
 CORRECTED_LAUNCHER = REPO_ROOT / "scripts" / "omnidocbench_corrected.py"
+# Runs the checkout with that fault, its misreading of pipe tables and its formula items put right in
+# memory: for ground truth that holds no formula, where a perfect transcription must score perfectly.
+FORMULA_FREE_LAUNCHER = REPO_ROOT / "scripts" / "omnidocbench_formula_free.py"
 CHECKOUT_NAME = "OmniDocBench"
 # The evaluator's own names: its task, dataset and matcher, and the directory it writes results to.
 _TASK = "end2end_eval"
@@ -253,7 +257,13 @@ def parse_result(result: dict, *, source: Path) -> dict[str, float]:
 
 
 def run_end2end(
-    gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+    gt_json: Path,
+    pred_dir: Path,
+    *,
+    checkout: Path,
+    work_dir: Path,
+    corrected: bool = False,
+    formula_free: bool = False,
 ) -> dict:
     """Score `pred_dir` against `gt_json` with the pinned evaluator, in its own env.
 
@@ -265,13 +275,28 @@ def run_end2end(
         corrected: Run the evaluator through `scripts/omnidocbench_corrected.py`, which fixes in memory the
             table matcher's dropped first-table position (OmniDocBench issue #229) and leaves the checkout
             untouched; only reading order can differ from the unmodified run. Give it its own `work_dir`.
+        formula_free: Run the evaluator through `scripts/omnidocbench_formula_free.py`, which makes that
+            fix, rewrites pipe tables as html and drops the formula items the evaluator makes from a
+            prediction. For ground truth that holds no formula; any score can differ from the unmodified
+            run's. Give it its own `work_dir`.
 
     Returns:
         The headline scores `parse_result` reads.
 
     Raises:
         EvaluatorError: The evaluator exited non-zero, or wrote no readable result.
+        ValueError: Both `corrected` and `formula_free` were asked for.
     """
+    if corrected and formula_free:
+        raise ValueError(
+            "run_end2end was asked for two launchers at once.\n"
+            "  What: corrected=True and formula_free=True; each names a different launcher.\n"
+            "  Where: the call to scripts/omnidocbench_eval.py -> run_end2end\n"
+            "  Expected: at most one of them, e.g. run_end2end(gt, pred, checkout=c, work_dir=w, "
+            "formula_free=True).\n"
+            "  Recover: drop corrected=True; the formula-free launcher makes the corrected launcher's fix too."
+        )
+    launcher = FORMULA_FREE_LAUNCHER if formula_free else CORRECTED_LAUNCHER if corrected else None
     # The evaluator runs in `work_dir`, so every path it is handed is absolute.
     gt_json, pred_dir, checkout, work_dir = (p.resolve() for p in (gt_json, pred_dir, checkout, work_dir))
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -279,9 +304,7 @@ def run_end2end(
     config_file.write_text(yaml.safe_dump(end2end_config(gt_json, pred_dir), sort_keys=False))
     conda = os.environ.get("CONDA_EXE") or shutil.which("conda") or "conda"
     entry = (
-        [str(CORRECTED_LAUNCHER), "--checkout", str(checkout)]
-        if corrected
-        else [str(checkout / "pdf_validation.py")]
+        [str(launcher), "--checkout", str(checkout)] if launcher else [str(checkout / "pdf_validation.py")]
     )
     command = [conda, "run", "-n", EVALUATOR_ENV, "python", *entry, "--config", str(config_file)]
     done = subprocess.run(
@@ -342,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Fix the first-table reading-order fault in memory (OmniDocBench issue #229); checkout untouched",
     )
+    end2end_cmd.add_argument(
+        "--formula-free",
+        action="store_true",
+        help="For ground truth with no formula: that fix, pipe tables read as html, and no formula items",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -358,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             checkout=checkout,
             work_dir=args.work_dir,
             corrected=args.corrected,
+            formula_free=args.formula_free,
         )
     except (EvaluatorError, ParsingConfigError, FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

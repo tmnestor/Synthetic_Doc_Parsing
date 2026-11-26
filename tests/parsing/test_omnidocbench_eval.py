@@ -82,7 +82,7 @@ def test_the_evaluator_env_is_the_one_the_configured_env_file_builds() -> None:
 def test_a_missing_checkout_is_cloned_at_the_pinned_commit_not_the_remote_head(
     tmp_path: Path, remote: tuple[Path, str, str]
 ) -> None:
-    repo, first, second = remote
+    repo, first, _ = remote
     root = tmp_path / "tools"
     checkout = ensure_checkout(_config(repo, first), root=root)
     assert checkout == root / "OmniDocBench"
@@ -277,6 +277,40 @@ def test_the_corrected_run_goes_through_the_launcher_with_the_same_config(
     assert call["config"]["end2end_eval"]["dataset"]["match_method"] == "quick_match"
 
 
+def test_the_formula_free_run_goes_through_its_own_launcher_with_the_same_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(omnidocbench_eval.subprocess, "run", _fake_evaluator(calls))
+    checkout, work, preds = tmp_path / "OmniDocBench", tmp_path / "work", tmp_path / "preds"
+    run_end2end(tmp_path / "probe.json", preds, checkout=checkout, work_dir=work, formula_free=True)
+
+    (call,) = calls
+    assert call["command"][-6:] == [
+        "python",
+        str(omnidocbench_eval.FORMULA_FREE_LAUNCHER),
+        "--checkout",
+        str(checkout),
+        "--config",
+        str(work / "end2end.yaml"),
+    ]
+    assert omnidocbench_eval.FORMULA_FREE_LAUNCHER.is_file()
+    assert call["config"]["end2end_eval"]["dataset"]["match_method"] == "quick_match"
+
+
+def test_two_launchers_at_once_are_refused_four_part(tmp_path: Path) -> None:
+    with pytest.raises(ValueError) as caught:
+        run_end2end(
+            tmp_path / "probe.json",
+            tmp_path / "preds",
+            checkout=tmp_path,
+            work_dir=tmp_path / "w",
+            corrected=True,
+            formula_free=True,
+        )
+    assert_diagnostic_error(caught.value)
+
+
 def test_run_end2end_refuses_a_failed_evaluator_four_part(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -307,10 +341,17 @@ def test_the_cli_checks_out_under_the_output_root_and_prints_the_scores(
         return root / "OmniDocBench"
 
     def end2end(
-        gt_json: Path, pred_dir: Path, *, checkout: Path, work_dir: Path, corrected: bool = False
+        gt_json: Path,
+        pred_dir: Path,
+        *,
+        checkout: Path,
+        work_dir: Path,
+        corrected: bool = False,
+        formula_free: bool = False,
     ) -> dict:
         seen["run"] = (gt_json, pred_dir, checkout, work_dir)
         seen["corrected"] = corrected
+        seen["formula_free"] = formula_free
         return {"text_block_edit_dist": 0.0, "table_teds": float("nan")}
 
     monkeypatch.setattr(omnidocbench_eval, "ensure_checkout", checkout)
@@ -336,6 +377,9 @@ def test_the_cli_checks_out_under_the_output_root_and_prints_the_scores(
     assert seen["corrected"] is False
     assert omnidocbench_eval.main([*args, "--work-dir", str(tmp_path / "c"), "--corrected"]) == 0
     assert seen["corrected"] is True
+    assert seen["formula_free"] is False
+    assert omnidocbench_eval.main([*args, "--work-dir", str(tmp_path / "f"), "--formula-free"]) == 0
+    assert (seen["corrected"], seen["formula_free"]) == (False, True)
 
 
 def test_the_cli_prints_a_refusal_and_exits_one(

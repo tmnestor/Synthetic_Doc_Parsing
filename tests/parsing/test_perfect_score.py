@@ -37,6 +37,7 @@ from scripts.omnidocbench_eval import (
     result_path,
     run_end2end,
 )
+from scripts.perfect_score_snapshot import TABLE_FORMS, written_page
 from tests.conftest import REPO_ROOT
 from tests.eval_export_tools import scratch_config
 from tests.parsing.gt_to_markdown import gt_to_markdown
@@ -124,5 +125,47 @@ def test_the_probe_ground_truth_scores_perfectly_against_itself(tmp_path: Path) 
         ["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"],
         capture_output=True,
         text=True,
+        check=True,
     )
     assert head.stdout == "", f"the corrected run changed the checkout: {head.stdout}"
+
+
+def test_the_formula_free_launcher_scores_the_probe_perfectly_in_both_table_forms(tmp_path: Path) -> None:
+    """Through the formula-free launcher every score is perfect, with tables as html and as pipe tables.
+
+    The unmodified evaluator marks the same pipe tables down (it drops a cell that holds a colon and adds
+    attributes an html table lacks), so this is the test that fails if the launcher stops rewriting them.
+    """
+    if not _evaluator_env_exists():
+        pytest.skip(f"the conda env {EVALUATOR_ENV!r} is absent (build it from envs/omnidocbench.yml)")
+    root = _checkout_root()
+    if not (root / CHECKOUT_NAME / ".git").exists():
+        pytest.skip(f"the evaluator checkout {root / CHECKOUT_NAME} is absent")
+    parsing_config = load_parsing_config(PARSING_CONFIG_PATH)
+    checkout = ensure_checkout(parsing_config, root=root)
+    probe = export_probe(scratch_config(tmp_path), parsing_config)
+    pages = json.loads((probe / PROBE_JSON).read_text())
+    piped = 0
+    for tables in TABLE_FORMS:
+        predictions = tmp_path / f"predictions_{tables}"
+        predictions.mkdir()
+        for page in pages:
+            text = written_page(page, transcription="complete", tables=tables)
+            piped += text.count("|---|") if tables == "pipe" else 0
+            (predictions / f"{Path(page['page_info']['image_path']).stem}.md").write_text(text)
+        scores = run_end2end(
+            probe / PROBE_JSON,
+            predictions,
+            checkout=checkout,
+            work_dir=tmp_path / tables,
+            formula_free=True,
+        )
+        print(f"formula-free run, {tables} tables: {scores}")
+        assert scores == {
+            "text_block_edit_dist": 0,
+            "table_teds": 1,
+            "table_teds_structure_only": 1,
+            "table_edit_dist": 0,
+            "reading_order_edit_dist": 0,
+        }, (tables, scores)
+    assert piped > 0, "no probe table was written as a pipe table, so the pipe form was not tested"
