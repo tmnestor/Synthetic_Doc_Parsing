@@ -84,6 +84,66 @@ The `-s` shows the scores. A score that is not perfect is either a writer defect
 `generators/parsing/omnidocbench.py`, or an evaluator behaviour, recorded under "Perfect-score findings"
 in section 5.3 of `docs/parsing_benchmark_design.md`.
 
+### A scorer fit to hand over: the formula-free launcher
+
+The leaderboards score with the evaluator unmodified, so that they stay comparable with upstream's
+figures, and report a corrected reading-order score beside it. That is the wrong scorer to give to someone
+testing a parser of their own, because it marks correct output down. `scripts/omnidocbench_formula_free.py`
+is the scorer for that purpose. It runs the pinned evaluator with four faults put right in memory, the
+checkout untouched:
+
+| Fault in the evaluator as published | Where | The correction |
+|---|---|---|
+| The first table of a page drops out of the predicted reading order | `match_gt2pred_simple` in `src/core/matching/match.py`, lines 713 and 714 (upstream issue #229) | `scripts/omnidocbench_corrected.py`, which the launcher calls |
+| A pipe table is misread: a cell holding a colon is dropped, the row after one ending in a space is lost, a table without outer pipes is not seen, and its cells come back with attributes an html table lacks | `find_md_table_mode`, `convert_markdown_to_html` and `convert_table` in `src/core/preprocess/table_utils.py` | Each pipe table is rewritten as a one-line html table before the evaluator sees the page (`scripts/pipe_tables.py`) |
+| Text between two dollar signs is taken for a formula, and so is a table cell that looks like one; a ground-truth line with no counterpart is then paired with such a fragment and charged for its length | `display_reg` and the formula rescue in `src/core/preprocess/extract.py` | Every formula item made from a prediction is dropped. Right only where the ground truth holds no formula, so the launcher refuses ground truth that holds one |
+| A run of underscores or spaces in a prediction is cut to four characters and the same run in the ground truth is not | `replace_repeated_chars` in `src/core/preprocess/data_preprocess.py` | A prediction's repeated characters are left as written |
+
+```bash
+conda run -n synthetic python scripts/omnidocbench_eval.py end2end --formula-free \
+    --gt <pages>.json --pred <predictions dir> --work-dir <scores dir>
+```
+
+Scores from this launcher are not comparable with upstream's, with the leaderboards' unmodified scores or
+with their corrected reading-order score: any score can differ. It is never used for a leaderboard.
+
+**The check it must pass.** `scripts/perfect_score_snapshot.py` writes a snapshot's own ground truth back
+as markdown and scores it, on every page of every set, with tables as html and again as pipe tables, by
+the evaluator unmodified and through the launcher. It does this twice: with every block written
+(`complete`), which must score perfectly, and with the middle text block of each page left out
+(`one_line_left_out`), where each page must be charged exactly the characters of the missing line. Its
+results are kept beside it in `scripts/perfect_score_snapshot.json`, and it exits 1 if the launcher fails.
+
+```bash
+conda run --no-capture-output -n synthetic python scripts/perfect_score_snapshot.py \
+    --snapshot ../evaluation_data/snapshot_<YYYYMMDD> --workers 4 > ../evaluation_data/perfect_score/<name>.log 2>&1
+```
+
+It makes 48 evaluator runs and takes between one and a half and two hours on the machine above. More
+workers do not help: one evaluator run already uses every core. `--judge-only` judges the saved results again
+without running the evaluator, for a change to how a result is judged and never after a change to a
+launcher.
+
+On `snapshot_20261021`, measured 26 November 2026 (165 pages in each set):
+
+| | As published | Through the launcher |
+|---|---|---|
+| Complete, html tables: reading-order edit distance | 0.036 to 0.093 | 0 |
+| Complete, pipe tables: table TEDS (five sets; the photographed receipts' tables hold no colon) | 0.989 | 1 |
+| Complete, pipe tables: table edit distance | 0.396 to 0.404 | 0 |
+| Complete, the three sets with distractors: text edit distance | 0.002 | 0 |
+| One line left out: pages charged exactly the missing line | 6 to 54 of 165 | 165 of 165 in every set and form |
+
+Every other score of a complete transcription is perfect either way. As published, a missing line is
+paired with a fragment the evaluator took for a formula and charged for the fragment: on plain receipt
+CASE001, 90 characters for a missing line of 12.
+
+Two behaviours the check found are the evaluator's design, not faults, and the launcher leaves them alone.
+Text in a prediction that matches no ground-truth line is not charged by itself, but a ground-truth line
+with no counterpart is paired with it when there is any. And where a missing line resembles the line beside
+it, the evaluator merges the two into one row and charges the missing characters there: 5 pages of each
+set with distractors, counted as passes because the charge is exact.
+
 ## The parsers
 
 `tools` in `config/parsing_config.yml` lists the parsers scored. Each runs locally on Apple silicon, from
@@ -596,6 +656,45 @@ half's `label_styles.jsonl` named each page's layout by its internal name up to 
 refuses any snapshot in which a layout id appears in a published file. Snapshots exported before that
 date must not be shared. `generate --distractors --label-variation` still writes internal names into its
 review copy under `output/`, which is never published.
+
+## The parsing kit
+
+A snapshot serves two benchmarks. Someone testing a parser of their own needs only the parsing half, and a
+scorer they can trust, so `scripts/build_parsing_kit.py` cuts a kit from a snapshot:
+
+```bash
+conda run --no-capture-output -n synthetic python scripts/build_parsing_kit.py \
+    --snapshot ../evaluation_data/snapshot_<YYYYMMDD>
+```
+
+It writes `../evaluation_data/parsing_kit_<YYYYMMDD>/` and zips it beside it, replacing a kit of the same
+name, and prints the SHA-256 of the kit's manifest and of the zip. Give the zip, and tell its reader the
+manifest's SHA-256 separately.
+
+| In the kit | From |
+|---|---|
+| Every page image and PDF of the six sets, and `parsing/` | The snapshot, each file checked against the snapshot's manifest as it is copied |
+| `README.md` | `parsing_kit/README_template.md`, its counts filled from the ground truth and its evidence tables from `scripts/perfect_score_snapshot.json` |
+| `tools/score_parsing.ipynb`, `tools/omnidocbench_env.yml` | `parsing_kit/` |
+| `tools/omnidocbench_formula_free.py`, `tools/omnidocbench_corrected.py`, `tools/pipe_tables.py`, `tools/verify_snapshot.py` | `scripts/` |
+| `MANIFEST.json`, `SHA256SUMS` | Written last. The manifest also lists the SHA-256 of each source file of the evaluator at the pinned commit, which the notebook compares the reader's copy with |
+
+It leaves out the extraction answer keys, the field geometry, the label sidecar and the extraction tools.
+
+The build is refused, each with a four-part message, when:
+
+- `scripts/perfect_score_snapshot.json` is absent, is for another snapshot, records a failure or lacks a
+  run: the launcher is not handed over unless it passed on the snapshot the kit is cut from;
+- the snapshot's ground truth was written for another evaluator commit than `evaluator.commit`;
+- a snapshot file differs from the snapshot's own manifest;
+- an example in the guide shows a real line or cell of the ground truth. The guide is read by the people
+  whose parsers are scored and may be pasted into a parser's prompt, so its examples are invented;
+- a file of the kit holds one of `eval_set.forbidden_terms`, as for a snapshot. This is why the guide has
+  its reader download the evaluator as an archive, and the launchers' messages name no repository path;
+- the finished kit fails the verifier it ships.
+
+The notebook is the kit's source as it stands: edit `parsing_kit/score_parsing.ipynb` itself, keep its
+outputs cleared, and build the kit again.
 
 ## Licences of the tools scored
 

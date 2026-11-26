@@ -75,6 +75,18 @@ published OmniDocBench results:
 
 [`docs/parsing_benchmark_runbook.md`](docs/parsing_benchmark_runbook.md) has the evidence for each.
 
+**A second scorer, for handing over.** Leaving those quirks in place is right for a leaderboard and wrong
+for someone testing a parser of their own, whose correct output they would mark down.
+`scripts/omnidocbench_formula_free.py` runs the same pinned evaluator with four faults put right in
+memory: the reading-order fault above, the misreading of pipe tables, the formula items the evaluator
+makes from dollar amounts and date cells, and its shortening of a prediction's runs of underscores.
+`scripts/perfect_score_snapshot.py` checks it on every page of a snapshot: the ground truth written back
+as markdown must score perfectly with html tables and with pipe tables, and a transcription with one line
+left out must be charged exactly that line. On `snapshot_20261021` it passes on all 990 pages; the
+evaluator as published charges exactly the missing line on 6 to 54 of each set's 165 pages
+([the runbook](docs/parsing_benchmark_runbook.md#a-scorer-fit-to-hand-over-the-formula-free-launcher)).
+Its scores are not comparable with the tables below, which use the evaluator unmodified.
+
 ## The pages
 
 One export, the evaluation snapshot, holds 660 pages in four sets ('halves'). The three clean halves
@@ -326,6 +338,12 @@ scanned for terms that would reveal how it was made, and one hit refuses the exp
 which is never uploaded. The runbook's
 [licence section](docs/parsing_benchmark_runbook.md#licences-of-the-tools-scored) sets out the terms
 under which each tool's scores are published.
+
+For someone who wants to test a parser and nothing else, `scripts/build_parsing_kit.py` cuts a parsing kit
+from a snapshot: the pages, `parsing/`, a guide written for a reader with no access to this repository,
+and a scoring notebook that runs the formula-free launcher. It leaves out everything the extraction
+benchmark needs, and it is refused unless the launcher has passed the perfect-score check on that snapshot
+([the runbook](docs/parsing_benchmark_runbook.md#the-parsing-kit)).
 
 ## Programme
 

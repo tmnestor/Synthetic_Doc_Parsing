@@ -1,0 +1,15 @@
+# Conda environment for the OmniDocBench evaluator that the scoring notebook runs.
+#
+#     conda env create -n omnidocbench -f tools/omnidocbench_env.yml
+#     conda run -n omnidocbench pip install -e <the OmniDocBench checkout>
+#     conda run -n omnidocbench python -m ipykernel install --user --name omnidocbench
+#
+# The evaluator's own requirements (pandas, numpy and the rest, each pinned) come from its
+# pyproject.toml when the checkout is installed, so they are not listed twice here. OmniDocBench allows
+# Python 3.10 and 3.11. ipykernel lets Jupyter use this environment as the notebook's kernel.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - ipykernel
